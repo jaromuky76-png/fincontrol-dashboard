@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FinControl - Dashboard de Operaciones Financieras</title>
+    <!-- Google Fonts: Outfit & Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="styles.css">
+    <!-- JSZip CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- PDF.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <!-- Tesseract.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.3/dist/tesseract.min.js"></script>
+    <!-- jsPDF and jsPDF-AutoTable CDNs -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+    <!-- Lucide Icons CDN -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="dark-mode">
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <i data-lucide="trending-up" class="logo-icon"></i>
+                    <span class="logo-text">FinControl</span>
+                </div>
+            </div>
+            
+            <nav class="sidebar-menu">
+                <a href="#reconciliation" class="menu-item active" id="menu-reconciliation">
+                    <i data-lucide="shield-check"></i>
+                    <span>Rendición de Cuentas</span>
+                </a>
+                <a href="#availability" class="menu-item" id="menu-availability">
+                    <i data-lucide="credit-card"></i>
+                    <span>Disponibilidad Tarjetas</span>
+                </a>
+                <a href="#settings" class="menu-item" id="menu-settings">
+                    <i data-lucide="settings"></i>
+                    <span>Configuración</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <button id="theme-toggle" class="theme-btn" title="Cambiar Tema">
+                    <i data-lucide="sun" class="sun-icon"></i>
+                    <i data-lucide="moon" class="moon-icon"></i>
+                    <span>Modo Claro</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="main-header">
+                <div class="header-title">
+                    <h1 id="view-title">Rendición de Cuentas</h1>
+                    <p id="view-subtitle">Concilia facturas (ZIP) con tu estado de cuenta BANPRO (PDF)</p>
+                </div>
+                <div class="header-meta">
+                    <span class="date-badge">
+                        <i data-lucide="calendar"></i>
+                        <span id="current-date">--/--/----</span>
+                    </span>
+                </div>
+            </header>
+
+            <!-- Notification Banner -->
+            <div id="toast-container" class="toast-container"></div>
+
+            <!-- View 1: Rendición de Cuentas -->
+            <section id="view-reconciliation" class="content-view active">
+                <!-- File Upload Cards -->
+                <div class="grid-2">
+                    <div class="card upload-card" id="card-statement">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <i data-lucide="file-text" class="icon-primary"></i>
+                                <span>1. Estado de Cuenta (PDF)</span>
+                            </div>
+                            <span class="card-subtitle">Tarjeta corporativa BANPRO 9155</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="drop-zone" id="drop-pdf">
+                                <i data-lucide="upload-cloud" class="drop-icon"></i>
+                                <p class="drop-text">Arrastra el archivo PDF del estado de cuenta o haz clic aquí</p>
+                                <span class="file-info" id="pdf-file-info">Ningún archivo seleccionado</span>
+                                <input type="file" id="input-pdf" accept=".pdf" class="hidden-input">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card upload-card" id="card-invoices">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <i data-lucide="folder-archive" class="icon-primary"></i>
+                                <span>2. Documentos de Soporte / Facturas (ZIP)</span>
+                            </div>
+                            <span class="card-subtitle">ZIP con facturas (imágenes o PDFs)</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="drop-zone" id="drop-zip">
+                                <i data-lucide="file-archive" class="drop-icon"></i>
+                                <p class="drop-text">Arrastra el archivo ZIP con facturas (imágenes o PDFs) o haz clic aquí</p>
+                                <span class="file-info" id="zip-file-info">Ningún archivo seleccionado</span>
+                                <input type="file" id="input-zip" accept=".zip" class="hidden-input">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Process Button & Progress -->
+                <div class="action-bar text-center" style="display: flex; gap: 1rem; justify-content: center; align-items: center; flex-wrap: wrap;">
+                    <button id="btn-process-reconciliation" class="btn btn-primary" disabled>
+                        <i data-lucide="refresh-cw"></i>
+                        <span>Procesar y Conciliar</span>
+                    </button>
+                    <button id="btn-clear-reconciliation" class="btn btn-secondary hidden" type="button">
+                        <i data-lucide="trash-2"></i>
+                        <span>Limpiar Ejercicio</span>
+                    </button>
+                </div>
+
+                <!-- OCR & Parser Progress Panel -->
+                <div class="card progress-card hidden" id="panel-progress">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <i data-lucide="cpu" class="spinning"></i>
+                            <span>Procesando Archivos...</span>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="progress-container">
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="ocr-progress-fill" style="width: 0%;"></div>
+                            </div>
+                            <div class="progress-text-container">
+                                <span id="ocr-progress-status">Iniciando motor de OCR (Tesseract)...</span>
+                                <span id="ocr-progress-percent">0%</span>
+                            </div>
+                        </div>
+                        <div class="logs-container" id="ocr-logs">
+                            <!-- Logs will be populated here -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Reconciliation Summary Cards -->
+                <div class="grid-5 stats-grid hidden" id="reconciliation-stats">
+                    <div class="stat-card" id="card-stat-total-tx">
+                        <div class="stat-icon bg-info-light">
+                            <i data-lucide="file-spreadsheet" class="color-info"></i>
+                        </div>
+                        <div class="stat-content">
+                            <span class="stat-value" id="stat-total-tx">0</span>
+                            <span class="stat-label">Transacciones PDF</span>
+                        </div>
+                    </div>
+                    <div class="stat-card" id="card-stat-matched-tx">
+                        <div class="stat-icon bg-success-light">
+                            <i data-lucide="check-circle" class="color-success"></i>
+                        </div>
+                        <div class="stat-content">
+                            <span class="stat-value" id="stat-matched-tx">0</span>
+                            <span class="stat-label">Conciliadas (Con Factura)</span>
+                            <span class="stat-sublabel" id="stat-retentions-audit" style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.15rem; display: block;">Auditoría fiscal: sin procesar</span>
+                        </div>
+                    </div>
+                    <div class="stat-card" id="card-stat-missing-tx">
+                        <div class="stat-icon bg-danger-light">
+                            <i data-lucide="alert-triangle" class="color-danger"></i>
+                        </div>
+                        <div class="stat-content">
+                            <span class="stat-value" id="stat-missing-tx">0</span>
+                            <span class="stat-label">Sin Respaldo (Faltantes)</span>
+                        </div>
+                    </div>
+                    <div class="stat-card" id="card-stat-reimbursements">
+                        <div class="stat-icon bg-warning-light">
+                            <i data-lucide="user-x" class="color-warning"></i>
+                        </div>
+                        <div class="stat-content">
+                            <span class="stat-value" id="stat-reimbursements">C$ 0.00 / $ 0.00</span>
+                            <span class="stat-label">Cargos a Empleado</span>
+                        </div>
+                    </div>
+                    <div class="stat-card" id="card-stat-orphan-invoices">
+                        <div class="stat-icon bg-warning-light">
+                            <i data-lucide="file-question" class="color-warning"></i>
+                        </div>
+                        <div class="stat-content">
+                            <span class="stat-value" id="stat-orphan-invoices">0</span>
+                            <span class="stat-label">Facturas sin Relación</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Complete Success Banner -->
+                <div class="alert-banner bg-success-light hidden" id="reconciliation-success-banner" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; width: 100%;">
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <i data-lucide="party-popper" class="color-success text-2xl"></i>
+                        <div>
+                            <h3>¡Cuadratura Perfecta!</h3>
+                            <p>Todas las transacciones del estado de cuenta coinciden con sus respectivas facturas de respaldo. Las fechas e importes concilian al 100%.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tax Retention Warning Banner -->
+                <div class="alert-banner bg-warning-light hidden" id="reconciliation-tax-alert-banner">
+                    <i data-lucide="alert-triangle" class="color-warning text-2xl"></i>
+                    <div>
+                        <h3>Advertencia de Retenciones Fiscales</h3>
+                        <p id="reconciliation-tax-alert-text">Existen transacciones conciliadas que superan el límite legal pero carecen de sus comprobantes de retención (IR o Municipal) en el archivo de soporte.</p>
+                    </div>
+                </div>
+
+                <!-- Results Tables -->
+                <div class="results-container hidden" id="reconciliation-results">
+                    <div class="results-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+                        <!-- Tab Controls -->
+                        <div class="tab-controls" style="margin-bottom: 0;">
+                            <button class="tab-btn active" data-tab="tab-unresolved">
+                                <i data-lucide="alert-circle"></i>
+                                <span>Faltantes de Respaldo (<span id="count-unresolved">0</span>)</span>
+                            </button>
+                            <button class="tab-btn" data-tab="tab-resolved">
+                                <i data-lucide="check-square"></i>
+                                <span>Conciliadas (<span id="count-resolved">0</span>)</span>
+                            </button>
+                            <button class="tab-btn" data-tab="tab-orphans">
+                                <i data-lucide="help-circle"></i>
+                                <span>Facturas No Asignadas (<span id="count-orphans">0</span>)</span>
+                            </button>
+                            <button class="tab-btn" data-tab="tab-retentions">
+                                <i data-lucide="file-text"></i>
+                                <span>Comprobantes de Retención (<span id="count-retentions">0</span>)</span>
+                            </button>
+                            <button class="tab-btn" data-tab="tab-all-tx">
+                                <i data-lucide="list"></i>
+                                <span>Detalle Estado de Cuenta (<span id="count-all-tx">0</span>)</span>
+                            </button>
+                        </div>
+                        <div class="results-actions" style="display: flex; gap: 0.5rem; align-items: center;">
+                            <button id="btn-save-reconciliation" class="btn btn-secondary btn-sm" type="button">
+                                <i data-lucide="save"></i>
+                                <span>Guardar Conciliación</span>
+                            </button>
+                            <button id="btn-download-pdf-report" class="btn btn-primary btn-sm" type="button">
+                                <i data-lucide="file-down"></i>
+                                <span>Descargar Reporte PDF</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Tab 1: Unresolved Transactions -->
+                    <div class="tab-panel active" id="tab-unresolved">
+                        <!-- Bulk Actions Bar -->
+                        <div id="bulk-actions-unresolved" class="bulk-actions-bar hidden" style="display: flex; align-items: center; gap: 1rem; padding: 0.75rem 1rem; background-color: rgba(245, 158, 11, 0.08); border: 1px solid var(--color-warning); border-radius: 8px; margin-bottom: 1rem;">
+                            <span style="font-size: 0.9rem; font-weight: 600; color: var(--color-warning); display: flex; align-items: center; gap: 0.25rem;">
+                                <i data-lucide="check-square" style="width: 18px; height: 18px;"></i>
+                                <span id="count-selected-tx">0</span> transacciones seleccionadas
+                            </span>
+                            <span id="sum-selected-tx" style="font-size: 0.9rem; font-weight: 500; color: var(--text-main);">Total: C$ 0.00 / $ 0.00</span>
+                            <button id="btn-bulk-reimbursement" class="btn btn-warning btn-sm" style="margin-left: auto;">
+                                <i data-lucide="user-x"></i>Cargar Seleccionadas a Empleado
+                            </button>
+                        </div>
+                        <div class="table-card">
+                            <table class="table" id="table-unresolved">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 40px;" class="text-center"><input type="checkbox" id="check-all-unresolved"></th>
+                                        <th>Fecha</th>
+                                        <th>Referencia</th>
+                                        <th>Descripción</th>
+                                        <th class="text-right">Córdobas (C$)</th>
+                                        <th class="text-right">Dólares (US$)</th>
+                                        <th>Estado</th>
+                                        <th class="text-center">Acción</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Tab 2: Resolved / Matched Transactions -->
+                    <div class="tab-panel" id="tab-resolved">
+                        <div class="table-card">
+                            <table class="table" id="table-resolved">
+                                <thead>
+                                    <tr>
+                                        <th>Fecha Transacción</th>
+                                        <th>Referencia</th>
+                                        <th>Descripción</th>
+                                        <th class="text-right">Córdobas (C$)</th>
+                                        <th class="text-right">Dólares (US$)</th>
+                                        <th>Factura Asociada</th>
+                                        <th>Fecha Factura</th>
+                                        <th>Retenciones (Impuestos)</th>
+                                        <th class="text-center">Visualizar</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Tab 3: Orphan Invoices -->
+                    <div class="tab-panel" id="tab-orphans">
+                        <div class="table-card">
+                            <table class="table" id="table-orphans">
+                                <thead>
+                                    <tr>
+                                        <th>Archivo</th>
+                                        <th>Fecha Detectada</th>
+                                        <th class="text-right">Monto Detectado</th>
+                                        <th>Texto Extraído (Resumen)</th>
+                                        <th class="text-center">Acción</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Tab 5: Withholding Tax Vouchers (Comprobantes de Retención) -->
+                    <div class="tab-panel" id="tab-retentions">
+                        <div class="table-card">
+                            <table class="table" id="table-retentions">
+                                <thead>
+                                    <tr>
+                                        <th>Archivo</th>
+                                        <th>Tipo Comprobante</th>
+                                        <th>Base Imponible</th>
+                                        <th>Monto Retenido</th>
+                                        <th>Vinculado a Transacción</th>
+                                        <th class="text-center">Acción</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Tab 4: All Statement Transactions (For Manual Validation & Editing) -->
+                    <div class="tab-panel" id="tab-all-tx">
+                        <div class="panel-header-actions">
+                            <p class="panel-desc">Esta tabla muestra todas las transacciones extraídas del PDF de BANPRO. Si el lector omitió o interpretó mal alguna transacción, puedes editarla o añadir nuevas.</p>
+                            <button id="btn-add-transaction" class="btn btn-secondary btn-sm">
+                                <i data-lucide="plus"></i>
+                                <span>Añadir Transacción</span>
+                            </button>
+                        </div>
+                        <div class="table-card">
+                            <table class="table" id="table-all-tx">
+                                <thead>
+                                    <tr>
+                                        <th>Fecha</th>
+                                        <th>Referencia</th>
+                                        <th>Descripción</th>
+                                        <th class="text-right">Córdobas (C$)</th>
+                                        <th class="text-right">Dólares (US$)</th>
+                                        <th class="text-center">Estado</th>
+                                        <th class="text-center">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Saved Reconciliations History -->
+                <div class="card" id="card-history-section" style="margin-top: 2rem;">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <i data-lucide="history" class="icon-primary"></i>
+                            <span>Historial de Conciliaciones Guardadas</span>
+                        </div>
+                        <span class="card-subtitle" style="margin-left: 2rem; margin-top: 0.25rem;">Consulta o recupera conciliaciones archivadas anteriormente en este navegador.</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-card">
+                            <table class="table" id="table-history">
+                                <thead>
+                                    <tr>
+                                        <th>Periodo (Mes/Año)</th>
+                                        <th>No. Conciliación</th>
+                                        <th>Fecha Guardado</th>
+                                        <th class="text-right">Monto Total Cargos</th>
+                                        <th class="text-center">Conciliadas / Total</th>
+                                        <th class="text-center">Retenciones</th>
+                                        <th class="text-center">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- View 2: Disponibilidad de Tarjetas -->
+            <section id="view-availability" class="content-view">
+                <!-- Dropzone for Treasury ZIP -->
+                <div class="card upload-card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <i data-lucide="archive" class="icon-primary"></i>
+                            <span>ZIP Diario de Tesorería</span>
+                        </div>
+                        <span class="card-subtitle">Sube el archivo ZIP enviado por Tesorería que contiene los PDFs de saldos</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="drop-zone" id="drop-zip-availability">
+                            <i data-lucide="file-up" class="drop-icon"></i>
+                            <p class="drop-text">Arrastra el archivo ZIP diario de Tesorería o haz clic aquí</p>
+                            <span class="file-info" id="zip-availability-file-info">Ningún archivo seleccionado</span>
+                            <input type="file" id="input-zip-availability" accept=".zip" class="hidden-input">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="action-bar text-center">
+                    <button id="btn-process-availability" class="btn btn-primary" disabled>
+                        <i data-lucide="search"></i>
+                        <span>Escanear Disponibilidad</span>
+                    </button>
+                </div>
+
+                <!-- Scanning progress -->
+                <div class="card progress-card hidden" id="availability-progress">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <i data-lucide="loader" class="spinning"></i>
+                            <span>Escaneando Archivos PDF...</span>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="progress-container">
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="availability-progress-fill" style="width: 0%;"></div>
+                            </div>
+                            <div class="progress-text-container">
+                                <span id="availability-progress-status">Descomprimiendo ZIP...</span>
+                                <span id="availability-progress-percent">0%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Balance Results Card -->
+                <div class="card hidden" id="card-availability-results">
+                    <div class="card-header justify-between">
+                        <div class="card-title">
+                            <i data-lucide="check-square" class="color-success"></i>
+                            <span>Saldos Disponibles Consolidados</span>
+                        </div>
+                        <div class="header-actions">
+                            <button id="btn-export-csv" class="btn btn-secondary btn-sm">
+                                <i data-lucide="download"></i>
+                                <span>Exportar CSV</span>
+                            </button>
+                            <button id="btn-print-report" class="btn btn-secondary btn-sm">
+                                <i data-lucide="printer"></i>
+                                <span>Imprimir Reporte</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-card">
+                            <table class="table" id="table-availability">
+                                <thead>
+                                    <tr>
+                                        <th>Últimos 4 Dígitos</th>
+                                        <th>Nombre Tarjeta / Titular</th>
+                                        <th>Estado Búsqueda</th>
+                                        <th class="text-right">Saldo Disponible</th>
+                                        <th>Fecha Reporte</th>
+                                        <th>Archivo Fuente</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- View 3: Configuración -->
+            <section id="view-settings" class="content-view">
+                <div class="grid-2">
+                    <!-- Configuración Disponibilidad -->
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <i data-lucide="settings-2" class="icon-primary"></i>
+                                <span>Configuración de Tarjetas (Disponibilidad)</span>
+                            </div>
+                            <span class="card-subtitle">Administra los últimos 4 dígitos de las tarjetas que deseas buscar en los PDFs de Tesorería.</span>
+                        </div>
+                        <div class="card-body">
+                            <form id="form-settings-cards">
+                                <div class="form-group">
+                                    <label for="input-target-cards">Números de Tarjeta (4 dígitos, separados por comas):</label>
+                                    <input type="text" id="input-target-cards" class="form-control" value="1180, 2527, 2165, 1453, 8343">
+                                    <small class="form-help">Ingresa solo los 4 dígitos finales de cada tarjeta separados por comas. Ejemplo: 1180, 2527.</small>
+                                </div>
+                                <div class="form-group-list" id="cards-list-preview">
+                                    <!-- Dynamic badges -->
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-sm">Guardar Tarjetas</button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Configuración Rendición -->
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <i data-lucide="file-digit" class="icon-primary"></i>
+                                <span>Configuración de Rendición de Cuentas</span>
+                            </div>
+                            <span class="card-subtitle">Detalles de la tarjeta corporativa utilizada para conciliar las facturas.</span>
+                        </div>
+                        <div class="card-body">
+                            <form id="form-settings-reconciliation">
+                                <div class="form-group">
+                                    <label for="input-recon-card">Tarjeta de Rendición de Cuentas (4 dígitos):</label>
+                                    <input type="text" id="input-recon-card" class="form-control" maxLength="4" value="9155">
+                                </div>
+                                <div class="form-group">
+                                    <label for="select-bank">Banco Emisor:</label>
+                                    <select id="select-bank" class="form-control">
+                                        <option value="BANPRO" selected>BANPRO (Nicaragua)</option>
+                                        <option value="BAC">BAC Credomatic</option>
+                                        <option value="PROMERICA">Banco Promerica</option>
+                                        <option value="GENERIC">Extractor Genérico</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="input-match-tolerance">Tolerancia de Fecha (Días):</label>
+                                    <input type="number" id="input-match-tolerance" class="form-control" min="0" max="15" value="4">
+                                    <small class="form-help">Días de diferencia permitidos entre la fecha de la factura y la fecha en que se registró la transacción en el estado de cuenta.</small>
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-sm">Guardar Preferencias</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modals -->
+
+    <!-- Modal 1: Add/Edit Transaction Manually -->
+    <div class="modal" id="modal-transaction">
+        <div class="modal-content card">
+            <div class="card-header justify-between">
+                <h3 id="modal-title">Añadir Transacción Manual</h3>
+                <button class="btn-close" id="btn-close-modal-tx">&times;</button>
+            </div>
+            <div class="card-body">
+                <form id="form-transaction">
+                    <input type="hidden" id="input-tx-id">
+                    <div class="form-group">
+                        <label for="input-tx-date">Fecha:</label>
+                        <input type="date" id="input-tx-date" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="input-tx-reference">Referencia:</label>
+                        <input type="text" id="input-tx-reference" class="form-control" placeholder="Ej. 74552706104610420467235">
+                    </div>
+                    <div class="form-group">
+                        <label for="input-tx-desc">Descripción / Comercio:</label>
+                        <input type="text" id="input-tx-desc" class="form-control" placeholder="Ej. TIENDA BANPRO S.A." required>
+                    </div>
+                    <div class="form-group">
+                        <label for="input-tx-currency">Moneda:</label>
+                        <select id="input-tx-currency" class="form-control" required>
+                            <option value="NIO" selected>Córdobas (C$)</option>
+                            <option value="USD">Dólares (US$)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="input-tx-amount">Monto:</label>
+                        <input type="number" id="input-tx-amount" class="form-control" step="0.01" placeholder="0.00" required>
+                    </div>
+                    <div class="modal-footer text-right">
+                        <button type="button" class="btn btn-secondary" id="btn-cancel-modal-tx">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Guardar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal 2: Upload single invoice for specific transaction -->
+    <div class="modal" id="modal-upload-invoice">
+        <div class="modal-content card">
+            <div class="card-header justify-between">
+                <h3>Subir Respaldo de Factura</h3>
+                <button class="btn-close" id="btn-close-modal-upload">&times;</button>
+            </div>
+            <div class="card-body">
+                <div class="target-transaction-info" id="target-tx-info">
+                    <p>Subir factura de respaldo para la transacción:</p>
+                    <div class="tx-badge-detail">
+                        <span id="target-tx-date">--/--/----</span> | 
+                        <span id="target-tx-desc">--</span> | 
+                        <strong id="target-tx-amount">C$ 0.00</strong>
+                    </div>
+                </div>
+                <div class="drop-zone" id="drop-single-invoice" style="margin-top: 1.5rem;">
+                    <i data-lucide="upload" class="drop-icon"></i>
+                    <p class="drop-text">Arrastra la factura (imagen o PDF) o haz clic aquí</p>
+                    <span class="file-info" id="single-invoice-file-info">Ningún archivo seleccionado</span>
+                    <input type="file" id="input-single-invoice" accept="image/*,.pdf" class="hidden-input">
+                </div>
+                <!-- Mini Progress -->
+                <div class="progress-container hidden" id="single-invoice-progress" style="margin-top: 1rem;">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="single-invoice-progress-fill" style="width: 0%;"></div>
+                    </div>
+                    <div class="progress-text-container">
+                        <span id="single-invoice-progress-status">Procesando OCR...</span>
+                        <span id="single-invoice-progress-percent">0%</span>
+                    </div>
+                </div>
+                <div class="modal-footer text-right" style="margin-top: 1.5rem;">
+                    <button type="button" class="btn btn-secondary" id="btn-cancel-modal-upload">Cancelar</button>
+                    <button type="button" class="btn btn-primary" id="btn-process-single-invoice" disabled>Procesar y Asociar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal 3: View Invoice Image and Details -->
+    <div class="modal" id="modal-view-invoice">
+        <div class="modal-content card modal-lg">
+            <div class="card-header justify-between">
+                <h3>Visualizar Factura de Respaldo</h3>
+                <button class="btn-close" id="btn-close-modal-view">&times;</button>
+            </div>
+            <div class="card-body grid-2" style="max-height: 70vh; overflow-y: auto;">
+                <div class="invoice-image-preview-container" style="position: relative; width: 100%; min-height: 400px; display: flex; align-items: center; justify-content: center;">
+                    <img id="view-invoice-img" src="" alt="Factura de Respaldo" style="max-width: 100%; border-radius: 8px; box-shadow: 0 4px 12px var(--shadow-color);">
+                    <iframe id="view-invoice-pdf" src="" style="width: 100%; height: 500px; border: none; border-radius: 8px; box-shadow: 0 4px 12px var(--shadow-color);" class="hidden"></iframe>
+                </div>
+                <div class="invoice-data-details">
+                    <h4 class="section-title">Datos Extraídos por OCR</h4>
+                    <table class="details-table">
+                        <tr>
+                            <th>Nombre de Archivo:</th>
+                            <td id="view-invoice-name">--</td>
+                        </tr>
+                        <tr>
+                            <th>Fecha Detectada:</th>
+                            <td id="view-invoice-date">--</td>
+                        </tr>
+                        <tr>
+                            <th>Monto Detectado:</th>
+                            <td id="view-invoice-amount">--</td>
+                        </tr>
+                        <tr>
+                            <th>Monto Transacción:</th>
+                            <td id="view-invoice-tx-amount">--</td>
+                        </tr>
+                        <tr>
+                            <th>Tipo de Documento:</th>
+                            <td>
+                                <select id="view-invoice-type" class="form-control" style="font-size: 0.85rem; padding: 0.25rem 0.5rem; width: 100%; border-radius: 6px; background-color: var(--card-bg); color: var(--text-main); border: 1px solid var(--border-color);">
+                                    <option value="invoice">Factura de Compra</option>
+                                    <option value="retencion_ir">Retención Impuesto Renta (IR)</option>
+                                    <option value="retencion_municipal">Retención Municipal (ALMA)</option>
+                                    <option value="exencion">Exención de Impuestos</option>
+                                    <option value="reimbursement_receipt">Comprobante de Reembolso</option>
+                                </select>
+                            </td>
+                        </tr>
+                    </table>
+                    <div style="margin-top: 1.25rem;">
+                        <h4 class="section-title">Texto Completo Reconocido:</h4>
+                        <div class="raw-ocr-text" id="view-invoice-raw-text">
+                            <!-- Raw OCR text goes here -->
+                        </div>
+                    </div>
+                    <!-- Manual linking section for orphan invoices -->
+                    <div style="margin-top: 1.25rem; padding-top: 1.25rem; border-top: 1px solid var(--border-color);" id="view-invoice-link-container" class="hidden">
+                        <h4 class="section-title"><i data-lucide="link-2" style="width: 16px; height: 16px; display: inline-block; vertical-align: middle; margin-right: 0.25rem;"></i>Vincular a Transacción</h4>
+                        <p class="text-muted" style="font-size: 0.75rem; margin-bottom: 0.5rem; line-height: 1.3;">Si esta factura no se asoció automáticamente debido a fallas de OCR en manuscritos, puedes vincularla manualmente seleccionando la transacción correspondiente:</p>
+                        <div class="form-group" style="margin-bottom: 0.75rem;">
+                            <select id="select-unresolved-tx-for-linking" class="form-control" style="font-size: 0.85rem; padding: 0.5rem 0.75rem;"></select>
+                        </div>
+                        <button type="button" class="btn btn-primary btn-sm" id="btn-link-invoice-manually" style="width: 100%;">
+                            <span>Asociar y Conciliar</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer text-right" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                <button type="button" class="btn btn-danger btn-sm hidden" id="btn-unlink-invoice" style="background-color: var(--color-danger); border-color: var(--color-danger); color: white;">
+                    <i data-lucide="link-2-off" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-right: 0.25rem;"></i>Desvincular Factura
+                </button>
+                <button type="button" class="btn btn-secondary" id="btn-close-view-invoice" style="margin-left: auto;">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+        </div>
+    </div>
+
+    <!-- Modal 4: Save Reconciliation Metadata -->
+    <div class="modal" id="modal-save-recon">
+        <div class="modal-content card">
+            <div class="card-header justify-between">
+                <h3>Guardar Conciliación</h3>
+                <button class="btn-close" id="btn-close-modal-save-recon">&times;</button>
+            </div>
+            <div class="card-body">
+                <form id="form-save-recon">
+                    <div class="form-group" style="margin-bottom: 1.25rem;">
+                        <label for="select-save-month" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Mes:</label>
+                        <select id="select-save-month" class="form-control" required style="width: 100%;">
+                            <option value="1">Enero</option>
+                            <option value="2">Febrero</option>
+                            <option value="3">Marzo</option>
+                            <option value="4">Abril</option>
+                            <option value="5">Mayo</option>
+                            <option value="6">Junio</option>
+                            <option value="7">Julio</option>
+                            <option value="8">Agosto</option>
+                            <option value="9">Septiembre</option>
+                            <option value="10">Octubre</option>
+                            <option value="11">Noviembre</option>
+                            <option value="12">Diciembre</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 1.25rem;">
+                        <label for="input-save-year" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Año:</label>
+                        <input type="number" id="input-save-year" class="form-control" required min="2020" max="2100" style="width: 100%;">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 1.5rem;">
+                        <label for="input-save-number" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Número de Conciliación:</label>
+                        <input type="number" id="input-save-number" class="form-control" required min="1" step="1" style="width: 100%;">
+                    </div>
+                    <div class="modal-footer text-right">
+                        <button type="button" class="btn btn-secondary" id="btn-cancel-modal-save-recon">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Guardar en Historial</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main scripts -->
+    <script src="app.js"></script>
+    <script src="reconciliation.js"></script>
+    <script src="availability.js"></script>
+</body>
+</html>
