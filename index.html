@@ -102,16 +102,16 @@
                         <div class="card-header">
                             <div class="card-title">
                                 <i data-lucide="folder-archive" class="icon-primary"></i>
-                                <span>2. Documentos de Soporte / Facturas (ZIP)</span>
+                                <span>2. Documentos de Soporte / Facturas (ZIP o PDFs)</span>
                             </div>
-                            <span class="card-subtitle">ZIP con facturas (imágenes o PDFs)</span>
+                            <span class="card-subtitle">ZIP, imágenes o archivos PDF</span>
                         </div>
                         <div class="card-body">
                             <div class="drop-zone" id="drop-zip">
                                 <i data-lucide="file-archive" class="drop-icon"></i>
-                                <p class="drop-text">Arrastra el archivo ZIP con facturas (imágenes o PDFs) o haz clic aquí</p>
+                                <p class="drop-text">Arrastra el archivo ZIP, tus facturas en PDF/imagen o haz clic aquí</p>
                                 <span class="file-info" id="zip-file-info">Ningún archivo seleccionado</span>
-                                <input type="file" id="input-zip" accept=".zip" class="hidden-input">
+                                <input type="file" id="input-zip" accept=".zip,.pdf,image/*" class="hidden-input" multiple>
                             </div>
                         </div>
                     </div>

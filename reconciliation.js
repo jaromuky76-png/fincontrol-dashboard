@@ -11,6 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
 const ReconState = {
     pdfFile: null,
     zipFile: null,
+    supportFiles: [], // holds array of files (ZIPs, PDFs, images)
     transactions: [], // { id, dateStr, date, description, amount, matched, invoice }
     invoices: [],     // { name, imageSrc, text, extractedAmount, extractedDateStr, extractedDate, matched }
     singleInvoiceTargetTx: null, // holds transaction target when manually uploading single invoice
@@ -218,10 +219,10 @@ function initFileListeners() {
         }
     });
 
-    // ZIP input triggers
+    // ZIP/PDF support input triggers
     const dropZip = document.getElementById('drop-zip');
     reconElements.inputZip.addEventListener('change', (e) => {
-        handleZipSelection(e.target.files[0]);
+        handleSupportFilesSelection(e.target.files);
     });
     
     dropZip.addEventListener('dragover', (e) => {
@@ -237,7 +238,7 @@ function initFileListeners() {
         e.preventDefault();
         dropZip.classList.remove('dragover');
         if (e.dataTransfer.files.length > 0) {
-            handleZipSelection(e.dataTransfer.files[0]);
+            handleSupportFilesSelection(e.dataTransfer.files);
         }
     });
 
@@ -259,76 +260,93 @@ function handlePdfSelection(file) {
     checkProcessButton();
 }
 
-async function handleZipSelection(file) {
-    if (!file || (!file.name.endsWith('.zip') && file.type !== 'application/x-zip-compressed' && file.type !== 'application/zip')) {
-        window.showToast('Por favor selecciona un archivo ZIP válido', 'error');
-        return;
+function handleSupportFilesSelection(fileList) {
+    if (!fileList || fileList.length === 0) return;
+    
+    const filesArray = Array.from(fileList);
+    ReconState.supportFiles = filesArray;
+    
+    if (filesArray.length === 1) {
+        const file = filesArray[0];
+        reconElements.zipFileInfo.textContent = `${file.name} (${formatBytes(file.size)})`;
+        reconElements.zipFileInfo.style.color = 'var(--color-success)';
+        ReconState.zipFile = file;
+    } else {
+        reconElements.zipFileInfo.textContent = `${filesArray.length} archivos de soporte seleccionados`;
+        reconElements.zipFileInfo.style.color = 'var(--color-success)';
+        ReconState.zipFile = filesArray[0];
     }
-    ReconState.zipFile = file;
-    reconElements.zipFileInfo.textContent = `${file.name} (${formatBytes(file.size)})`;
-    reconElements.zipFileInfo.style.color = 'var(--color-success)';
-    window.showToast('ZIP de facturas cargado', 'success');
+    
+    window.showToast(`${filesArray.length} archivo(s) de soporte cargado(s)`, 'success');
     checkProcessButton();
 
-    // Re-hydration logic for historical loads
-    if (ReconState.invoices.length > 0) {
-        const emptyInvoices = ReconState.invoices.filter(inv => !inv.imageSrc);
-        if (emptyInvoices.length > 0) {
-            try {
-                window.showToast('Rehidratando imágenes desde el ZIP cargado...', 'info');
-                const zip = await JSZip.loadAsync(file);
-                let hydratedCount = 0;
+    // Re-hydration logic for historical loads (if a ZIP file is present)
+    const zipFile = filesArray.find(f => f.name.endsWith('.zip') || f.type.includes('zip'));
+    if (zipFile && ReconState.invoices.length > 0) {
+        rehydrateImagesFromZip(zipFile);
+    }
+}
+
+async function rehydrateImagesFromZip(file) {
+    const emptyInvoices = ReconState.invoices.filter(inv => !inv.imageSrc);
+    if (emptyInvoices.length > 0) {
+        try {
+            window.showToast('Rehidratando imágenes desde el ZIP cargado...', 'info');
+            const zip = await JSZip.loadAsync(file);
+            let hydratedCount = 0;
+            
+            for (const inv of emptyInvoices) {
+                const entryName = inv.name;
+                const entryNameClean = entryName.replace(/\s*\(Pág\.\s*\d+\)$/i, "");
+                let zipEntry = zip.file(entryNameClean);
                 
-                for (const inv of emptyInvoices) {
-                    // Try to find matching file inside ZIP (exact match or basename)
-                    const entryName = inv.name;
-                    let zipEntry = zip.file(entryName);
-                    
-                    if (!zipEntry) {
-                        const baseName = entryName.substring(entryName.lastIndexOf('/') + 1);
-                        zipEntry = Object.values(zip.files).find(f => !f.dir && f.name.substring(f.name.lastIndexOf('/') + 1) === baseName);
-                    }
-                    
-                    if (zipEntry) {
-                        const blob = await zipEntry.async('blob');
-                        let base64 = "";
-                        const isPdf = entryName.toLowerCase().endsWith('.pdf');
-                        if (isPdf) {
-                            const arrayBuffer = await zipEntry.async('arraybuffer');
-                            try {
-                                base64 = await convertPdfToImage(arrayBuffer);
-                            } catch (e) {
-                                console.error("Error converting PDF to image in rehydration:", e);
-                                base64 = await blobToBase64(blob);
-                            }
-                        } else {
+                if (!zipEntry) {
+                    const baseName = entryNameClean.substring(entryNameClean.lastIndexOf('/') + 1);
+                    zipEntry = Object.values(zip.files).find(f => !f.dir && f.name.substring(f.name.lastIndexOf('/') + 1) === baseName);
+                }
+                
+                if (zipEntry) {
+                    const blob = await zipEntry.async('blob');
+                    let base64 = "";
+                    const isPdf = entryNameClean.toLowerCase().endsWith('.pdf');
+                    if (isPdf) {
+                        const arrayBuffer = await zipEntry.async('arraybuffer');
+                        try {
+                            const loadingTask = pdfjsLib.getDocument({data: arrayBuffer});
+                            const pdf = await loadingTask.promise;
+                            const pageNum = inv.pageNum || 1;
+                            base64 = await convertPdfPageToImage(pdf, pageNum);
+                        } catch (e) {
+                            console.error("Error converting PDF to image in rehydration:", e);
                             base64 = await blobToBase64(blob);
                         }
-                        inv.imageSrc = base64;
-                        inv.base64 = base64;
-                        inv.blob = blob;
-                        hydratedCount++;
+                    } else {
+                        base64 = await blobToBase64(blob);
                     }
+                    inv.imageSrc = base64;
+                    inv.base64 = base64;
+                    inv.blob = blob;
+                    hydratedCount++;
                 }
-                
-                if (hydratedCount > 0) {
-                    window.showToast(`Se rehidrataron ${hydratedCount} imágenes de soportes fiscales.`, 'success');
-                    // Refresh view
-                    if (typeof renderSummaryCards === 'function') renderSummaryCards();
-                    if (typeof renderReconciliationTables === 'function') renderReconciliationTables();
-                } else {
-                    window.showToast('No se encontraron imágenes coincidentes en el ZIP.', 'warning');
-                }
-            } catch (err) {
-                console.error("Error rehydrating images from ZIP:", err);
-                window.showToast('Error al rehidratar imágenes desde el ZIP.', 'error');
             }
+            
+            if (hydratedCount > 0) {
+                window.showToast(`Se rehidrataron ${hydratedCount} imágenes de soportes fiscales.`, 'success');
+                if (typeof renderSummaryCards === 'function') renderSummaryCards();
+                if (typeof renderReconciliationTables === 'function') renderReconciliationTables();
+            } else {
+                window.showToast('No se encontraron imágenes coincidentes en el ZIP.', 'warning');
+            }
+        } catch (err) {
+            console.error("Error rehydrating images from ZIP:", err);
+            window.showToast('Error al rehidratar imágenes desde el ZIP.', 'error');
         }
     }
 }
 
 function checkProcessButton() {
-    if (ReconState.pdfFile && ReconState.zipFile) {
+    const hasSupport = (ReconState.supportFiles && ReconState.supportFiles.length > 0) || ReconState.zipFile;
+    if (ReconState.pdfFile && hasSupport) {
         reconElements.btnProcess.removeAttribute('disabled');
     } else {
         reconElements.btnProcess.setAttribute('disabled', 'true');
@@ -357,10 +375,12 @@ async function processFiles() {
         
         updateProgress(5, 'Leyendo estado de cuenta PDF...');
         addLog('Iniciando procesamiento...', 'info');
-
+        
         // Revoke old object URLs to avoid memory leaks
         ReconState.invoices.forEach(inv => {
-            if (inv.imageSrc) URL.revokeObjectURL(inv.imageSrc);
+            if (inv.imageSrc && !inv.imageSrc.startsWith('data:')) {
+                URL.revokeObjectURL(inv.imageSrc);
+            }
         });
         ReconState.invoices = [];
         ReconState.transactions = [];
@@ -375,108 +395,213 @@ async function processFiles() {
             addLog('No se encontraron transacciones en el estado de cuenta. Habilita la adición manual.', 'warning');
         }
 
-        // 2. UNZIP FACTURAS Y RETENCIONES
-        updateProgress(25, 'Descomprimiendo archivo ZIP de facturas...');
-        addLog('Descomprimiendo archivo ZIP...', 'info');
-        const zip = await JSZip.loadAsync(ReconState.zipFile);
-        const zipEntries = [];
-        
-        zip.forEach((relativePath, zipEntry) => {
-            if (!zipEntry.dir && /\.(png|jpe?g|webp|pdf)$/i.test(zipEntry.name)) {
-                zipEntries.push(zipEntry);
-            }
-        });
+        // 2. BUILD PROCESSIBLE ENTRIES QUEUE
+        updateProgress(25, 'Preparando archivos de soporte...');
+        addLog('Construyendo cola de archivos a procesar...', 'info');
 
-        addLog(`Encontrados ${zipEntries.length} archivos (imágenes/PDFs) en el ZIP.`, 'info');
-        if (zipEntries.length === 0) {
-            throw new Error('El archivo ZIP no contiene imágenes o PDFs válidos.');
+        const filesToProcess = [];
+        let sources = [];
+        if (ReconState.supportFiles && ReconState.supportFiles.length > 0) {
+            sources = ReconState.supportFiles;
+        } else if (ReconState.zipFile) {
+            sources = [ReconState.zipFile];
+        }
+
+        if (sources.length === 0) {
+            throw new Error('No se han seleccionado archivos de soporte (ZIP, PDF o imágenes).');
+        }
+
+        for (const file of sources) {
+            const lowerName = file.name.toLowerCase();
+            if (lowerName.endsWith('.zip')) {
+                addLog(`Descomprimiendo archivo ZIP: ${file.name}...`, 'info');
+                try {
+                    const zip = await JSZip.loadAsync(file);
+                    const zipEntries = [];
+                    zip.forEach((relativePath, zipEntry) => {
+                        if (!zipEntry.dir && /\.(png|jpe?g|webp|pdf)$/i.test(zipEntry.name)) {
+                            zipEntries.push(zipEntry);
+                        }
+                    });
+                    
+                    for (const entry of zipEntries) {
+                        const isPdf = entry.name.toLowerCase().endsWith('.pdf');
+                        const blob = await entry.async('blob');
+                        const arrayBuffer = isPdf ? await entry.async('arraybuffer') : null;
+                        filesToProcess.push({
+                            name: entry.name,
+                            blob: blob,
+                            arrayBuffer: arrayBuffer,
+                            isPdf: isPdf,
+                            isFromZip: true
+                        });
+                    }
+                    addLog(`Descomprimidos ${zipEntries.length} archivos de ${file.name}`, 'success');
+                } catch (zipErr) {
+                    addLog(`Error leyendo ZIP ${file.name}: ${zipErr.message}`, 'error');
+                }
+            } else if (lowerName.endsWith('.pdf')) {
+                const arrayBuffer = await readFileAsArrayBuffer(file);
+                filesToProcess.push({
+                    name: file.name,
+                    blob: file,
+                    arrayBuffer: arrayBuffer,
+                    isPdf: true,
+                    isFromZip: false
+                });
+            } else if (/\.(png|jpe?g|webp)$/i.test(lowerName)) {
+                filesToProcess.push({
+                    name: file.name,
+                    blob: file,
+                    arrayBuffer: null,
+                    isPdf: false,
+                    isFromZip: false
+                });
+            } else {
+                addLog(`Archivo ignorado (formato no soportado): ${file.name}`, 'warning');
+            }
+        }
+
+        addLog(`Total de archivos/documentos listados para análisis: ${filesToProcess.length}`, 'info');
+        if (filesToProcess.length === 0) {
+            throw new Error('No se encontraron imágenes o PDFs válidos en los archivos seleccionados.');
         }
 
         // 3. RUN QUEUE FOR OCR & PDF TEXT EXTRACTION
         updateProgress(30, 'Iniciando procesamiento de documentos...');
         
-        const hasImages = zipEntries.some(e => /\.(png|jpe?g|webp)$/i.test(e.name));
+        const hasImages = filesToProcess.some(e => !e.isPdf);
+        const hasPdfs = filesToProcess.some(e => e.isPdf);
         let worker = null;
-        if (hasImages) {
-            addLog('Cargando Tesseract.js para procesar imágenes...', 'info');
+        if (hasImages || hasPdfs) {
+            addLog('Cargando Tesseract.js para procesar imágenes/PDFs escaneados...', 'info');
             worker = await Tesseract.createWorker('spa+eng');
             addLog('Motor de OCR listo.', 'success');
         }
 
-        const totalFiles = zipEntries.length;
+        const totalFiles = filesToProcess.length;
         for (let idx = 0; idx < totalFiles; idx++) {
-            const fileEntry = zipEntries[idx];
+            const fileEntry = filesToProcess[idx];
             const percentStart = 30 + Math.round((idx / totalFiles) * 65);
             
             updateProgress(percentStart, `Procesando: ${fileEntry.name} (${idx + 1} de ${totalFiles})...`);
             
-            const isPdf = fileEntry.name.toLowerCase().endsWith('.pdf');
-            const blob = await fileEntry.async('blob');
-            let text = "";
-            let confidence = 100;
-            let imageSrc = "";
-            let isLowQuality = false;
-
-            try {
-                let base64 = "";
-                if (isPdf) {
-                    addLog(`Extrayendo texto de PDF: ${fileEntry.name}...`, 'info');
-                    const arrayBuffer = await fileEntry.async('arraybuffer');
-                    text = await extractPdfText(arrayBuffer);
+            if (fileEntry.isPdf) {
+                addLog(`Procesando archivo PDF: ${fileEntry.name}...`, 'info');
+                try {
+                    const loadingTask = pdfjsLib.getDocument({data: fileEntry.arrayBuffer});
+                    const pdf = await loadingTask.promise;
+                    const numPages = pdf.numPages;
+                    addLog(`El PDF ${fileEntry.name} tiene ${numPages} página(s).`, 'info');
                     
-                    // Render first page of PDF to image base64
-                    try {
-                        imageSrc = await convertPdfToImage(arrayBuffer);
-                        base64 = imageSrc;
-                    } catch (renderErr) {
-                        console.error("Error rendering PDF to image:", renderErr);
-                        base64 = await blobToBase64(blob);
-                        imageSrc = base64;
+                    for (let p = 1; p <= numPages; p++) {
+                        const pageLabel = numPages > 1 ? ` (Pág. ${p})` : '';
+                        const pageItemName = `${fileEntry.name}${pageLabel}`;
+                        addLog(`Extrayendo texto de: ${pageItemName}...`, 'info');
+                        
+                        let text = await extractPdfPageText(pdf, p);
+                        let imageSrc = "";
+                        let base64 = "";
+                        
+                        try {
+                            imageSrc = await convertPdfPageToImage(pdf, p);
+                            base64 = imageSrc;
+                        } catch (renderErr) {
+                            console.error(`Error rendering PDF page ${p} to image:`, renderErr);
+                            base64 = await blobToBase64(fileEntry.blob);
+                            imageSrc = base64;
+                        }
+                        
+                        // Fallback to OCR if page has little text (scanned PDF page)
+                        if (text.trim().length < 20 && imageSrc && worker) {
+                            addLog(`Página ${p} del PDF ${fileEntry.name} tiene poco texto digital. Ejecutando OCR en imagen renderizada...`, 'info');
+                            try {
+                                const ocrResult = await worker.recognize(imageSrc);
+                                text = ocrResult.data.text;
+                                addLog(`OCR finalizado para ${pageItemName}.`, 'success');
+                            } catch (ocrErr) {
+                                console.error("OCR error on PDF page:", ocrErr);
+                            }
+                        }
+                        
+                        const docDetails = classifyAndExtractDocument(text, pageItemName);
+                        
+                        // Check low quality per page
+                        let isLowQuality = (text.trim().length < 40 && docDetails.docType === 'invoice' && !docDetails.amount && !docDetails.date);
+                        
+                        addLog(`[Procesado] "${pageItemName}": Tipo: ${docDetails.docType.toUpperCase()}, Ref: ${docDetails.invoiceRef || '---'}, Monto: ${docDetails.amount ? window.formatCurrency(docDetails.amount, docDetails.currency) : '---'}`, 'success');
+                        
+                        ReconState.invoices.push({
+                            name: pageItemName,
+                            imageSrc: imageSrc,
+                            base64: base64,
+                            blob: fileEntry.blob,
+                            pageNum: p,
+                            text: text,
+                            docType: docDetails.docType,
+                            invoiceRef: docDetails.invoiceRef,
+                            baseAmount: docDetails.baseAmount,
+                            withheldAmount: docDetails.withheldAmount,
+                            extractedAmount: docDetails.amount,
+                            extractedSubtotal: docDetails.subtotal,
+                            extractedDateStr: docDetails.dateStr,
+                            extractedDate: docDetails.date,
+                            currency: docDetails.currency,
+                            matched: false,
+                            lowQuality: isLowQuality,
+                            confidence: 100
+                        });
                     }
-                } else {
-                    base64 = await blobToBase64(blob);
-                    imageSrc = base64;
+                } catch (pdfErr) {
+                    addLog(`Error al abrir PDF ${fileEntry.name}: ${pdfErr.message}`, 'error');
+                }
+            } else {
+                // Image file
+                addLog(`Procesando imagen: ${fileEntry.name}...`, 'info');
+                try {
+                    const base64 = await blobToBase64(fileEntry.blob);
+                    const imageSrc = base64;
                     
                     addLog(`Ejecutando OCR en imagen: ${fileEntry.name}...`, 'info');
-                    const ocrResult = await worker.recognize(imageSrc);
-                    text = ocrResult.data.text;
-                    confidence = ocrResult.data.confidence || 0;
-                    isLowQuality = (confidence < 45) || (text.trim().length < 40);
+                    let text = "";
+                    let confidence = 0;
+                    if (worker) {
+                        const ocrResult = await worker.recognize(imageSrc);
+                        text = ocrResult.data.text;
+                        confidence = ocrResult.data.confidence || 0;
+                    }
+                    
+                    const docDetails = classifyAndExtractDocument(text, fileEntry.name);
+                    const isLowQuality = (confidence < 45) || (text.trim().length < 40 && docDetails.docType === 'invoice' && !docDetails.amount && !docDetails.date);
+                    
+                    addLog(`[Procesado] "${fileEntry.name}": Tipo: ${docDetails.docType.toUpperCase()}, Ref: ${docDetails.invoiceRef || '---'}, Monto: ${docDetails.amount ? window.formatCurrency(docDetails.amount, docDetails.currency) : '---'}`, 'success');
+                    
+                    ReconState.invoices.push({
+                        name: fileEntry.name,
+                        imageSrc: imageSrc,
+                        base64: base64,
+                        blob: fileEntry.blob,
+                        text: text,
+                        docType: docDetails.docType,
+                        invoiceRef: docDetails.invoiceRef,
+                        baseAmount: docDetails.baseAmount,
+                        withheldAmount: docDetails.withheldAmount,
+                        extractedAmount: docDetails.amount,
+                        extractedSubtotal: docDetails.subtotal,
+                        extractedDateStr: docDetails.dateStr,
+                        extractedDate: docDetails.date,
+                        currency: docDetails.currency,
+                        matched: false,
+                        lowQuality: isLowQuality,
+                        confidence: confidence
+                    });
+                    
+                    if (isLowQuality) {
+                        addLog(`Advertencia en archivo "${fileEntry.name}": Baja legibilidad detectada (Confianza OCR: ${confidence}%).`, 'warning');
+                    }
+                } catch (imgErr) {
+                    addLog(`Error al procesar imagen ${fileEntry.name}: ${imgErr.message}`, 'error');
                 }
-                
-                const docDetails = classifyAndExtractDocument(text, fileEntry.name);
-                
-                if (!isPdf) {
-                    isLowQuality = isLowQuality || (text.trim().length < 40 && docDetails.docType === 'invoice' && !docDetails.amount && !docDetails.date);
-                }
-                
-                addLog(`[Procesado] "${fileEntry.name}": Tipo: ${docDetails.docType.toUpperCase()}, Ref: ${docDetails.invoiceRef || '---'}, Monto: ${docDetails.amount ? window.formatCurrency(docDetails.amount, docDetails.currency) : '---'}`, 'success');
-
-                ReconState.invoices.push({
-                    name: fileEntry.name,
-                    imageSrc: imageSrc,
-                    base64: base64,
-                    blob: blob,
-                    text: text,
-                    docType: docDetails.docType,
-                    invoiceRef: docDetails.invoiceRef,
-                    baseAmount: docDetails.baseAmount,
-                    withheldAmount: docDetails.withheldAmount,
-                    extractedAmount: docDetails.amount,
-                    extractedSubtotal: docDetails.subtotal,
-                    extractedDateStr: docDetails.dateStr,
-                    extractedDate: docDetails.date,
-                    currency: docDetails.currency,
-                    matched: false,
-                    lowQuality: isLowQuality,
-                    confidence: confidence
-                });
-                
-                if (isLowQuality) {
-                    addLog(`Advertencia en archivo "${fileEntry.name}": Baja legibilidad detectada (Confianza OCR: ${confidence}%).`, 'warning');
-                }
-            } catch (err) {
-                addLog(`Error procesando archivo ${fileEntry.name}: ${err.message}`, 'error');
             }
         }
 
@@ -527,12 +652,9 @@ function blobToBase64(blob) {
     });
 }
 
-async function convertPdfToImage(pdfData) {
-    const loadingTask = pdfjsLib.getDocument({data: pdfData});
-    const pdf = await loadingTask.promise;
-    if (pdf.numPages === 0) return null;
-    
-    const page = await pdf.getPage(1);
+async function convertPdfPageToImage(pdf, pageNum) {
+    if (pdf.numPages < pageNum) return null;
+    const page = await pdf.getPage(pageNum);
     const viewport = page.getViewport({ scale: 1.5 });
     
     const canvas = document.createElement('canvas');
@@ -548,6 +670,39 @@ async function convertPdfToImage(pdfData) {
     return canvas.toDataURL('image/jpeg');
 }
 
+async function convertPdfToImage(pdfData) {
+    const loadingTask = pdfjsLib.getDocument({data: pdfData});
+    const pdf = await loadingTask.promise;
+    return await convertPdfPageToImage(pdf, 1);
+}
+
+async function extractPdfPageText(pdf, pageNum) {
+    const page = await pdf.getPage(pageNum);
+    const textContent = await page.getTextContent();
+    
+    // Reconstruct line layout sorting by coordinates
+    const lines = {};
+    textContent.items.forEach(item => {
+        // Group items into virtual lines based on Y coordinate (rounded to nearest 4px)
+        const y = Math.round(item.transform[5] / 4) * 4;
+        if (!lines[y]) {
+            lines[y] = [];
+        }
+        lines[y].push(item);
+    });
+
+    // Sort Y lines top to bottom
+    const sortedY = Object.keys(lines).sort((a, b) => b - a);
+    let pageText = "";
+    sortedY.forEach(y => {
+        // Sort X positions inside each line
+        const lineItems = lines[y].sort((a, b) => a.transform[4] - b.transform[4]);
+        const lineStr = lineItems.map(item => item.str).join(" ");
+        pageText += lineStr + "\n";
+    });
+    return pageText;
+}
+
 // Extractor with Layout-Aware sorting to reconstruct rows cleanly
 async function extractPdfText(pdfData) {
     const loadingTask = pdfjsLib.getDocument({data: pdfData});
@@ -555,28 +710,7 @@ async function extractPdfText(pdfData) {
     let fullText = "";
 
     for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const textContent = await page.getTextContent();
-        
-        // Reconstruct line layout sorting by coordinates
-        const lines = {};
-        textContent.items.forEach(item => {
-            // Group items into virtual lines based on Y coordinate (rounded to nearest 4px)
-            const y = Math.round(item.transform[5] / 4) * 4;
-            if (!lines[y]) {
-                lines[y] = [];
-            }
-            lines[y].push(item);
-        });
-
-        // Sort Y lines top to bottom
-        const sortedY = Object.keys(lines).sort((a, b) => b - a);
-        sortedY.forEach(y => {
-            // Sort X positions inside each line
-            const lineItems = lines[y].sort((a, b) => a.transform[4] - b.transform[4]);
-            const lineStr = lineItems.map(item => item.str).join(" ");
-            fullText += lineStr + "\n";
-        });
+        fullText += await extractPdfPageText(pdf, i) + "\n";
     }
 
     return fullText;
@@ -2660,19 +2794,12 @@ function openViewInvoiceModal(invoice, tx = null) {
     }
     
     const viewPdfIframe = document.getElementById('view-invoice-pdf');
-    if (invoice.name.toLowerCase().endsWith('.pdf')) {
-        if (viewPdfIframe && invoice.imageSrc) {
+    const isPdfDoc = invoice.name.toLowerCase().endsWith('.pdf') && invoice.imageSrc && invoice.imageSrc.startsWith('data:application/pdf');
+    if (isPdfDoc) {
+        if (viewPdfIframe) {
             viewPdfIframe.src = invoice.imageSrc;
             viewPdfIframe.classList.remove('hidden');
             reconElements.viewInvoiceImg.classList.add('hidden');
-        } else {
-            // Fallback SVG placeholder if URL isn't set
-            reconElements.viewInvoiceImg.src = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300"><rect width="100%" height="100%" fill="%231e293b"/><text x="50%" y="45%" dominant-baseline="middle" text-anchor="middle" fill="%2338bdf8" font-family="sans-serif" font-size="18" font-weight="bold">Documento PDF Cargado</text><text x="50%" y="55%" dominant-baseline="middle" text-anchor="middle" fill="%2394a3b8" font-family="sans-serif" font-size="14" font-weight="bold">${invoice.name}</text><text x="50%" y="65%" dominant-baseline="middle" text-anchor="middle" fill="%2364748b" font-family="sans-serif" font-size="12">Texto extraído mediante PDF.js con 100% de precisión.</text></svg>`;
-            reconElements.viewInvoiceImg.classList.remove('hidden');
-            if (viewPdfIframe) {
-                viewPdfIframe.src = "";
-                viewPdfIframe.classList.add('hidden');
-            }
         }
     } else {
         if (viewPdfIframe) {
@@ -2681,8 +2808,13 @@ function openViewInvoiceModal(invoice, tx = null) {
         }
         reconElements.viewInvoiceImg.classList.remove('hidden');
         if (!invoice.imageSrc) {
-            // inline SVG placeholder warning "Imagen no disponible en historial"
-            reconElements.viewInvoiceImg.src = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300"><rect width="100%" height="100%" fill="%231e293b"/><text x="50%" y="45%" dominant-baseline="middle" text-anchor="middle" fill="%2394a3b8" font-family="sans-serif" font-size="16" font-weight="bold">Imagen de Factura no Guardada</text><text x="50%" y="55%" dominant-baseline="middle" text-anchor="middle" fill="%2364748b" font-family="sans-serif" font-size="12">Las imágenes se omiten en la persistencia del historial</text><text x="50%" y="62%" dominant-baseline="middle" text-anchor="middle" fill="%2364748b" font-family="sans-serif" font-size="12">para respetar el límite de almacenamiento del navegador.</text></svg>`;
+            // Check if it's a PDF but we have no image (e.g. historical load with missing imageSrc)
+            if (invoice.name.replace(/\s*\(Pág\.\s*\d+\)$/i, "").toLowerCase().endsWith('.pdf')) {
+                reconElements.viewInvoiceImg.src = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300"><rect width="100%" height="100%" fill="%231e293b"/><text x="50%" y="45%" dominant-baseline="middle" text-anchor="middle" fill="%2338bdf8" font-family="sans-serif" font-size="18" font-weight="bold">Documento PDF Cargado</text><text x="50%" y="55%" dominant-baseline="middle" text-anchor="middle" fill="%2394a3b8" font-family="sans-serif" font-size="14" font-weight="bold">${invoice.name}</text><text x="50%" y="65%" dominant-baseline="middle" text-anchor="middle" fill="%2364748b" font-family="sans-serif" font-size="12">Texto extraído mediante PDF.js con 100% de precisión.</text></svg>`;
+            } else {
+                // inline SVG placeholder warning "Imagen no disponible en historial"
+                reconElements.viewInvoiceImg.src = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300"><rect width="100%" height="100%" fill="%231e293b"/><text x="50%" y="45%" dominant-baseline="middle" text-anchor="middle" fill="%2394a3b8" font-family="sans-serif" font-size="16" font-weight="bold">Imagen de Factura no Guardada</text><text x="50%" y="55%" dominant-baseline="middle" text-anchor="middle" fill="%2364748b" font-family="sans-serif" font-size="12">Las imágenes se omiten en la persistencia del historial</text><text x="50%" y="62%" dominant-baseline="middle" text-anchor="middle" fill="%2364748b" font-family="sans-serif" font-size="12">para respetar el límite de almacenamiento del navegador.</text></svg>`;
+            }
         } else {
             reconElements.viewInvoiceImg.src = invoice.imageSrc;
         }
@@ -3991,7 +4123,7 @@ async function generatePdfReport() {
                 doc.setFontSize(6.5);
                 doc.text(`#${i + 1}: ${docTypeLabel}`, x + 3, y + 6);
                 
-                const isPdf = docItem.name && docItem.name.toLowerCase().endsWith('.pdf');
+                const isPdf = docItem.name && docItem.name.replace(/\s*\(Pág\.\s*\d+\)$/i, "").toLowerCase().endsWith('.pdf');
                 const hasImage = docItem.imageSrc && docItem.imageSrc.trim() !== "";
                 
                 if (isPdf && !hasImage) {
@@ -4149,7 +4281,7 @@ async function generatePdfReport() {
                 doc.setFontSize(6.5);
                 doc.text(`#${i + 1}: Reembolso`, x + 3, y + 6);
                 
-                const isPdf = docItem.name && docItem.name.toLowerCase().endsWith('.pdf');
+                const isPdf = docItem.name && docItem.name.replace(/\s*\(Pág\.\s*\d+\)$/i, "").toLowerCase().endsWith('.pdf');
                 const hasImage = docItem.imageSrc && docItem.imageSrc.trim() !== "";
                 
                 if (isPdf && !hasImage) {
