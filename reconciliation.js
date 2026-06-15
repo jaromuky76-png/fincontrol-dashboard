@@ -1220,21 +1220,17 @@ function checkAmountMatch(txAmount, txCurrency, invoice, allowCrossCurrency = fa
         return true;
     }
     
-    // Scenario 2: Net of retenciones
-    const irRate = txCurrency === 'USD' ? 0.20 : 0.02;
-    const municipalRate = 0.01;
-    
-    const candidates = [];
-    if (txCurrency === 'USD') {
-        candidates.push(invoiceAmount - (subtotal * 0.20));
-    } else {
+    // Scenario 2: Net of retenciones (NIO only)
+    if (txCurrency === 'NIO') {
+        const candidates = [];
         candidates.push(invoiceAmount - (subtotal * 0.03)); // both IR and Municipal
         candidates.push(invoiceAmount - (subtotal * 0.02)); // IR only
         candidates.push(invoiceAmount - (subtotal * 0.01)); // Municipal only
+        
+        // Check if txAmount matches any candidate within 2.0 tolerance
+        return candidates.some(cand => Math.abs(cand - txAmount) < 2.0);
     }
-    
-    // Check if txAmount matches any candidate within 2.0 tolerance
-    return candidates.some(cand => Math.abs(cand - txAmount) < 2.0);
+    return false;
 }
 
 function runMatchingAlgorithm() {
@@ -1489,11 +1485,10 @@ function runMatchingAlgorithm() {
             tx.exemptionDoc = null;
         }
 
-        const invoicesRequiringRet = tx.invoices.filter(inv => {
+        const invoicesRequiringRet = tx.currency === 'USD' ? [] : tx.invoices.filter(inv => {
             const baseAmount = tx.amount / (tx.invoices.length || 1);
             const estSubtotal = baseAmount / 1.15;
-            return (tx.currency === 'NIO' && estSubtotal > thresholdNIO) || 
-                   (tx.currency === 'USD' && estSubtotal > thresholdUSD);
+            return (tx.currency === 'NIO' && estSubtotal > thresholdNIO);
         });
 
         if (invoicesRequiringRet.length > 0) {
@@ -1506,7 +1501,7 @@ function runMatchingAlgorithm() {
                 const baseAmount = tx.amount / (tx.invoices.length || 1);
                 const estSubtotal = baseAmount / 1.15;
                 const invoiceRef = inv.invoiceRef;
-                const expectedIRRate = tx.currency === 'USD' ? 0.20 : 0.02;
+                const expectedIRRate = 0.02;
                 const expectedMunicipalRate = 0.01;
 
                 // Search for Exemption document
@@ -1531,6 +1526,12 @@ function runMatchingAlgorithm() {
                 // Search for Retención IR document
                 if (tx.hasRetencionIR && tx.retentionIRDoc) {
                     tx.retentionIRDoc.matched = true;
+                    if (!tx.retentionIRDoc.baseAmount) {
+                        tx.retentionIRDoc.baseAmount = estSubtotal;
+                    }
+                    if (!tx.retentionIRDoc.withheldAmount) {
+                        tx.retentionIRDoc.withheldAmount = tx.retentionIRDoc.baseAmount * expectedIRRate;
+                    }
                 } else {
                     const foundIR = ReconState.invoices.find(doc => {
                         if (doc.matched || doc.docType !== 'retencion_ir') return false;
@@ -1544,6 +1545,12 @@ function runMatchingAlgorithm() {
                         foundIR.matched = true;
                         tx.hasRetencionIR = true;
                         tx.retentionIRDoc = foundIR;
+                        if (!foundIR.baseAmount) {
+                            foundIR.baseAmount = estSubtotal;
+                        }
+                        if (!foundIR.withheldAmount) {
+                            foundIR.withheldAmount = foundIR.baseAmount * expectedIRRate;
+                        }
                     } else {
                         allIRFound = false;
                     }
@@ -1553,6 +1560,12 @@ function runMatchingAlgorithm() {
                 if (tx.currency === 'NIO') {
                     if (tx.hasRetencionMunicipal && tx.retentionMunicipalDoc) {
                         tx.retentionMunicipalDoc.matched = true;
+                        if (!tx.retentionMunicipalDoc.baseAmount) {
+                            tx.retentionMunicipalDoc.baseAmount = estSubtotal;
+                        }
+                        if (!tx.retentionMunicipalDoc.withheldAmount) {
+                            tx.retentionMunicipalDoc.withheldAmount = tx.retentionMunicipalDoc.baseAmount * expectedMunicipalRate;
+                        }
                     } else {
                         const foundMunicipal = ReconState.invoices.find(doc => {
                             if (doc.matched || doc.docType !== 'retencion_municipal') return false;
@@ -1566,6 +1579,12 @@ function runMatchingAlgorithm() {
                             foundMunicipal.matched = true;
                             tx.hasRetencionMunicipal = true;
                             tx.retentionMunicipalDoc = foundMunicipal;
+                            if (!foundMunicipal.baseAmount) {
+                                foundMunicipal.baseAmount = estSubtotal;
+                            }
+                            if (!foundMunicipal.withheldAmount) {
+                                foundMunicipal.withheldAmount = foundMunicipal.baseAmount * expectedMunicipalRate;
+                            }
                         } else {
                             allMunicipalFound = false;
                         }
@@ -1579,7 +1598,7 @@ function runMatchingAlgorithm() {
             if (tx.isExempt) {
                 tx.retentionsValid = true;
             } else if (tx.currency === 'USD') {
-                tx.retentionsValid = tx.hasRetencionIR && allIRFound;
+                tx.retentionsValid = true; // USD doesn't require retentions, but fallback
             } else {
                 tx.retentionsValid = tx.hasRetencionIR && allIRFound && tx.hasRetencionMunicipal && allMunicipalFound;
             }
@@ -1619,24 +1638,16 @@ function getRetentionsBadgeHTML(tx) {
     if (tx.isExempt) {
         html += `<span class="badge badge-success"><i data-lucide="shield-check"></i>Exento (OK)</span>`;
     } else {
-        if (tx.currency === 'USD') {
-            if (tx.hasRetencionIR && tx.retentionsIRValid) {
-                html += `<span class="badge badge-success"><i data-lucide="check"></i>IR 20% OK</span>`;
-            } else {
-                html += `<span class="badge badge-danger"><i data-lucide="alert-triangle"></i>Falta IR 20%</span>`;
-            }
+        if (tx.hasRetencionIR && tx.retentionsIRValid) {
+            html += `<span class="badge badge-success"><i data-lucide="check"></i>IR 2% OK</span>`;
         } else {
-            if (tx.hasRetencionIR && tx.retentionsIRValid) {
-                html += `<span class="badge badge-success"><i data-lucide="check"></i>IR 2% OK</span>`;
-            } else {
-                html += `<span class="badge badge-danger"><i data-lucide="alert-triangle"></i>Falta IR 2%</span>`;
-            }
-            
-            if (tx.hasRetencionMunicipal && tx.retentionsMunicipalValid) {
-                html += `<span class="badge badge-success"><i data-lucide="check"></i>ALMA 1% OK</span>`;
-            } else {
-                html += `<span class="badge badge-danger"><i data-lucide="alert-triangle"></i>Falta ALMA 1%</span>`;
-            }
+            html += `<span class="badge badge-danger"><i data-lucide="alert-triangle"></i>Falta IR 2%</span>`;
+        }
+        
+        if (tx.hasRetencionMunicipal && tx.retentionsMunicipalValid) {
+            html += `<span class="badge badge-success"><i data-lucide="check"></i>ALMA 1% OK</span>`;
+        } else {
+            html += `<span class="badge badge-danger"><i data-lucide="alert-triangle"></i>Falta ALMA 1%</span>`;
         }
     }
     
@@ -1815,14 +1826,14 @@ function renderReconciliationUI() {
                     } else {
                         // 1. IR Withholding
                         if (tx.hasRetencionIR && tx.retentionsIRValid && tx.retentionIRDoc) {
-                            const irLabel = tx.currency === 'USD' ? 'IR 20%' : 'IR 2%';
+                            const irLabel = 'IR 2%';
                             retentionButtonsHTML += `
                                 <button class="btn btn-success btn-sm btn-view-retention-ir-action" data-id="${tx.id}" title="Ver Retención ${irLabel}" style="margin: 0.1rem;">
                                     <i data-lucide="eye"></i>Ver ${irLabel}
                                 </button>
                             `;
                         } else {
-                            const irLabel = tx.currency === 'USD' ? 'IR 20%' : 'IR 2%';
+                            const irLabel = 'IR 2%';
                             retentionButtonsHTML += `
                                 <button class="btn btn-warning btn-sm btn-upload-retention-ir-action" data-id="${tx.id}" title="Subir Retención ${irLabel}" style="margin: 0.1rem;">
                                     <i data-lucide="upload"></i>Subir ${irLabel}
@@ -2391,6 +2402,40 @@ function initModalListeners() {
             handleInvoiceTypeChange();
         });
     }
+
+    const baseInput = document.getElementById('input-view-retention-base');
+    if (baseInput) {
+        baseInput.addEventListener('change', () => {
+            const invoice = ReconState.activeInvoiceToLink;
+            if (invoice) {
+                invoice.baseAmount = parseFloat(baseInput.value) || null;
+                runMatchingAlgorithm();
+                const invCurrency = ReconState.activeTxToUnlink ? ReconState.activeTxToUnlink.currency : (invoice.currency || 'NIO');
+                const baseAmt = invoice.baseAmount ? window.formatCurrency(invoice.baseAmount, invCurrency) : 'No detectada';
+                const withheldAmt = invoice.withheldAmount ? window.formatCurrency(invoice.withheldAmount, invCurrency) : 'No detectado';
+                const typeName = invoice.docType === 'retencion_ir' ? 'Retención IR' : 'Retención Municipal';
+                reconElements.viewInvoiceAmount.innerHTML = `<span style="font-size:0.85rem;">${typeName}<br/>Base: ${baseAmt}<br/>Retenido: ${withheldAmt}</span>`;
+                renderReconciliationUI();
+            }
+        });
+    }
+
+    const withheldInput = document.getElementById('input-view-retention-withheld');
+    if (withheldInput) {
+        withheldInput.addEventListener('change', () => {
+            const invoice = ReconState.activeInvoiceToLink;
+            if (invoice) {
+                invoice.withheldAmount = parseFloat(withheldInput.value) || null;
+                runMatchingAlgorithm();
+                const invCurrency = ReconState.activeTxToUnlink ? ReconState.activeTxToUnlink.currency : (invoice.currency || 'NIO');
+                const baseAmt = invoice.baseAmount ? window.formatCurrency(invoice.baseAmount, invCurrency) : 'No detectada';
+                const withheldAmt = invoice.withheldAmount ? window.formatCurrency(invoice.withheldAmount, invCurrency) : 'No detectado';
+                const typeName = invoice.docType === 'retencion_ir' ? 'Retención IR' : 'Retención Municipal';
+                reconElements.viewInvoiceAmount.innerHTML = `<span style="font-size:0.85rem;">${typeName}<br/>Base: ${baseAmt}<br/>Retenido: ${withheldAmt}</span>`;
+                renderReconciliationUI();
+            }
+        });
+    }
 }
 
 function openTxModal(tx = null) {
@@ -2512,7 +2557,7 @@ function openUploadModalForTx(txOrGroup, isReimbursement = false, isRetention = 
     if (isRetention) {
         let typeName = "Retención / Exención";
         if (retentionType === 'retencion_ir') {
-            typeName = tx.currency === 'USD' ? "Retención IR 20%" : "Retención IR 2%";
+            typeName = "Retención IR 2%";
         } else if (retentionType === 'retencion_municipal') {
             typeName = "Retención Municipal 1%";
         } else if (retentionType === 'exencion') {
@@ -2658,12 +2703,17 @@ async function processSingleInvoiceUpload() {
                     const baseMatch = text.match(/(?:valor imponible|valor de la factura|valor factura|monto imponible|imponible)\s*(?:c\$|\$)?\s*([\d,]+\.\d{2})/i);
                     if (baseMatch) {
                         docDetails.baseAmount = parseFloat(baseMatch[1].replace(/,/g, ''));
+                    } else {
+                        docDetails.baseAmount = targetTx.amount / 1.15;
                     }
                 }
                 if (!docDetails.withheldAmount) {
                     const withheldMatch = text.match(/(?:valor retenido|monto retenido|total retenido|retenido c\$|retenido \$)\s*(?:c\$|\$)?\s*([\d,]+\.\d{2})/i);
                     if (withheldMatch) {
                         docDetails.withheldAmount = parseFloat(withheldMatch[1].replace(/,/g, ''));
+                    } else {
+                        const rate = retentionType === 'retencion_ir' ? 0.02 : 0.01;
+                        docDetails.withheldAmount = docDetails.baseAmount * rate;
                     }
                 }
             }
@@ -2823,15 +2873,29 @@ function openViewInvoiceModal(invoice, tx = null) {
     reconElements.viewInvoiceDate.textContent = invoice.extractedDateStr || 'No identificada';
     
     const invCurrency = tx ? tx.currency : (invoice.currency || 'NIO');
+    const rowBase = document.getElementById('row-retention-base');
+    const rowWithheld = document.getElementById('row-retention-withheld');
+    const inputBase = document.getElementById('input-view-retention-base');
+    const inputWithheld = document.getElementById('input-view-retention-withheld');
+
     if (invoice.docType === 'retencion_ir' || invoice.docType === 'retencion_municipal') {
+        if (rowBase) rowBase.classList.remove('hidden');
+        if (rowWithheld) rowWithheld.classList.remove('hidden');
+        if (inputBase) inputBase.value = invoice.baseAmount || '';
+        if (inputWithheld) inputWithheld.value = invoice.withheldAmount || '';
+
         const baseAmt = invoice.baseAmount ? window.formatCurrency(invoice.baseAmount, invCurrency) : 'No detectada';
         const withheldAmt = invoice.withheldAmount ? window.formatCurrency(invoice.withheldAmount, invCurrency) : 'No detectado';
         const typeName = invoice.docType === 'retencion_ir' ? 'Retención IR' : 'Retención Municipal';
         reconElements.viewInvoiceAmount.innerHTML = `<span style="font-size:0.85rem;">${typeName}<br/>Base: ${baseAmt}<br/>Retenido: ${withheldAmt}</span>`;
-    } else if (invoice.docType === 'exencion') {
-        reconElements.viewInvoiceAmount.textContent = 'Exención de Impuestos';
     } else {
-        reconElements.viewInvoiceAmount.textContent = invoice.extractedAmount ? window.formatCurrency(invoice.extractedAmount, invCurrency) : 'No detectado';
+        if (rowBase) rowBase.classList.add('hidden');
+        if (rowWithheld) rowWithheld.classList.add('hidden');
+        if (invoice.docType === 'exencion') {
+            reconElements.viewInvoiceAmount.textContent = 'Exención de Impuestos';
+        } else {
+            reconElements.viewInvoiceAmount.textContent = invoice.extractedAmount ? window.formatCurrency(invoice.extractedAmount, invCurrency) : 'No detectado';
+        }
     }
     
     const unlinkBtn = document.getElementById('btn-unlink-invoice');
@@ -2944,11 +3008,23 @@ function linkInvoiceManuallyToTx() {
             tx.retentionIRDoc = invoice;
             invoice.matched = true;
             invoice.isManual = true;
+            if (!invoice.baseAmount) {
+                invoice.baseAmount = tx.amount / 1.15;
+            }
+            if (!invoice.withheldAmount) {
+                invoice.withheldAmount = invoice.baseAmount * 0.02;
+            }
         } else if (invoice.docType === 'retencion_municipal') {
             tx.hasRetencionMunicipal = true;
             tx.retentionMunicipalDoc = invoice;
             invoice.matched = true;
             invoice.isManual = true;
+            if (!invoice.baseAmount) {
+                invoice.baseAmount = tx.amount / 1.15;
+            }
+            if (!invoice.withheldAmount) {
+                invoice.withheldAmount = invoice.baseAmount * 0.01;
+            }
         } else if (invoice.docType === 'exencion') {
             tx.isExempt = true;
             tx.exemptionDoc = invoice;
@@ -3910,8 +3986,6 @@ async function generatePdfReport() {
             if (tx.requiresRetentions) {
                 if (tx.isExempt) {
                     retText = "Exento";
-                } else if (tx.currency === 'USD') {
-                    retText = tx.hasRetencionIR ? "IR 20% OK" : "FALTA IR 20%";
                 } else {
                     const parts = [];
                     parts.push(tx.hasRetencionIR ? "IR 2% OK" : "FALTA IR 2%");
