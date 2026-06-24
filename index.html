@@ -427,21 +427,24 @@
 
             <!-- View 2: Disponibilidad de Tarjetas -->
             <section id="view-availability" class="content-view">
-                <!-- Dropzone for Treasury ZIP -->
+                <!-- Dropzone for Treasury files -->
                 <div class="card upload-card">
                     <div class="card-header">
                         <div class="card-title">
                             <i data-lucide="archive" class="icon-primary"></i>
-                            <span>ZIP Diario de Tesorería</span>
+                            <span>Archivos Diarios de Tesorería (ZIP o PDFs)</span>
                         </div>
-                        <span class="card-subtitle">Sube el archivo ZIP enviado por Tesorería que contiene los PDFs de saldos</span>
+                        <span class="card-subtitle">Sube el archivo ZIP o los archivos PDF individuales que contienen los saldos</span>
                     </div>
                     <div class="card-body">
                         <div class="drop-zone" id="drop-zip-availability">
                             <i data-lucide="file-up" class="drop-icon"></i>
-                            <p class="drop-text">Arrastra el archivo ZIP diario de Tesorería o haz clic aquí</p>
-                            <span class="file-info" id="zip-availability-file-info">Ningún archivo seleccionado</span>
-                            <input type="file" id="input-zip-availability" accept=".zip" class="hidden-input">
+                            <p class="drop-text">Arrastra los archivos ZIP/PDF de Tesorería o haz clic aquí</p>
+                            <div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.25rem;">
+                                <span class="file-info" id="zip-availability-file-info">Ningún archivo seleccionado</span>
+                                <button type="button" id="btn-clear-availability-files" class="btn btn-secondary btn-sm hidden" style="padding: 0.1rem 0.4rem; font-size: 0.75rem;">Limpiar</button>
+                            </div>
+                            <input type="file" id="input-zip-availability" accept=".zip,.pdf" class="hidden-input" multiple>
                         </div>
                     </div>
                 </div>

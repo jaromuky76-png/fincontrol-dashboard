@@ -10,7 +10,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
 
 // Module State
 const AvailState = {
-    zipFile: null,
+    supportFiles: [], // holds array of files (ZIPs, PDFs)
     scanResults: [] // { card, holder, status, balance, date, file }
 };
 
@@ -52,7 +52,7 @@ function initAvailFileListeners() {
     const dropZone = document.getElementById('drop-zip-availability');
     
     availElements.inputZip.addEventListener('change', (e) => {
-        handleAvailZipSelection(e.target.files[0]);
+        handleAvailFilesSelection(e.target.files);
     });
     
     dropZone.addEventListener('dragover', (e) => {
@@ -68,25 +68,79 @@ function initAvailFileListeners() {
         e.preventDefault();
         dropZone.classList.remove('dragover');
         if (e.dataTransfer.files.length > 0) {
-            handleAvailZipSelection(e.dataTransfer.files[0]);
+            handleAvailFilesSelection(e.dataTransfer.files);
         }
     });
 
     availElements.btnProcess.addEventListener('click', () => {
         processAvailabilityZip();
     });
+
+    // Clear files trigger
+    const btnClear = document.getElementById('btn-clear-availability-files');
+    if (btnClear) {
+        btnClear.addEventListener('click', (e) => {
+            e.stopPropagation(); // Avoid triggering dropzone click
+            AvailState.supportFiles = [];
+            availElements.inputZip.value = '';
+            availElements.zipFileInfo.textContent = 'Ningún archivo seleccionado';
+            availElements.zipFileInfo.style.color = '';
+            availElements.btnProcess.setAttribute('disabled', 'true');
+            btnClear.classList.add('hidden');
+            window.showToast('Archivos de disponibilidad limpiados', 'info');
+        });
+    }
 }
 
-function handleAvailZipSelection(file) {
-    if (!file || (!file.name.endsWith('.zip') && file.type !== 'application/x-zip-compressed' && file.type !== 'application/zip')) {
-        window.showToast('Por favor selecciona un archivo ZIP válido', 'error');
+function handleAvailFilesSelection(fileList) {
+    if (!fileList || fileList.length === 0) return;
+    
+    const filesArray = Array.from(fileList);
+    if (!AvailState.supportFiles) AvailState.supportFiles = [];
+    
+    filesArray.forEach(file => {
+        const isZip = file.name.endsWith('.zip') || file.type === 'application/x-zip-compressed' || file.type === 'application/zip';
+        const isPdf = file.name.endsWith('.pdf') || file.type === 'application/pdf';
+        
+        if (!isZip && !isPdf) {
+            window.showToast(`Archivo no soportado: ${file.name}`, 'warning');
+            return;
+        }
+        
+        const duplicate = AvailState.supportFiles.some(f => f.name === file.name && f.size === file.size);
+        if (!duplicate) {
+            AvailState.supportFiles.push(file);
+        }
+    });
+    
+    const totalCount = AvailState.supportFiles.length;
+    if (totalCount === 0) {
+        availElements.zipFileInfo.textContent = 'Ningún archivo seleccionado';
+        availElements.zipFileInfo.style.color = '';
+        availElements.btnProcess.setAttribute('disabled', 'true');
+        const btnClear = document.getElementById('btn-clear-availability-files');
+        if (btnClear) btnClear.classList.add('hidden');
         return;
     }
-    AvailState.zipFile = file;
-    availElements.zipFileInfo.textContent = `${file.name} (${formatBytes(file.size)})`;
-    availElements.zipFileInfo.style.color = 'var(--color-success)';
+    
+    if (totalCount === 1) {
+        const file = AvailState.supportFiles[0];
+        availElements.zipFileInfo.textContent = `${file.name} (${formatBytes(file.size)})`;
+        availElements.zipFileInfo.style.color = 'var(--color-success)';
+    } else {
+        availElements.zipFileInfo.textContent = `${totalCount} archivos cargados (ZIP/PDF)`;
+        availElements.zipFileInfo.style.color = 'var(--color-success)';
+    }
+    
     availElements.btnProcess.removeAttribute('disabled');
-    window.showToast('ZIP de Tesorería cargado', 'success');
+    
+    // Show clear button
+    const btnClear = document.getElementById('btn-clear-availability-files');
+    if (btnClear) {
+        btnClear.classList.remove('hidden');
+    }
+    
+    window.showToast(`${filesArray.length} archivo(s) cargado(s) (Total: ${totalCount})`, 'success');
 }
 
 function formatBytes(bytes, decimals = 2) {
@@ -101,7 +155,7 @@ function formatBytes(bytes, decimals = 2) {
 // --- SCANNING PIPELINE ---
 
 async function processAvailabilityZip() {
-    if (!AvailState.zipFile) return;
+    if (!AvailState.supportFiles || AvailState.supportFiles.length === 0) return;
 
     try {
         console.log('Iniciando procesamiento de Disponibilidad...');
@@ -110,38 +164,50 @@ async function processAvailabilityZip() {
         availElements.resultsCard.classList.add('hidden');
         
         // Show progress of 5% and status
-        updateAvailProgress(5, 'Descomprimiendo archivos de Tesorería...');
+        updateAvailProgress(5, 'Preparando archivos de Tesorería...');
         
         // Yield control to let the browser paint the progress bar unhiding and 5% status
         await new Promise(resolve => setTimeout(resolve, 150));
 
-        console.log('Cargando el archivo ZIP con JSZip...');
-        const zip = await JSZip.loadAsync(AvailState.zipFile);
-        console.log('Archivo ZIP cargado con éxito.');
-        
-        const pdfFiles = [];
-        zip.forEach((relativePath, zipEntry) => {
-            if (!zipEntry.dir && zipEntry.name.toLowerCase().endsWith('.pdf')) {
-                pdfFiles.push(zipEntry);
+        const pdfTasks = [];
+        for (const file of AvailState.supportFiles) {
+            const isZip = file.name.endsWith('.zip') || file.type === 'application/x-zip-compressed' || file.type === 'application/zip';
+            if (isZip) {
+                console.log(`Cargando archivo ZIP: ${file.name}`);
+                const zip = await JSZip.loadAsync(file);
+                zip.forEach((relativePath, zipEntry) => {
+                    if (!zipEntry.dir && zipEntry.name.toLowerCase().endsWith('.pdf')) {
+                        pdfTasks.push({
+                            name: zipEntry.name,
+                            getArrayBuffer: () => zipEntry.async('arraybuffer')
+                        });
+                    }
+                });
+            } else {
+                // Must be PDF
+                pdfTasks.push({
+                    name: file.name,
+                    getArrayBuffer: () => file.arrayBuffer()
+                });
             }
-        });
-
-        console.log(`ZIP descomprimido. Encontrados ${pdfFiles.length} archivos PDF.`);
-        if (pdfFiles.length === 0) {
-            throw new Error('El archivo ZIP no contiene ningún documento PDF.');
         }
 
-        updateAvailProgress(15, `Encontrados ${pdfFiles.length} PDFs. Iniciando escaneo...`);
+        console.log(`Archivos cargados. Encontrados en total ${pdfTasks.length} archivos PDF.`);
+        if (pdfTasks.length === 0) {
+            throw new Error('No se encontró ningún documento PDF para escanear.');
+        }
+
+        updateAvailProgress(15, `Encontrados ${pdfTasks.length} PDFs. Iniciando escaneo...`);
         // Wait another 100ms
         await new Promise(resolve => setTimeout(resolve, 100));
 
         // Temporary array for found cards
         const extractedCards = [];
         const targetCards = window.AppState.settings.targetCards;
-        const totalPDFs = pdfFiles.length;
+        const totalPDFs = pdfTasks.length;
 
         for (let idx = 0; idx < totalPDFs; idx++) {
-            const pdfEntry = pdfFiles[idx];
+            const pdfEntry = pdfTasks[idx];
             const percent = 15 + Math.round((idx / totalPDFs) * 80);
             
             console.log(`Escaneando PDF [${idx + 1}/${totalPDFs}]: ${pdfEntry.name}`);
@@ -151,7 +217,7 @@ async function processAvailabilityZip() {
             await new Promise(resolve => setTimeout(resolve, 30));
 
             try {
-                const pdfData = await pdfEntry.async('arraybuffer');
+                const pdfData = await pdfEntry.getArrayBuffer();
                 const text = await extractPdfText(pdfData);
                 console.log(`Archivo ${pdfEntry.name} procesado (${text.length} caracteres).`);
 
