@@ -30,7 +30,8 @@ const availElements = {
     resultsCard: document.getElementById('card-availability-results'),
     tbodyResults: document.querySelector('#table-availability tbody'),
     btnExport: document.getElementById('btn-export-csv'),
-    btnPrint: document.getElementById('btn-print-report')
+    btnPrint: document.getElementById('btn-print-report'),
+    btnClearAvailability: document.getElementById('btn-clear-availability')
 };
 
 // Initialize listeners on load
@@ -87,7 +88,19 @@ function initAvailFileListeners() {
             availElements.zipFileInfo.style.color = '';
             availElements.btnProcess.setAttribute('disabled', 'true');
             btnClear.classList.add('hidden');
+            if (availElements.btnClearAvailability) {
+                availElements.btnClearAvailability.classList.add('hidden');
+            }
             window.showToast('Archivos de disponibilidad limpiados', 'info');
+        });
+    }
+
+    // Clear whole exercise trigger
+    if (availElements.btnClearAvailability) {
+        availElements.btnClearAvailability.addEventListener('click', () => {
+            if (confirm('¿Está seguro de que desea limpiar el ejercicio actual? Se perderán todos los datos y resultados cargados.')) {
+                clearAvailability();
+            }
         });
     }
 }
@@ -134,10 +147,15 @@ function handleAvailFilesSelection(fileList) {
     
     availElements.btnProcess.removeAttribute('disabled');
     
-    // Show clear button
+    // Show clear files button
     const btnClear = document.getElementById('btn-clear-availability-files');
     if (btnClear) {
         btnClear.classList.remove('hidden');
+    }
+
+    // Show clear exercise button
+    if (availElements.btnClearAvailability) {
+        availElements.btnClearAvailability.classList.remove('hidden');
     }
     
     window.showToast(`${filesArray.length} archivo(s) cargado(s) (Total: ${totalCount})`, 'success');
@@ -319,6 +337,37 @@ async function processAvailabilityZip() {
     }
 }
 
+function clearAvailability() {
+    // 1. Reset state
+    AvailState.supportFiles = [];
+    AvailState.scanResults = [];
+    
+    // 2. Reset DOM inputs & styling
+    availElements.inputZip.value = '';
+    availElements.zipFileInfo.textContent = 'Ningún archivo seleccionado';
+    availElements.zipFileInfo.style.color = '';
+    
+    const btnClearFiles = document.getElementById('btn-clear-availability-files');
+    if (btnClearFiles) {
+        btnClearFiles.classList.add('hidden');
+    }
+    
+    availElements.btnProcess.setAttribute('disabled', 'true');
+    
+    if (availElements.btnClearAvailability) {
+        availElements.btnClearAvailability.classList.add('hidden');
+    }
+    
+    // 3. Hide progress & results
+    availElements.progressPanel.classList.add('hidden');
+    availElements.resultsCard.classList.add('hidden');
+    
+    // 4. Clear table contents
+    availElements.tbodyResults.innerHTML = '';
+    
+    window.showToast('Módulo de disponibilidad reiniciado', 'info');
+}
+
 // Extractor with Layout-Aware sorting to reconstruct lines
 async function extractPdfText(pdfData) {
     const loadingTask = pdfjsLib.getDocument({data: pdfData});
@@ -448,6 +497,10 @@ function extractReportDate(text) {
 function compileFinalResults() {
     availElements.resultsCard.classList.remove('hidden');
     availElements.tbodyResults.innerHTML = '';
+    
+    if (availElements.btnClearAvailability) {
+        availElements.btnClearAvailability.classList.remove('hidden');
+    }
 
     const targetCards = window.AppState.settings.targetCards;
     const finalReport = [];
