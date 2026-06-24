@@ -246,6 +246,24 @@ function initFileListeners() {
     reconElements.btnProcess.addEventListener('click', () => {
         processFiles();
     });
+
+    // Clear support files trigger
+    const btnClearSupport = document.getElementById('btn-clear-support-files');
+    if (btnClearSupport) {
+        btnClearSupport.addEventListener('click', (e) => {
+            e.stopPropagation(); // Avoid triggering dropzone click
+            ReconState.supportFiles = [];
+            ReconState.zipFile = null;
+            if (reconElements.inputZip) reconElements.inputZip.value = '';
+            if (reconElements.zipFileInfo) {
+                reconElements.zipFileInfo.textContent = 'Ningún archivo seleccionado';
+                reconElements.zipFileInfo.style.color = '';
+            }
+            btnClearSupport.classList.add('hidden');
+            window.showToast('Archivos de soporte limpiados', 'info');
+            checkProcessButton();
+        });
+    }
 }
 
 function handlePdfSelection(file) {
@@ -264,24 +282,39 @@ function handleSupportFilesSelection(fileList) {
     if (!fileList || fileList.length === 0) return;
     
     const filesArray = Array.from(fileList);
-    ReconState.supportFiles = filesArray;
+    if (!ReconState.supportFiles) ReconState.supportFiles = [];
     
-    if (filesArray.length === 1) {
-        const file = filesArray[0];
+    // Accumulate files without duplicates
+    filesArray.forEach(file => {
+        const duplicate = ReconState.supportFiles.some(f => f.name === file.name && f.size === file.size);
+        if (!duplicate) {
+            ReconState.supportFiles.push(file);
+        }
+    });
+    
+    const totalCount = ReconState.supportFiles.length;
+    if (totalCount === 1) {
+        const file = ReconState.supportFiles[0];
         reconElements.zipFileInfo.textContent = `${file.name} (${formatBytes(file.size)})`;
         reconElements.zipFileInfo.style.color = 'var(--color-success)';
         ReconState.zipFile = file;
     } else {
-        reconElements.zipFileInfo.textContent = `${filesArray.length} archivos de soporte seleccionados`;
+        reconElements.zipFileInfo.textContent = `${totalCount} archivos de soporte cargados`;
         reconElements.zipFileInfo.style.color = 'var(--color-success)';
-        ReconState.zipFile = filesArray[0];
+        ReconState.zipFile = ReconState.supportFiles[0];
     }
     
-    window.showToast(`${filesArray.length} archivo(s) de soporte cargado(s)`, 'success');
+    // Show clear support button if present
+    const btnClearSupport = document.getElementById('btn-clear-support-files');
+    if (btnClearSupport) {
+        btnClearSupport.classList.remove('hidden');
+    }
+    
+    window.showToast(`${filesArray.length} archivo(s) de soporte cargado(s) (Total: ${totalCount})`, 'success');
     checkProcessButton();
 
     // Re-hydration logic for historical loads (if a ZIP file is present)
-    const zipFile = filesArray.find(f => f.name.endsWith('.zip') || f.type.includes('zip'));
+    const zipFile = ReconState.supportFiles.find(f => f.name.endsWith('.zip') || f.type.includes('zip'));
     if (zipFile && ReconState.invoices.length > 0) {
         rehydrateImagesFromZip(zipFile);
     }
@@ -3388,6 +3421,7 @@ function clearReconciliation() {
     // 1. Reset state
     ReconState.pdfFile = null;
     ReconState.zipFile = null;
+    ReconState.supportFiles = [];
     ReconState.transactions = [];
     ReconState.invoices = [];
     ReconState.singleInvoiceTargetTx = null;
@@ -3406,6 +3440,11 @@ function clearReconciliation() {
     if (reconElements.zipFileInfo) {
         reconElements.zipFileInfo.textContent = 'Ningún archivo seleccionado';
         reconElements.zipFileInfo.style.color = '';
+    }
+    
+    const btnClearSupport = document.getElementById('btn-clear-support-files');
+    if (btnClearSupport) {
+        btnClearSupport.classList.add('hidden');
     }
     
     if (reconElements.btnProcess) {
