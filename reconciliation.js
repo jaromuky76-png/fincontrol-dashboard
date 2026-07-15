@@ -1096,34 +1096,55 @@ function extractInvoiceDetails(text, fileName) {
     let dateStr = "";
 
     // 1. EXTRACT DATE
+    let targetYear = new Date().getFullYear();
+    if (window.ReconState && window.ReconState.transactions && window.ReconState.transactions.length > 0) {
+        const firstTx = window.ReconState.transactions.find(t => t.date);
+        if (firstTx) {
+            targetYear = firstTx.date.getFullYear();
+        }
+    }
+
     const dateRegexes = [
-        /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/, // 25/05/2026 or 25-05-2026
-        /(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s+de\s+(\d{4})/i
+        /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/g, // 25/05/2026 or 25-05-2026
+        /(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s+de\s+(\d{4})/gi
     ];
 
+    let foundDate = null;
+    let foundDateStr = "";
+
     for (const rx of dateRegexes) {
-        const match = text.match(rx);
-        if (match) {
+        rx.lastIndex = 0; // reset regex state
+        let match;
+        while ((match = rx.exec(text)) !== null) {
+            let d, m, y;
             if (match[2].match(/^[a-zA-Z]/i)) {
                 const months = {
                     enero: 0, febrero: 1, marzo: 2, abril: 3, mayo: 4, junio: 5,
                     julio: 6, agosto: 7, septiembre: 8, octubre: 9, noviembre: 10, diciembre: 11
                 };
-                const m = months[match[2].toLowerCase()];
-                const d = parseInt(match[1], 10);
-                const y = parseInt(match[3], 10);
-                date = new Date(y, m, d);
-                dateStr = `${d}/${m+1}/${y}`;
+                m = months[match[2].toLowerCase()];
+                d = parseInt(match[1], 10);
+                y = parseInt(match[3], 10);
             } else {
-                let d = parseInt(match[1], 10);
-                let m = parseInt(match[2], 10) - 1;
-                let y = parseInt(match[3], 10);
+                d = parseInt(match[1], 10);
+                m = parseInt(match[2], 10) - 1;
+                y = parseInt(match[3], 10);
                 if (y < 100) y += 2000;
-                date = new Date(y, m, d);
-                dateStr = `${d}/${m+1}/${y}`;
             }
-            break;
+
+            // Validate date is real and the year is close to the statement's transaction year (within 1 year tolerance)
+            if (d >= 1 && d <= 31 && m >= 0 && m <= 11 && Math.abs(y - targetYear) <= 1) {
+                foundDate = new Date(y, m, d);
+                foundDateStr = `${d}/${m+1}/${y}`;
+                break;
+            }
         }
+        if (foundDate) break;
+    }
+
+    if (foundDate) {
+        date = foundDate;
+        dateStr = foundDateStr;
     }
 
     // 2. EXTRACT AMOUNT
