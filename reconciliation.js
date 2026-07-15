@@ -1518,7 +1518,14 @@ function runMatchingAlgorithm() {
             tx.exemptionDoc = null;
         }
 
-        const invoicesRequiringRet = tx.currency === 'USD' ? [] : tx.invoices.filter(inv => {
+        // Check if this is a fuel station transaction (PUMA / UNO) — no retentions required
+        const isFuelStation = /\bPUMA\b|\bUNO\b/i.test(tx.description);
+        if (isFuelStation) {
+            tx.requiresRetentions = false;
+            tx.retentionsValid = true;
+        }
+
+        const invoicesRequiringRet = (tx.currency === 'USD' || isFuelStation) ? [] : tx.invoices.filter(inv => {
             const baseAmount = tx.amount / (tx.invoices.length || 1);
             const estSubtotal = baseAmount / 1.15;
             return (tx.currency === 'NIO' && estSubtotal > thresholdNIO);
@@ -1526,6 +1533,15 @@ function runMatchingAlgorithm() {
 
         if (invoicesRequiringRet.length > 0) {
             tx.requiresRetentions = true;
+
+            // If already exempt (manually linked exemption doc), bypass all retention checks
+            if (tx.isExempt && tx.exemptionDoc) {
+                tx.exemptionDoc.matched = true;
+                tx.retentionsIRValid = true;
+                tx.retentionsMunicipalValid = true;
+                tx.retentionsValid = true;
+                // skip retention scanning for this transaction
+            } else {
             
             let allIRFound = true;
             let allMunicipalFound = true;
@@ -1537,10 +1553,11 @@ function runMatchingAlgorithm() {
                 const expectedIRRate = 0.02;
                 const expectedMunicipalRate = 0.01;
 
+                // If exempt mid-loop (found via auto-match in a previous iteration), skip
+                if (tx.isExempt) return;
+
                 // Search for Exemption document
-                if (tx.isExempt && tx.exemptionDoc) {
-                    tx.exemptionDoc.matched = true;
-                } else {
+                {
                     const foundExemption = ReconState.invoices.find(doc => {
                         if (doc.matched || doc.docType !== 'exencion') return false;
                         const matchesInvoiceRef = invoiceRef && doc.invoiceRef && (invoiceRef === doc.invoiceRef);
@@ -1552,6 +1569,8 @@ function runMatchingAlgorithm() {
                         foundExemption.matched = true;
                         tx.isExempt = true;
                         tx.exemptionDoc = foundExemption;
+                        allIRFound = true;
+                        allMunicipalFound = true;
                         return; // Skip other checks for this invoice
                     }
                 }
@@ -1635,6 +1654,7 @@ function runMatchingAlgorithm() {
             } else {
                 tx.retentionsValid = tx.hasRetencionIR && allIRFound && tx.hasRetencionMunicipal && allMunicipalFound;
             }
+            } // end else (not pre-exempt)
         } else {
             tx.requiresRetentions = false;
             tx.retentionsValid = true;
