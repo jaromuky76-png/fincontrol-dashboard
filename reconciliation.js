@@ -103,7 +103,8 @@ const reconElements = {
     selectSaveMonth: document.getElementById('select-save-month'),
     inputSaveYear: document.getElementById('input-save-year'),
     inputSaveNumber: document.getElementById('input-save-number'),
-    tbodyHistory: document.querySelector('#table-history tbody')
+    tbodyHistory: document.querySelector('#table-history tbody'),
+    textareaNotes: document.getElementById('textarea-reconciliation-notes')
 };
 
 // --- DATABASE PERSISTENCE (INDEXEDDB) ---
@@ -3501,6 +3502,9 @@ function clearReconciliation() {
         reconElements.pdfFileInfo.textContent = 'Ningún archivo seleccionado';
         reconElements.pdfFileInfo.style.color = '';
     }
+    if (reconElements.textareaNotes) {
+        reconElements.textareaNotes.value = '';
+    }
     if (reconElements.zipFileInfo) {
         reconElements.zipFileInfo.textContent = 'Ningún archivo seleccionado';
         reconElements.zipFileInfo.style.color = '';
@@ -3634,6 +3638,7 @@ async function saveReconciliation() {
         savedAt: new Date().toISOString(),
         transactions: savedTransactions,
         invoices: savedInvoices,
+        notes: reconElements.textareaNotes ? reconElements.textareaNotes.value : '',
         settings: {
             toleranceDays: window.AppState.settings.toleranceDays,
             cardDigits: document.getElementById('input-recon-card') ? document.getElementById('input-recon-card').value : '9155',
@@ -3901,6 +3906,11 @@ async function loadSavedReconciliation(id) {
     if (reconElements.zipFileInfo) {
         reconElements.zipFileInfo.textContent = `[Historial] Respaldos cargados`;
         reconElements.zipFileInfo.style.color = 'var(--text-muted)';
+    }
+
+    // Restore saved notes
+    if (reconElements.textareaNotes) {
+        reconElements.textareaNotes.value = record.notes || '';
     }
 
     // Store record period metadata on State so PDF generation knows the saved period details
@@ -4213,8 +4223,33 @@ async function generatePdfReport() {
             }
         });
 
+        // 5. Notes / Observations section
+        const notesText = reconElements.textareaNotes ? reconElements.textareaNotes.value.trim() : '';
+        let startNextY = doc.previousAutoTable.finalY + 12;
+        if (notesText) {
+            if (startNextY > 220) {
+                doc.addPage();
+                startNextY = 25;
+            }
+            
+            doc.setTextColor(51, 65, 85); // Slate
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(9.5);
+            doc.text('NOTAS / OBSERVACIONES PARA CONTABILIDAD:', 15, startNextY);
+            
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(8);
+            doc.setTextColor(71, 85, 105);
+            
+            // Auto wrap text
+            const splitNotes = doc.splitTextToSize(notesText, 180);
+            doc.text(splitNotes, 15, startNextY + 5);
+            
+            startNextY += 5 + (splitNotes.length * 4);
+        }
+
         // Signature blocks
-        nextY = doc.previousAutoTable.finalY + 25;
+        nextY = startNextY + 15;
         if (nextY > 260) {
             doc.addPage();
             nextY = 40;
