@@ -4104,8 +4104,8 @@ async function generatePdfReport() {
 
         const resolvedTx = ReconState.transactions.filter(t => t.matched && !t.isReimbursement && t.type === 'charge');
         const resolvedRows = resolvedTx.map(tx => {
-            const amtNIO = tx.currency === 'NIO' ? `C$ ${tx.amount.toFixed(2)}` : '---';
-            const amtUSD = tx.currency === 'USD' ? `$ ${tx.amount.toFixed(2)}` : '---';
+            const amtNIO = tx.currency === 'NIO' ? `C$${tx.amount.toFixed(2)}` : '---';
+            const amtUSD = tx.currency === 'USD' ? `$${tx.amount.toFixed(2)}` : '---';
             
             let retText = "No requiere";
             if (tx.requiresRetentions) {
@@ -4137,6 +4137,15 @@ async function generatePdfReport() {
             theme: 'grid',
             styles: { fontSize: 7.5 },
             headStyles: { fillColor: [0, 128, 64] }, // Sinsa Green
+            columnStyles: {
+                0: { cellWidth: 12 }, // Fecha
+                1: { cellWidth: 28 }, // Referencia
+                2: { cellWidth: 'auto' }, // Comercio
+                3: { cellWidth: 22, halign: 'right' }, // Monto NIO
+                4: { cellWidth: 22, halign: 'right' }, // Monto USD
+                5: { cellWidth: 18 }, // Factura Soporte
+                6: { cellWidth: 28 }  // Impuestos / Retenciones
+            },
             head: [['Fecha', 'Referencia', 'Comercio', 'Monto NIO', 'Monto USD', 'Factura Soporte', 'Impuestos / Retenciones']],
             body: resolvedRows.length > 0 ? resolvedRows : [['---', '---', 'No hay cargos conciliados', '---', '---', '---', '---']]
         });
@@ -4152,8 +4161,8 @@ async function generatePdfReport() {
 
         const unresolvedTx = ReconState.transactions.filter(t => !t.matched && t.type === 'charge');
         const unresolvedRows = unresolvedTx.map(tx => {
-            const amtNIO = tx.currency === 'NIO' ? `C$ ${tx.amount.toFixed(2)}` : '---';
-            const amtUSD = tx.currency === 'USD' ? `$ ${tx.amount.toFixed(2)}` : '---';
+            const amtNIO = tx.currency === 'NIO' ? `C$${tx.amount.toFixed(2)}` : '---';
+            const amtUSD = tx.currency === 'USD' ? `$${tx.amount.toFixed(2)}` : '---';
             return [
                 tx.dateStr,
                 tx.reference || '---',
@@ -4169,6 +4178,14 @@ async function generatePdfReport() {
             theme: 'grid',
             styles: { fontSize: 7.5 },
             headStyles: { fillColor: [185, 28, 28] }, // Red matching alert color
+            columnStyles: {
+                0: { cellWidth: 12 }, // Fecha
+                1: { cellWidth: 28 }, // Referencia
+                2: { cellWidth: 'auto' }, // Comercio
+                3: { cellWidth: 22, halign: 'right' }, // Monto NIO
+                4: { cellWidth: 22, halign: 'right' }, // Monto USD
+                5: { cellWidth: 28 }  // Estado Conciliación
+            },
             head: [['Fecha', 'Referencia', 'Comercio/Descripción', 'Monto NIO', 'Monto USD', 'Estado Conciliación']],
             body: unresolvedRows.length > 0 ? unresolvedRows : [['---', '---', 'No se encontraron cargos sin respaldo', '---', '---', 'Cuadratura Perfecta']]
         });
@@ -4183,8 +4200,8 @@ async function generatePdfReport() {
         doc.line(15, nextY + 2, 195, nextY + 2);
 
         const reimbursementRows = reimbursementTx.map(tx => {
-            const amtNIO = tx.currency === 'NIO' ? `C$ ${tx.amount.toFixed(2)}` : '---';
-            const amtUSD = tx.currency === 'USD' ? `$ ${tx.amount.toFixed(2)}` : '---';
+            const amtNIO = tx.currency === 'NIO' ? `C$${tx.amount.toFixed(2)}` : '---';
+            const amtUSD = tx.currency === 'USD' ? `$${tx.amount.toFixed(2)}` : '---';
             const reimbursementStatus = tx.reimbursementDoc ? 'Disponible' : 'No disponible';
             return [
                 tx.dateStr,
@@ -4201,8 +4218,8 @@ async function generatePdfReport() {
             'TOTAL REEMBOLSOS',
             '',
             '',
-            `C$ ${sumReimbursementsNIO.toFixed(2)}`,
-            `$ ${sumReimbursementsUSD.toFixed(2)}`,
+            `C$${sumReimbursementsNIO.toFixed(2)}`,
+            `$${sumReimbursementsUSD.toFixed(2)}`,
             ''
         ]);
 
@@ -4211,6 +4228,14 @@ async function generatePdfReport() {
             theme: 'grid',
             styles: { fontSize: 7.5 },
             headStyles: { fillColor: [217, 119, 6] }, // Amber/Warning color matching CSS color-warning
+            columnStyles: {
+                0: { cellWidth: 12 }, // Fecha
+                1: { cellWidth: 28 }, // Referencia
+                2: { cellWidth: 'auto' }, // Comercio
+                3: { cellWidth: 22, halign: 'right' }, // Monto NIO
+                4: { cellWidth: 22, halign: 'right' }, // Monto USD
+                5: { cellWidth: 28 }  // Comprobante de Reembolso
+            },
             head: [['Fecha', 'Referencia', 'Comercio/Descripción', 'Monto NIO', 'Monto USD', 'Comprobante de Reembolso']],
             body: reimbursementRows.length > 1 ? reimbursementRows : [['---', '---', 'No hay cargos marcados para reembolso', '---', '---', '---']],
             didParseCell: function(data) {
