@@ -3858,6 +3858,10 @@ async function loadSavedReconciliation(id) {
         number: record.number
     };
 
+    // Re-apply matching algorithm so that new rules (e.g. PUMA/UNO exemption, 
+    // exemption doc fix) take effect on historical data without re-uploading files.
+    runMatchingAlgorithm();
+
     // Render UI!
     renderReconciliationUI();
     
