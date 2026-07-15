@@ -65,7 +65,9 @@ function loadSettings() {
     const savedSettings = localStorage.getItem('fincontrol_settings');
     if (savedSettings) {
         try {
-            AppState.settings = JSON.parse(savedSettings);
+            const parsed = JSON.parse(savedSettings);
+            // Merge defaults with parsed values to prevent missing properties (like reconCard or bank)
+            AppState.settings = { ...AppState.settings, ...parsed };
         } catch (e) {
             console.error('Error loading settings from localStorage, using defaults', e);
         }
@@ -86,6 +88,12 @@ function initSettingsView() {
     elements.inputMatchTolerance.value = AppState.settings.toleranceDays;
 
     renderConfigCardBadges();
+
+    // Update reconciliation subtitles/cards dynamically on load
+    const cardStatementSub = document.querySelector('#card-statement .card-subtitle');
+    if (cardStatementSub) {
+        cardStatementSub.textContent = `Tarjeta corporativa ${AppState.settings.bank} ${AppState.settings.reconCard}`;
+    }
 
     // Bind cards form submit
     elements.formSettingsCards.addEventListener('submit', (e) => {

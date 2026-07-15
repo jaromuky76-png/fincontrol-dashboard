@@ -3852,14 +3852,20 @@ async function loadSavedReconciliation(id) {
     // Keep settings
     if (record.settings) {
         window.AppState.settings.toleranceDays = record.settings.toleranceDays || 4;
+        window.AppState.settings.reconCard = record.settings.cardDigits || '9155';
+        window.AppState.settings.bank = record.settings.bank || 'BANPRO';
+        
+        // Save to localStorage so they persist across refreshes
+        localStorage.setItem('fincontrol_settings', JSON.stringify(window.AppState.settings));
+
         const inputTolerance = document.getElementById('input-match-tolerance');
         if (inputTolerance) inputTolerance.value = String(record.settings.toleranceDays);
         
         const inputCard = document.getElementById('input-recon-card');
-        if (inputCard) inputCard.value = record.settings.cardDigits || '';
+        if (inputCard) inputCard.value = record.settings.reconCard;
         
         const selectBank = document.getElementById('select-bank');
-        if (selectBank) selectBank.value = record.settings.bank || 'BANPRO';
+        if (selectBank) selectBank.value = record.settings.bank;
     }
 
     // Set file names in UI to indicate history session
