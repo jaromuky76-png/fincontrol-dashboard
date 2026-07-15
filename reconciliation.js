@@ -1949,10 +1949,21 @@ function renderReconciliationUI() {
                 `;
             }
 
+            const isFuel = /\bPUMA\b|\bUNO\b/i.test(tx.description);
+            let descContent = `<strong>${tx.description}</strong>`;
+            if (isFuel) {
+                descContent += `
+                    <div style="margin-top: 0.25rem; display: flex; align-items: center; gap: 0.35rem;">
+                        <span style="font-size: 0.65rem; color: var(--text-muted); font-weight: 500;">Placa:</span>
+                        <input type="text" class="input-plate-number" data-id="${tx.id}" placeholder="Ej: M 1234" value="${tx.vehiclePlate || ''}" style="width: 85px; height: 20px; font-size: 0.7rem; padding: 0.1rem 0.25rem; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-card); color: var(--text-main);">
+                    </div>
+                `;
+            }
+
             tr.innerHTML = `
                 <td>${tx.dateStr}</td>
                 <td><small class="text-muted" style="font-family: monospace;">${tx.reference || '---'}</small></td>
-                <td><strong>${tx.description}</strong></td>
+                <td>${descContent}</td>
                 <td class="text-right font-medium color-success">${amtCordobas}</td>
                 <td class="text-right font-medium color-success">${amtDolares}</td>
                 <td class="text-muted" style="font-size: 0.8rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${invoiceNames}</td>
@@ -2410,6 +2421,18 @@ function bindTableActionButtons() {
             }
         });
     }
+
+    // Bind plate number changes for fuel station transactions
+    document.querySelectorAll('.input-plate-number').forEach(input => {
+        input.addEventListener('change', (e) => {
+            const txId = e.target.dataset.id;
+            const tx = ReconState.transactions.find(t => t.id === txId);
+            if (tx) {
+                tx.vehiclePlate = e.target.value.trim();
+                window.showToast(`Placa actualizada para ${tx.description.substring(0, 15)}...`, 'success');
+            }
+        });
+    });
 }
 
 // --- MODALS & WORKFLOWS ---
@@ -3597,7 +3620,8 @@ async function saveReconciliation() {
             retentionIRDocName: tx.retentionIRDoc ? tx.retentionIRDoc.name : null,
             retentionMunicipalDocName: tx.retentionMunicipalDoc ? tx.retentionMunicipalDoc.name : null,
             exemptionDocName: tx.exemptionDoc ? tx.exemptionDoc.name : null,
-            reimbursementDocName: tx.reimbursementDoc ? tx.reimbursementDoc.name : null
+            reimbursementDocName: tx.reimbursementDoc ? tx.reimbursementDoc.name : null,
+            vehiclePlate: tx.vehiclePlate || ''
         };
     });
 
@@ -3845,7 +3869,8 @@ async function loadSavedReconciliation(id) {
             retentionIRDoc: linkedIR,
             retentionMunicipalDoc: linkedMunicipal,
             exemptionDoc: linkedExemption,
-            reimbursementDoc: linkedReimbursement
+            reimbursementDoc: linkedReimbursement,
+            vehiclePlate: tx.vehiclePlate || ''
         };
     });
 
@@ -4089,7 +4114,7 @@ async function generatePdfReport() {
             return [
                 tx.dateStr,
                 tx.reference || '---',
-                tx.description.substring(0, 30),
+                tx.description.substring(0, 30) + (tx.vehiclePlate ? ` [Placa: ${tx.vehiclePlate}]` : ''),
                 amtNIO,
                 amtUSD,
                 supportStatus,
