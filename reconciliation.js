@@ -581,6 +581,8 @@ async function processFiles() {
                             extractedDateStr: docDetails.dateStr,
                             extractedDate: docDetails.date,
                             currency: docDetails.currency,
+                            purchaseOrderRef: docDetails.purchaseOrderRef || null,
+                            hasSinsaRuc: docDetails.hasSinsaRuc || false,
                             matched: false,
                             lowQuality: isLowQuality,
                             confidence: 100
@@ -625,6 +627,8 @@ async function processFiles() {
                         extractedDateStr: docDetails.dateStr,
                         extractedDate: docDetails.date,
                         currency: docDetails.currency,
+                        purchaseOrderRef: docDetails.purchaseOrderRef || null,
+                        hasSinsaRuc: docDetails.hasSinsaRuc || false,
                         matched: false,
                         lowQuality: isLowQuality,
                         confidence: confidence
@@ -925,6 +929,7 @@ function classifyAndExtractDocument(text, fileName) {
     // 1. SCORING SYSTEM FOR CLASSIFICATION
     let retentionScore = 0;
     let invoiceScore = 0;
+    let purchaseOrderScore = 0;
     
     // --- Retention/Exemption Heuristics (using regex to tolerate OCR typos) ---
     const hasConstancia = /constancia\s+(?:de\s+)?retenci[o0]n/i.test(textNorm);
@@ -973,6 +978,17 @@ function classifyAndExtractDocument(text, fileName) {
     if (fileNorm.includes("retencion") || fileNorm.includes("constancia") || fileNorm.includes("exencion")) {
         retentionScore += 20;
     }
+    
+    // --- Purchase Order (Orden de Compra / OC) Heuristics ---
+    const hasOrdenCompra = /orden\s+(?:de\s+)?compra/i.test(textNorm) || /purchase\s+order/i.test(textNorm) || /\boc\b/i.test(textNorm) || /\bo\s*[\.\/]\s*c\b/i.test(textNorm);
+    const hasPedido = /n[o°\.]?\s*pedido/i.test(textNorm) || /pedido\s+(?:de\s+)?compra/i.test(textNorm) || /pedido\s+no/i.test(textNorm);
+    
+    if (hasOrdenCompra) purchaseOrderScore += 25;
+    if (hasPedido) purchaseOrderScore += 12;
+    
+    if (fileNorm.includes("orden") || fileNorm.includes("compra") || fileNorm.includes("oc") || fileNorm.includes("po")) {
+        purchaseOrderScore += 20;
+    }
 
     // --- Invoice Heuristics ---
     const hasFacturaContado = /factur[a1]\s+contad[o0]/i.test(textNorm);
@@ -1004,7 +1020,9 @@ function classifyAndExtractDocument(text, fileName) {
     
     // --- Decision Logic ---
     let docType = 'invoice';
-    if (retentionScore > invoiceScore && retentionScore >= 8) {
+    if (purchaseOrderScore > invoiceScore && purchaseOrderScore > retentionScore && purchaseOrderScore >= 8) {
+        docType = 'purchase_order';
+    } else if (retentionScore > invoiceScore && retentionScore >= 8) {
         const isMunicipal = hasRetencionMunicipal || textNorm.includes("municipal") || textNorm.includes("alcaldia") || textNorm.includes("alma") || textNorm.includes("imi") || fileNorm.includes("municipal");
         const isExemption = hasExemptionHeader || textNorm.includes("exencion") || textNorm.includes("exento") || fileNorm.includes("exencion");
         
@@ -1063,6 +1081,8 @@ function classifyAndExtractDocument(text, fileName) {
     let subtotal = null;
     let date = null;
     let dateStr = "";
+    let purchaseOrderRef = null;
+    let hasSinsaRuc = false;
     
     if (docType === 'invoice') {
         const details = extractInvoiceDetails(text, fileName);
@@ -1076,6 +1096,21 @@ function classifyAndExtractDocument(text, fileName) {
         if (ownInvMatch) {
             invoiceRef = ownInvMatch[1];
         }
+        
+        // Check for SINSA RUC: J0310000001812
+        hasSinsaRuc = /J\s*[-–]?\s*0310000001812/i.test(textNorm.replace(/\s+/g, ''));
+    } else if (docType === 'purchase_order') {
+        const details = extractInvoiceDetails(text, fileName);
+        amount = details.amount;
+        subtotal = details.subtotal;
+        date = details.date;
+        dateStr = details.dateStr;
+        
+        // Extracción de número de OC
+        const poMatch = text.match(/(?:orden\s+(?:de\s+)?compra|purchase\s+order|o\s*[\.\/]?\s*c)\s*(?:n[o°\.]|#|numero)?\s*(\d{3,10})/i);
+        if (poMatch) {
+            purchaseOrderRef = poMatch[1];
+        }
     }
 
     return {
@@ -1087,7 +1122,9 @@ function classifyAndExtractDocument(text, fileName) {
         subtotal,
         date,
         dateStr,
-        currency
+        currency,
+        purchaseOrderRef: purchaseOrderRef || null,
+        hasSinsaRuc: hasSinsaRuc || false
     };
 }
 
@@ -1704,25 +1741,39 @@ function getRetentionsBadgeHTML(tx) {
     if (tx.isReimbursement) {
         return `<span class="badge" style="background-color: rgba(245, 158, 11, 0.1); color: var(--color-warning); border: 1px solid var(--color-warning);"><i data-lucide="user-x"></i>Cargo a Empleado</span>`;
     }
-    if (!tx.requiresRetentions) {
-        return `<span class="badge" style="background-color: rgba(148, 163, 184, 0.1); color: var(--text-muted);"><i data-lucide="minus"></i>No Requiere</span>`;
-    }
     
     let html = `<div style="display: flex; flex-direction: column; gap: 0.25rem; align-items: flex-start;">`;
     
-    if (tx.isExempt) {
-        html += `<span class="badge badge-success"><i data-lucide="shield-check"></i>Exento (OK)</span>`;
-    } else {
-        if (tx.hasRetencionIR && tx.retentionsIRValid) {
-            html += `<span class="badge badge-success"><i data-lucide="check"></i>IR 2% OK</span>`;
+    // Add Purchase Order check for non-fuel charges
+    const isFuel = /\bPUMA\b|\bUNO\b/i.test(tx.description);
+    if (!isFuel && tx.type === 'charge') {
+        if (tx.purchaseOrderDoc) {
+            const poNo = tx.purchaseOrderDoc.purchaseOrderRef || tx.purchaseOrderDoc.name.substring(0, 15);
+            html += `<span class="badge badge-success" title="OC vinculada: ${tx.purchaseOrderDoc.name}"><i data-lucide="file-text"></i>OC: ${poNo}</span>`;
         } else {
-            html += `<span class="badge badge-danger"><i data-lucide="alert-triangle"></i>Falta IR 2%</span>`;
+            html += `<span class="badge badge-danger"><i data-lucide="alert-triangle"></i>Falta OC</span>`;
         }
-        
-        if (tx.hasRetencionMunicipal && tx.retentionsMunicipalValid) {
-            html += `<span class="badge badge-success"><i data-lucide="check"></i>ALMA 1% OK</span>`;
+    }
+
+    if (!tx.requiresRetentions) {
+        if (isFuel) {
+            html += `<span class="badge" style="background-color: rgba(148, 163, 184, 0.1); color: var(--text-muted);"><i data-lucide="minus"></i>No Requiere Ret.</span>`;
+        }
+    } else {
+        if (tx.isExempt) {
+            html += `<span class="badge badge-success"><i data-lucide="shield-check"></i>Exento (OK)</span>`;
         } else {
-            html += `<span class="badge badge-danger"><i data-lucide="alert-triangle"></i>Falta ALMA 1%</span>`;
+            if (tx.hasRetencionIR && tx.retentionsIRValid) {
+                html += `<span class="badge badge-success"><i data-lucide="check"></i>IR 2% OK</span>`;
+            } else {
+                html += `<span class="badge badge-danger"><i data-lucide="alert-triangle"></i>Falta IR 2%</span>`;
+            }
+            
+            if (tx.hasRetencionMunicipal && tx.retentionsMunicipalValid) {
+                html += `<span class="badge badge-success"><i data-lucide="check"></i>ALMA 1% OK</span>`;
+            } else {
+                html += `<span class="badge badge-danger"><i data-lucide="alert-triangle"></i>Falta ALMA 1%</span>`;
+            }
         }
     }
     
@@ -1872,7 +1923,29 @@ function renderReconciliationUI() {
                     </div>
                 `;
             } else {
-                invoiceNames = tx.invoices ? tx.invoices.map(i => i.name).join(', ') : (tx.invoice ? tx.invoice.name : '---');
+                if (tx.invoices && tx.invoices.length > 0) {
+                    invoiceNames = tx.invoices.map(inv => {
+                        const invNo = inv.invoiceRef ? `(N°. ${inv.invoiceRef})` : '(Sin N°.)';
+                        let rucText = '';
+                        if (inv.docType === 'invoice') {
+                            rucText = inv.hasSinsaRuc ? 
+                                ' <span class="badge badge-success" style="font-size:0.6rem; padding:1px 3px; font-weight:600;">RUC OK</span>' : 
+                                ' <span class="badge badge-danger" style="font-size:0.6rem; padding:1px 3px; font-weight:600;" title="Falta RUC SINSA J0310000001812">Sin RUC</span>';
+                        }
+                        return `<div style="margin-bottom:0.15rem;">${inv.name} <small class="text-muted">${invNo}</small>${rucText}</div>`;
+                    }).join('');
+                } else if (tx.invoice) {
+                    const invNo = tx.invoice.invoiceRef ? `(N°. ${tx.invoice.invoiceRef})` : '(Sin N°.)';
+                    let rucText = '';
+                    if (tx.invoice.docType === 'invoice') {
+                        rucText = tx.invoice.hasSinsaRuc ? 
+                            ' <span class="badge badge-success" style="font-size:0.6rem; padding:1px 3px; font-weight:600;">RUC OK</span>' : 
+                            ' <span class="badge badge-danger" style="font-size:0.6rem; padding:1px 3px; font-weight:600;" title="Falta RUC SINSA J0310000001812">Sin RUC</span>';
+                    }
+                    invoiceNames = `<div>${tx.invoice.name} <small class="text-muted">${invNo}</small>${rucText}</div>`;
+                } else {
+                    invoiceNames = '---';
+                }
                 invoiceDates = tx.invoices ? tx.invoices.map(i => i.extractedDateStr || 'No ident.').join(', ') : (tx.invoice ? (tx.invoice.extractedDateStr || 'No identificada') : 'No identificada');
 
                 let invoiceButtonsHTML = '';
@@ -1888,6 +1961,27 @@ function renderReconciliationUI() {
                             <i data-lucide="eye"></i>Ver Factura
                         </button>
                     `;
+                }
+
+                let purchaseOrderButtonsHTML = '';
+                const isFuel = /\bPUMA\b|\bUNO\b/i.test(tx.description);
+                if (!isFuel && tx.type === 'charge') {
+                    if (tx.purchaseOrderDoc) {
+                        purchaseOrderButtonsHTML += `
+                            <button class="btn btn-success btn-sm btn-view-po-action" data-id="${tx.id}" title="Ver Orden de Compra" style="margin: 0.1rem;">
+                                <i data-lucide="file-text"></i>Ver OC
+                            </button>
+                            <button class="btn btn-danger btn-sm btn-unlink-po-action" data-id="${tx.id}" title="Quitar Orden de Compra" style="margin: 0.1rem; padding: 0.2rem 0.35rem;">
+                                <i data-lucide="unlink"></i>
+                            </button>
+                        `;
+                    } else {
+                        purchaseOrderButtonsHTML += `
+                            <button class="btn btn-warning btn-sm btn-upload-po-action" data-id="${tx.id}" title="Subir Orden de Compra" style="margin: 0.1rem;">
+                                <i data-lucide="upload"></i>Subir OC
+                            </button>
+                        `;
+                    }
                 }
 
                 let retentionButtonsHTML = '';
@@ -1945,6 +2039,7 @@ function renderReconciliationUI() {
                 viewButtonsHTML = `
                     <div style="display: flex; gap: 0.25rem; justify-content: center; align-items: center; flex-wrap: wrap;">
                         ${invoiceButtonsHTML || '---'}
+                        ${purchaseOrderButtonsHTML}
                         ${retentionButtonsHTML}
                     </div>
                 `;
@@ -1967,7 +2062,7 @@ function renderReconciliationUI() {
                 <td>${descContent}</td>
                 <td class="text-right font-medium color-success">${amtCordobas}</td>
                 <td class="text-right font-medium color-success">${amtDolares}</td>
-                <td class="text-muted" style="font-size: 0.8rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${invoiceNames}</td>
+                <td style="font-size: 0.8rem; min-width: 180px;">${invoiceNames}</td>
                 <td style="font-size: 0.8rem;">${invoiceDates}</td>
                 <td>${getRetentionsBadgeHTML(tx)}</td>
                 <td class="text-center" style="white-space: nowrap;">
@@ -2026,7 +2121,7 @@ function renderReconciliationUI() {
     if (tbodyRetentions) {
         tbodyRetentions.innerHTML = '';
         
-        const retventionsList = ReconState.invoices.filter(i => i.docType === 'retencion_ir' || i.docType === 'retencion_municipal' || i.docType === 'exencion');
+        const retventionsList = ReconState.invoices.filter(i => i.docType === 'retencion_ir' || i.docType === 'retencion_municipal' || i.docType === 'exencion' || i.docType === 'orden_compra');
         
         // Update header count
         const countRetentions = document.getElementById('count-retentions');
@@ -2035,7 +2130,7 @@ function renderReconciliationUI() {
         }
 
         if (retventionsList.length === 0) {
-            tbodyRetentions.innerHTML = `<tr><td colspan="6" class="text-center text-muted" style="padding: 2rem;">No hay comprobantes de retención o exenciones cargados.</td></tr>`;
+            tbodyRetentions.innerHTML = `<tr><td colspan="6" class="text-center text-muted" style="padding: 2rem;">No hay comprobantes de retención, exenciones u órdenes de compra cargados.</td></tr>`;
         } else {
             retventionsList.forEach((doc, idx) => {
                 const tr = document.createElement('tr');
@@ -2043,6 +2138,7 @@ function renderReconciliationUI() {
                 let docTypeStr = "Exención";
                 if (doc.docType === 'retencion_ir') docTypeStr = "Retención IR 2%";
                 else if (doc.docType === 'retencion_municipal') docTypeStr = "Retención Municipal 1%";
+                else if (doc.docType === 'orden_compra') docTypeStr = "Orden de Compra";
 
                 let baseAmt = doc.baseAmount ? window.formatCurrency(doc.baseAmount, doc.currency || 'NIO') : '---';
                 let withheldAmt = doc.withheldAmount ? window.formatCurrency(doc.withheldAmount, doc.currency || 'NIO') : '---';
@@ -2050,7 +2146,8 @@ function renderReconciliationUI() {
                 const associatedTx = ReconState.transactions.find(t => 
                     t.retentionIRDoc === doc || 
                     t.retentionMunicipalDoc === doc || 
-                    t.exemptionDoc === doc
+                    t.exemptionDoc === doc ||
+                    t.purchaseOrderDoc === doc
                 );
                 
                 let relationStr = "";
@@ -2293,6 +2390,42 @@ function bindTableActionButtons() {
             const tx = ReconState.transactions.find(t => t.id === txId);
             if (tx && tx.exemptionDoc) {
                 openViewInvoiceModal(tx.exemptionDoc, tx);
+            }
+        });
+    });
+
+    // Purchase Order Actions
+    document.querySelectorAll('.btn-upload-po-action').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const txId = e.currentTarget.dataset.id;
+            const tx = ReconState.transactions.find(t => t.id === txId);
+            if (tx) {
+                openUploadModalForTx(tx, false, false, null, true);
+            }
+        });
+    });
+
+    document.querySelectorAll('.btn-view-po-action').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const txId = e.currentTarget.dataset.id;
+            const tx = ReconState.transactions.find(t => t.id === txId);
+            if (tx && tx.purchaseOrderDoc) {
+                openViewInvoiceModal(tx.purchaseOrderDoc, tx);
+            }
+        });
+    });
+
+    document.querySelectorAll('.btn-unlink-po-action').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const txId = e.currentTarget.dataset.id;
+            const tx = ReconState.transactions.find(t => t.id === txId);
+            if (tx && tx.purchaseOrderDoc) {
+                if (confirm('¿Está seguro de que desea desvincular la Orden de Compra de esta transacción?')) {
+                    tx.purchaseOrderDoc.matched = false;
+                    tx.purchaseOrderDoc = null;
+                    window.showToast('Orden de Compra desvinculada', 'info');
+                    renderReconciliationUI();
+                }
             }
         });
     });
@@ -2637,7 +2770,7 @@ function saveTxFromModal() {
     renderReconciliationUI();
 }
 
-function openUploadModalForTx(txOrGroup, isReimbursement = false, isRetention = false, retentionType = null) {
+function openUploadModalForTx(txOrGroup, isReimbursement = false, isRetention = false, retentionType = null, isPurchaseOrder = false) {
     const isGroup = Array.isArray(txOrGroup);
     const tx = isGroup ? txOrGroup[0] : txOrGroup;
     
@@ -2646,6 +2779,7 @@ function openUploadModalForTx(txOrGroup, isReimbursement = false, isRetention = 
     ReconState.uploadIsReimbursement = isReimbursement;
     ReconState.uploadIsRetention = isRetention;
     ReconState.uploadRetentionType = retentionType;
+    ReconState.uploadIsPurchaseOrder = isPurchaseOrder;
     
     // Customize modal headers depending on whether it's a reimbursement, retention, or normal invoice
     const modalTitle = document.querySelector('#modal-upload-invoice h3');
@@ -2665,6 +2799,10 @@ function openUploadModalForTx(txOrGroup, isReimbursement = false, isRetention = 
         if (modalTitle) modalTitle.textContent = `Subir ${typeName}`;
         if (modalInstruction) modalInstruction.textContent = `Subir ${typeName.toLowerCase()} para la transacción:`;
         if (dropZoneText) dropZoneText.textContent = `Arrastra el documento de ${typeName.toLowerCase()} (imagen o PDF) o haz clic aquí`;
+    } else if (isPurchaseOrder) {
+        if (modalTitle) modalTitle.textContent = 'Subir Orden de Compra (OC)';
+        if (modalInstruction) modalInstruction.textContent = 'Subir Orden de Compra para la transacción:';
+        if (dropZoneText) dropZoneText.textContent = 'Arrastra la Orden de Compra (imagen o PDF) o haz clic aquí';
     } else if (isReimbursement) {
         if (modalTitle) {
             modalTitle.textContent = isGroup ? 'Subir Comprobante de Depósito / Transferencia (Grupo)' : 'Subir Comprobante de Depósito / Transferencia';
@@ -2841,11 +2979,19 @@ async function processSingleInvoiceUpload() {
             matched: true,
             lowQuality: isLowQuality,
             confidence: confidence,
-            currency: targetTx.currency || docDetails.currency || 'NIO'
+            currency: targetTx.currency || docDetails.currency || 'NIO',
+            purchaseOrderRef: docDetails.purchaseOrderRef || null,
+            hasSinsaRuc: docDetails.hasSinsaRuc || false
         };
 
         // Link with the transaction
-        if (isReimbursementUpload) {
+        if (ReconState.uploadIsPurchaseOrder) {
+            targetTx.purchaseOrderDoc = newDoc;
+            newDoc.docType = 'orden_compra';
+            newDoc.matched = true;
+            newDoc.isManual = true;
+            window.showToast('Orden de Compra vinculada a la transacción', 'success');
+        } else if (isReimbursementUpload) {
             const targets = ReconState.targetTxGroup || [targetTx];
             targets.forEach(t => {
                 t.isReimbursement = true;
@@ -3595,6 +3741,8 @@ async function saveReconciliation() {
             lowQuality: doc.lowQuality,
             confidence: doc.confidence,
             currency: doc.currency,
+            purchaseOrderRef: doc.purchaseOrderRef || null,
+            hasSinsaRuc: doc.hasSinsaRuc || false,
             base64: doc.base64 || null
         };
     });
@@ -3625,6 +3773,7 @@ async function saveReconciliation() {
             retentionMunicipalDocName: tx.retentionMunicipalDoc ? tx.retentionMunicipalDoc.name : null,
             exemptionDocName: tx.exemptionDoc ? tx.exemptionDoc.name : null,
             reimbursementDocName: tx.reimbursementDoc ? tx.reimbursementDoc.name : null,
+            purchaseOrderDocName: tx.purchaseOrderDoc ? tx.purchaseOrderDoc.name : null,
             vehiclePlate: tx.vehiclePlate || ''
         };
     });
@@ -3832,7 +3981,9 @@ async function loadSavedReconciliation(id) {
             isManual: doc.isManual,
             lowQuality: doc.lowQuality,
             confidence: doc.confidence,
-            currency: doc.currency || 'NIO'
+            currency: doc.currency || 'NIO',
+            purchaseOrderRef: doc.purchaseOrderRef || null,
+            hasSinsaRuc: doc.hasSinsaRuc || false
         };
     });
 
@@ -3850,6 +4001,7 @@ async function loadSavedReconciliation(id) {
         const linkedMunicipal = tx.retentionMunicipalDocName ? ReconState.invoices.find(i => i.name === tx.retentionMunicipalDocName) : null;
         const linkedExemption = tx.exemptionDocName ? ReconState.invoices.find(i => i.name === tx.exemptionDocName) : null;
         const linkedReimbursement = tx.reimbursementDocName ? ReconState.invoices.find(i => i.name === tx.reimbursementDocName) : null;
+        const linkedPO = tx.purchaseOrderDocName ? ReconState.invoices.find(i => i.name === tx.purchaseOrderDocName) : null;
 
         return {
             id: tx.id,
@@ -3875,6 +4027,7 @@ async function loadSavedReconciliation(id) {
             retentionMunicipalDoc: linkedMunicipal,
             exemptionDoc: linkedExemption,
             reimbursementDoc: linkedReimbursement,
+            purchaseOrderDoc: linkedPO,
             vehiclePlate: tx.vehiclePlate || ''
         };
     });
@@ -4119,12 +4272,37 @@ async function generatePdfReport() {
                 }
             }
 
-            const supportStatus = ((tx.invoices && tx.invoices.length > 0) || tx.invoice) ? 'Disponible' : 'No disponible';
+            // Detailed Support Status (Invoice + OC / Plate)
+            let supportStatus = 'No disponible';
+            const invoices = tx.invoices || (tx.invoice ? [tx.invoice] : []);
+            if (invoices.length > 0) {
+                const parts = invoices.map(inv => {
+                    let invText = `F.${inv.invoiceRef || '---'}`;
+                    if (inv.docType === 'invoice' && !inv.hasSinsaRuc) {
+                        invText += ' (⚠️ Sin RUC)';
+                    }
+                    return invText;
+                });
+                
+                const isFuelTx = /\bPUMA\b|\bUNO\b/i.test(tx.description);
+                if (!isFuelTx) {
+                    if (tx.purchaseOrderDoc) {
+                        const poNo = tx.purchaseOrderDoc.purchaseOrderRef || '---';
+                        parts.push(`OC.${poNo}`);
+                    } else {
+                        parts.push('⚠️ Falta OC');
+                    }
+                } else if (tx.vehiclePlate) {
+                    parts.push(`Placa: ${tx.vehiclePlate}`);
+                }
+                
+                supportStatus = parts.join(' / ');
+            }
 
             return [
                 tx.dateStr,
                 tx.reference || '---',
-                tx.description.substring(0, 30) + (tx.vehiclePlate ? ` [Placa: ${tx.vehiclePlate}]` : ''),
+                tx.description.substring(0, 30),
                 amtNIO,
                 amtUSD,
                 supportStatus,
@@ -4143,10 +4321,10 @@ async function generatePdfReport() {
                 2: { cellWidth: 'auto' }, // Comercio
                 3: { cellWidth: 22, halign: 'right' }, // Monto NIO
                 4: { cellWidth: 22, halign: 'right' }, // Monto USD
-                5: { cellWidth: 18 }, // Factura Soporte
-                6: { cellWidth: 28 }  // Impuestos / Retenciones
+                5: { cellWidth: 32 }, // Factura / OC
+                6: { cellWidth: 22 }  // Impuestos / Retenciones
             },
-            head: [['Fecha', 'Referencia', 'Comercio', 'Monto NIO', 'Monto USD', 'Factura Soporte', 'Impuestos / Retenciones']],
+            head: [['Fecha', 'Referencia', 'Comercio', 'Monto NIO', 'Monto USD', 'Factura / OC', 'Impuestos / Retenciones']],
             body: resolvedRows.length > 0 ? resolvedRows : [['---', '---', 'No hay cargos conciliados', '---', '---', '---', '---']]
         });
 
