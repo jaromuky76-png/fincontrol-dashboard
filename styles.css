@@ -167,16 +167,20 @@ h1, h2, h3, h4, h5, h6 {
 .sidebar {
     width: var(--sidebar-width);
     background-color: var(--bg-secondary);
-    border-right: 1px solid var(--border-color);
-    padding: 2rem 1.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    padding: 2.5rem 1.5rem;
     display: flex;
     flex-direction: column;
     position: fixed;
-    height: 100vh;
+    height: calc(100vh - 3rem);
+    top: 1.5rem;
+    left: 1.5rem;
     z-index: 100;
     backdrop-filter: blur(var(--glass-blur));
     -webkit-backdrop-filter: blur(var(--glass-blur));
     transition: all var(--transition-normal);
+    box-shadow: var(--shadow-lg);
 }
 
 .sidebar-header {
@@ -275,10 +279,10 @@ body.light-mode .moon-icon { display: none; }
 
 /* Main Content Layout */
 .main-content {
-    margin-left: var(--sidebar-width);
+    margin-left: calc(var(--sidebar-width) + 3rem);
     flex-grow: 1;
     padding: 2.5rem 3rem;
-    max-width: calc(100vw - var(--sidebar-width));
+    max-width: calc(100vw - var(--sidebar-width) - 3rem);
 }
 
 .main-header {
@@ -1133,6 +1137,14 @@ select option {
     .sidebar {
         width: 70px;
         padding: 1.5rem 0.5rem;
+        top: 0;
+        left: 0;
+        height: 100vh;
+        border-radius: 0;
+        border-right: 1px solid var(--border-color);
+        border-left: none;
+        border-top: none;
+        border-bottom: none;
     }
     .logo-text, .theme-btn span, .menu-item span {
         display: none;
