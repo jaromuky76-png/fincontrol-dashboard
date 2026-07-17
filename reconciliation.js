@@ -3082,6 +3082,8 @@ function openViewInvoiceModal(invoice, tx = null) {
             modalTitle.textContent = 'Visualizar Exención de Impuestos';
         } else if (invoice.docType === 'reimbursement_receipt') {
             modalTitle.textContent = 'Visualizar Comprobante de Reembolso';
+        } else if (invoice.docType === 'orden_compra') {
+            modalTitle.textContent = 'Visualizar Orden de Compra';
         } else {
             modalTitle.textContent = 'Visualizar Factura de Respaldo';
         }
@@ -3137,6 +3139,9 @@ function openViewInvoiceModal(invoice, tx = null) {
         if (rowWithheld) rowWithheld.classList.add('hidden');
         if (invoice.docType === 'exencion') {
             reconElements.viewInvoiceAmount.textContent = 'Exención de Impuestos';
+        } else if (invoice.docType === 'orden_compra') {
+            const poNo = invoice.purchaseOrderRef ? `(N°. ${invoice.purchaseOrderRef})` : '';
+            reconElements.viewInvoiceAmount.textContent = `Orden de Compra ${poNo} - ${invoice.extractedAmount ? window.formatCurrency(invoice.extractedAmount, invCurrency) : 'Monto no detectado'}`;
         } else {
             reconElements.viewInvoiceAmount.textContent = invoice.extractedAmount ? window.formatCurrency(invoice.extractedAmount, invCurrency) : 'No detectado';
         }
@@ -3336,7 +3341,8 @@ function handleInvoiceTypeChange() {
         (t.invoice && t.invoice.name === invoice.name) ||
         t.retentionIRDoc === invoice || 
         t.retentionMunicipalDoc === invoice || 
-        t.exemptionDoc === invoice
+        t.exemptionDoc === invoice ||
+        t.purchaseOrderDoc === invoice
     );
     
     if (isMatched && associatedTx) {
@@ -3368,6 +3374,8 @@ function handleInvoiceTypeChange() {
         } else if (invoice.docType === 'exencion') {
             associatedTx.isExempt = false;
             associatedTx.exemptionDoc = null;
+        } else if (invoice.docType === 'orden_compra') {
+            associatedTx.purchaseOrderDoc = null;
         }
         invoice.matched = false;
         invoice.isManual = false;

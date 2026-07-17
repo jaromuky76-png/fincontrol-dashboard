@@ -838,6 +838,13 @@ body.light-mode .table tbody tr:hover {
     box-shadow: 0 0 0 3px var(--color-primary-light);
 }
 
+/* Fix dropdown options color visibility in both light & dark modes */
+.form-control option,
+select option {
+    background-color: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
 .form-help {
     display: block;
     font-size: 0.75rem;

@@ -729,17 +729,18 @@
                         <tr>
                             <th>Tipo de Documento:</th>
                             <td>
-                                <select id="view-invoice-type" class="form-control" style="font-size: 0.85rem; padding: 0.25rem 0.5rem; width: 100%; border-radius: 6px; background-color: var(--card-bg); color: var(--text-main); border: 1px solid var(--border-color);">
+                                <select id="view-invoice-type" class="form-control" style="font-size: 0.85rem; padding: 0.25rem 0.5rem; width: 100%; border-radius: 6px; background-color: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color);">
                                     <option value="invoice">Factura de Compra</option>
                                     <option value="retencion_ir">Retención Impuesto Renta (IR)</option>
                                     <option value="retencion_municipal">Retención Municipal (ALMA)</option>
                                     <option value="exencion">Exención de Impuestos</option>
                                     <option value="reimbursement_receipt">Comprobante de Reembolso</option>
+                                    <option value="orden_compra">Orden de Compra</option>
                                 </select>
                             </td>
                         </tr>
                     </table>
-                    <div style="margin-top: 1.25rem;">
+                    <div style="margin-top: 1.25rem; display: none;">
                         <h4 class="section-title">Texto Completo Reconocido:</h4>
                         <div class="raw-ocr-text" id="view-invoice-raw-text">
                             <!-- Raw OCR text goes here -->
