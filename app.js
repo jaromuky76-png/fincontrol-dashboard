@@ -394,8 +394,41 @@ const CardInventoryState = {
     filterType: 'ALL',
     filterStatus: 'ALL',
     editingCardId: null,
-    tempPlasticBase64: ''
+    tempPlasticBase64: '',
+    tempRegFrontBase64: '',
+    tempRegBackBase64: ''
 };
+
+function compressImageFile(file, maxWidth = 1000, quality = 0.75) {
+    return new Promise((resolve) => {
+        if (!file) {
+            resolve('');
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                let width = img.width;
+                let height = img.height;
+                if (width > maxWidth) {
+                    height = Math.round((height * maxWidth) / width);
+                    width = maxWidth;
+                }
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+                resolve(canvas.toDataURL('image/jpeg', quality));
+            };
+            img.onerror = () => resolve(e.target.result);
+            img.src = e.target.result;
+        };
+        reader.onerror = () => resolve('');
+        reader.readAsDataURL(file);
+    });
+}
 
 function getInventorySecurity() {
     const data = localStorage.getItem('fincontrol_inv_security');
@@ -565,23 +598,54 @@ function initCardInventoryModule() {
         });
     }
 
-    // Image Upload Handling
+    // Image Upload Handling (Plastic & Circulation Front/Back)
     const inputPlasticImg = document.getElementById('input-inv-plastic-image');
     if (inputPlasticImg) {
-        inputPlasticImg.addEventListener('change', (e) => {
+        inputPlasticImg.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (file) {
-                const reader = new FileReader();
-                reader.onload = (evt) => {
-                    CardInventoryState.tempPlasticBase64 = evt.target.result;
-                    const imgPrev = document.getElementById('img-inv-plastic-preview');
-                    const containerPrev = document.getElementById('inv-plastic-preview-container');
-                    if (imgPrev && containerPrev) {
-                        imgPrev.src = evt.target.result;
-                        containerPrev.style.display = 'block';
-                    }
-                };
-                reader.readAsDataURL(file);
+                const compressed = await compressImageFile(file);
+                CardInventoryState.tempPlasticBase64 = compressed;
+                const imgPrev = document.getElementById('img-inv-plastic-preview');
+                const containerPrev = document.getElementById('inv-plastic-preview-container');
+                if (imgPrev && containerPrev) {
+                    imgPrev.src = compressed;
+                    containerPrev.style.display = 'block';
+                }
+            }
+        });
+    }
+
+    const inputRegFront = document.getElementById('input-inv-reg-front');
+    if (inputRegFront) {
+        inputRegFront.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const compressed = await compressImageFile(file);
+                CardInventoryState.tempRegFrontBase64 = compressed;
+                const imgPrev = document.getElementById('img-inv-reg-front-preview');
+                const containerPrev = document.getElementById('inv-reg-front-preview-container');
+                if (imgPrev && containerPrev) {
+                    imgPrev.src = compressed;
+                    containerPrev.style.display = 'block';
+                }
+            }
+        });
+    }
+
+    const inputRegBack = document.getElementById('input-inv-reg-back');
+    if (inputRegBack) {
+        inputRegBack.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const compressed = await compressImageFile(file);
+                CardInventoryState.tempRegBackBase64 = compressed;
+                const imgPrev = document.getElementById('img-inv-reg-back-preview');
+                const containerPrev = document.getElementById('inv-reg-back-preview-container');
+                if (imgPrev && containerPrev) {
+                    imgPrev.src = compressed;
+                    containerPrev.style.display = 'block';
+                }
             }
         });
     }
@@ -613,6 +677,8 @@ function initCardInventoryModule() {
                 vehiclePlate: vehiclePlate,
                 vehicleReg: vehicleReg,
                 plasticImage: CardInventoryState.tempPlasticBase64 || '',
+                regFrontImage: type === 'combustible' ? (CardInventoryState.tempRegFrontBase64 || '') : '',
+                regBackImage: type === 'combustible' ? (CardInventoryState.tempRegBackBase64 || '') : '',
                 notes: notes,
                 updatedAt: new Date().toISOString()
             };
@@ -746,11 +812,12 @@ function renderInventoryTable() {
 
         const statusBadge = `<span class="badge ${statusBadgeClass}">${c.status || 'Activa'}</span>`;
 
-        const plasticBtn = c.plasticImage 
+        const hasPhotos = c.plasticImage || c.regFrontImage || c.regBackImage;
+        const plasticBtn = hasPhotos 
             ? `<button class="btn btn-sm btn-secondary btn-view-plastic" data-id="${c.id}" style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">
-                 <i data-lucide="image" style="width: 13px; height: 13px; vertical-align: middle;"></i> Ver Foto
+                 <i data-lucide="image" style="width: 13px; height: 13px; vertical-align: middle;"></i> Ver Fotos
                </button>`
-            : `<span class="text-muted" style="font-size: 0.75rem;">Sin Foto</span>`;
+            : `<span class="text-muted" style="font-size: 0.75rem;">Sin Fotos</span>`;
 
         const vehicleInfo = isFuel 
             ? `<strong>Placa:</strong> ${c.vehiclePlate || 'N/D'}<br><span class="text-muted" style="font-size: 0.75rem;">Circulación: ${c.vehicleReg || 'N/D'}</span>`
@@ -783,11 +850,46 @@ function renderInventoryTable() {
         btn.addEventListener('click', () => {
             const cardId = btn.getAttribute('data-id');
             const card = CardInventoryState.cards.find(x => x.id === cardId);
-            if (card && card.plasticImage) {
-                const imgFull = document.getElementById('img-full-plastic');
+            if (card) {
                 const txtInfo = document.getElementById('txt-full-plastic-info');
-                if (imgFull) imgFull.src = card.plasticImage;
                 if (txtInfo) txtInfo.textContent = `Tarjeta: **** ${card.cardNumber} | Responsable: ${card.holderName} (${card.holderCode}) ${card.vehiclePlate ? '| Placa: ' + card.vehiclePlate : ''}`;
+                
+                // Plastic Image
+                const imgPlastic = document.getElementById('img-full-plastic');
+                const noPlastic = document.getElementById('no-plastic-text');
+                if (card.plasticImage) {
+                    imgPlastic.src = card.plasticImage;
+                    imgPlastic.style.display = 'inline-block';
+                    if (noPlastic) noPlastic.style.display = 'none';
+                } else {
+                    imgPlastic.style.display = 'none';
+                    if (noPlastic) noPlastic.style.display = 'block';
+                }
+
+                // Reg Front Image
+                const imgRegFront = document.getElementById('img-full-reg-front');
+                const noRegFront = document.getElementById('no-reg-front-text');
+                if (card.regFrontImage) {
+                    imgRegFront.src = card.regFrontImage;
+                    imgRegFront.style.display = 'inline-block';
+                    if (noRegFront) noRegFront.style.display = 'none';
+                } else {
+                    imgRegFront.style.display = 'none';
+                    if (noRegFront) noRegFront.style.display = 'block';
+                }
+
+                // Reg Back Image
+                const imgRegBack = document.getElementById('img-full-reg-back');
+                const noRegBack = document.getElementById('no-reg-back-text');
+                if (card.regBackImage) {
+                    imgRegBack.src = card.regBackImage;
+                    imgRegBack.style.display = 'inline-block';
+                    if (noRegBack) noRegBack.style.display = 'none';
+                } else {
+                    imgRegBack.style.display = 'none';
+                    if (noRegBack) noRegBack.style.display = 'block';
+                }
+
                 document.getElementById('modal-view-card-plastic').classList.add('active');
             }
         });
@@ -823,6 +925,8 @@ function openCardModal(cardToEdit) {
     const groupVehicle = document.getElementById('group-inv-vehicle');
 
     CardInventoryState.tempPlasticBase64 = cardToEdit ? cardToEdit.plasticImage || '' : '';
+    CardInventoryState.tempRegFrontBase64 = cardToEdit ? cardToEdit.regFrontImage || '' : '';
+    CardInventoryState.tempRegBackBase64 = cardToEdit ? cardToEdit.regBackImage || '' : '';
 
     if (cardToEdit) {
         titleModal.textContent = 'Editar Tarjeta de Inventario';
@@ -837,20 +941,43 @@ function openCardModal(cardToEdit) {
         document.getElementById('input-inv-vehicle-reg').value = cardToEdit.vehicleReg || '';
         document.getElementById('textarea-inv-notes').value = cardToEdit.notes || '';
 
-        const imgPrev = document.getElementById('img-inv-plastic-preview');
-        const containerPrev = document.getElementById('inv-plastic-preview-container');
-        if (cardToEdit.plasticImage && imgPrev && containerPrev) {
-            imgPrev.src = cardToEdit.plasticImage;
-            containerPrev.style.display = 'block';
-        } else if (containerPrev) {
-            containerPrev.style.display = 'none';
+        // Plastic Preview
+        const imgPlasticPrev = document.getElementById('img-inv-plastic-preview');
+        const containerPlasticPrev = document.getElementById('inv-plastic-preview-container');
+        if (cardToEdit.plasticImage && imgPlasticPrev && containerPlasticPrev) {
+            imgPlasticPrev.src = cardToEdit.plasticImage;
+            containerPlasticPrev.style.display = 'block';
+        } else if (containerPlasticPrev) {
+            containerPlasticPrev.style.display = 'none';
+        }
+
+        // Reg Front Preview
+        const imgRegFrontPrev = document.getElementById('img-inv-reg-front-preview');
+        const containerRegFrontPrev = document.getElementById('inv-reg-front-preview-container');
+        if (cardToEdit.regFrontImage && imgRegFrontPrev && containerRegFrontPrev) {
+            imgRegFrontPrev.src = cardToEdit.regFrontImage;
+            containerRegFrontPrev.style.display = 'block';
+        } else if (containerRegFrontPrev) {
+            containerRegFrontPrev.style.display = 'none';
+        }
+
+        // Reg Back Preview
+        const imgRegBackPrev = document.getElementById('img-inv-reg-back-preview');
+        const containerRegBackPrev = document.getElementById('inv-reg-back-preview-container');
+        if (cardToEdit.regBackImage && imgRegBackPrev && containerRegBackPrev) {
+            imgRegBackPrev.src = cardToEdit.regBackImage;
+            containerRegBackPrev.style.display = 'block';
+        } else if (containerRegBackPrev) {
+            containerRegBackPrev.style.display = 'none';
         }
     } else {
         titleModal.textContent = 'Registrar Nueva Tarjeta';
         document.getElementById('form-inventory-card').reset();
         document.getElementById('input-inv-card-id').value = '';
-        const containerPrev = document.getElementById('inv-plastic-preview-container');
-        if (containerPrev) containerPrev.style.display = 'none';
+
+        document.getElementById('inv-plastic-preview-container').style.display = 'none';
+        document.getElementById('inv-reg-front-preview-container').style.display = 'none';
+        document.getElementById('inv-reg-back-preview-container').style.display = 'none';
     }
 
     const selectType = document.getElementById('select-inv-card-type');
@@ -958,7 +1085,7 @@ function generateCardInventoryPdfReport() {
         }
     });
 
-    // Signature Area at bottom of last page
+    // Signature Area at bottom of main table page
     let finalY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 20 : 150;
     if (finalY > doc.internal.pageSize.height - 40) {
         doc.addPage();
@@ -974,6 +1101,114 @@ function generateCardInventoryPdfReport() {
 
     doc.line(160, finalY, 240, finalY);
     doc.text('Recibido / Verificación por (Contabilidad & Tesorería)', 162, finalY + 5);
+
+    // Annex Section: Vehicle Documents & Circulation Images (Derecho & Revés)
+    const cardsWithDocs = CardInventoryState.cards.filter(c => c.plasticImage || c.regFrontImage || c.regBackImage);
+
+    if (cardsWithDocs.length > 0) {
+        doc.addPage('landscape');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.setTextColor(30, 41, 59);
+        doc.text('ANEXO: DOCUMENTOS DE SOPORTE, PLÁSTICOS Y CIRCULACIÓN DE VEHÍCULOS', 14, 15);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(100, 116, 139);
+        doc.text('Imágenes de tarjetas corporativas y circulación (Derecho y Revés) registradas en el sistema', 14, 20);
+
+        let currentY = 25;
+        const pageHeight = doc.internal.pageSize.height;
+
+        cardsWithDocs.forEach((c) => {
+            if (currentY + 58 > pageHeight - 15) {
+                doc.addPage('landscape');
+                currentY = 20;
+            }
+
+            // Draw Card Box
+            doc.setDrawColor(203, 213, 225);
+            doc.setFillColor(248, 250, 252);
+            doc.roundedRect(14, currentY, 252, 54, 2, 2, 'FD');
+
+            // Header Text inside Box
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(9);
+            doc.setTextColor(15, 23, 42);
+            const titleLine = c.type === 'combustible'
+                ? `PLACA: ${c.vehiclePlate || 'S/N'}   |   CIRCULACIÓN N°: ${c.vehicleReg || 'S/N'}`
+                : `TARJETA CORPORATIVA: **** ${c.cardNumber} (${c.bank || 'BANPRO'})`;
+            doc.text(titleLine, 18, currentY + 6.5);
+
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(8);
+            doc.setTextColor(71, 85, 105);
+            doc.text(`Responsable: ${c.holderName || 'N/D'} (Cód: ${c.holderCode || 'N/D'})   |   Estado: ${c.status || 'Activa'}`, 18, currentY + 11.5);
+
+            let imgX = 18;
+            const imgY = currentY + 14;
+            const imgWidth = 74;
+            const imgHeight = 35;
+
+            // 1. Plástico Image
+            if (c.plasticImage) {
+                try {
+                    doc.addImage(c.plasticImage, 'JPEG', imgX, imgY, imgWidth, imgHeight);
+                    doc.setFontSize(7);
+                    doc.setTextColor(99, 102, 241);
+                    doc.text('Tarjeta (Plástico)', imgX + 2, imgY + imgHeight + 3);
+                } catch(e) {}
+            } else {
+                doc.setDrawColor(226, 232, 240);
+                doc.setFillColor(255, 255, 255);
+                doc.rect(imgX, imgY, imgWidth, imgHeight, 'FD');
+                doc.setFontSize(7.5);
+                doc.setTextColor(148, 163, 184);
+                doc.text('Sin Foto Plástico', imgX + 22, imgY + 18);
+            }
+            imgX += imgWidth + 8;
+
+            // 2. Circulation Front (Derecho)
+            if (c.type === 'combustible') {
+                if (c.regFrontImage) {
+                    try {
+                        doc.addImage(c.regFrontImage, 'JPEG', imgX, imgY, imgWidth, imgHeight);
+                        doc.setFontSize(7);
+                        doc.setTextColor(16, 185, 129);
+                        doc.text('Circulación (Derecho / Frente)', imgX + 2, imgY + imgHeight + 3);
+                    } catch(e) {}
+                } else {
+                    doc.setDrawColor(226, 232, 240);
+                    doc.setFillColor(255, 255, 255);
+                    doc.rect(imgX, imgY, imgWidth, imgHeight, 'FD');
+                    doc.setFontSize(7.5);
+                    doc.setTextColor(148, 163, 184);
+                    doc.text('Sin Foto Frente', imgX + 22, imgY + 18);
+                }
+                imgX += imgWidth + 8;
+
+                // 3. Circulation Back (Revés)
+                if (c.regBackImage) {
+                    try {
+                        doc.addImage(c.regBackImage, 'JPEG', imgX, imgY, imgWidth, imgHeight);
+                        doc.setFontSize(7);
+                        doc.setTextColor(245, 158, 11);
+                        doc.text('Circulación (Revés / Reverso)', imgX + 2, imgY + imgHeight + 3);
+                    } catch(e) {}
+                } else {
+                    doc.setDrawColor(226, 232, 240);
+                    doc.setFillColor(255, 255, 255);
+                    doc.rect(imgX, imgY, imgWidth, imgHeight, 'FD');
+                    doc.setFontSize(7.5);
+                    doc.setTextColor(148, 163, 184);
+                    doc.text('Sin Foto Reverso', imgX + 22, imgY + 18);
+                }
+            }
+
+            currentY += 58;
+        });
+    }
 
     doc.save(`Reporte_Inventario_Tarjetas_${new Date().toISOString().slice(0,10)}.pdf`);
     showToast('Reporte PDF de inventario generado con éxito', 'success');

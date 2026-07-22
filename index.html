@@ -1018,8 +1018,8 @@
 
                     <!-- Vehicle Group (Fuel Only) -->
                     <div id="group-inv-vehicle" style="background: var(--bg-card); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 1rem;">
-                        <h4 style="font-size: 0.9rem; margin-bottom: 0.75rem; color: var(--color-success);"><i data-lucide="truck" style="width: 16px; height: 16px; display: inline-block; vertical-align: middle;"></i> Vehículo Asociado (Combustible)</h4>
-                        <div class="grid-2">
+                        <h4 style="font-size: 0.9rem; margin-bottom: 0.75rem; color: var(--color-success);"><i data-lucide="truck" style="width: 16px; height: 16px; display: inline-block; vertical-align: middle;"></i> Vehículo Asociado & Documentos de Circulación</h4>
+                        <div class="grid-2" style="margin-bottom: 0.75rem;">
                             <div class="form-group" style="margin-bottom: 0;">
                                 <label for="input-inv-vehicle-plate">Placa del Vehículo:</label>
                                 <input type="text" id="input-inv-vehicle-plate" class="form-control" placeholder="Ej. M 123456">
@@ -1027,6 +1027,24 @@
                             <div class="form-group" style="margin-bottom: 0;">
                                 <label for="input-inv-vehicle-reg">Número de Circulación:</label>
                                 <input type="text" id="input-inv-vehicle-reg" class="form-control" placeholder="Ej. CIRC-882390">
+                            </div>
+                        </div>
+
+                        <!-- Circulation Images (Front & Back) -->
+                        <div class="grid-2">
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label for="input-inv-reg-front">Foto Circulación (Derecho / Frente):</label>
+                                <input type="file" id="input-inv-reg-front" accept="image/*" class="form-control" style="font-size: 0.8rem;">
+                                <div id="inv-reg-front-preview-container" style="margin-top: 0.5rem; text-align: center; display: none;">
+                                    <img id="img-inv-reg-front-preview" src="" style="max-height: 110px; border-radius: 6px; border: 1px solid var(--border-color); box-shadow: var(--shadow-sm);">
+                                </div>
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label for="input-inv-reg-back">Foto Circulación (Revés / Reverso):</label>
+                                <input type="file" id="input-inv-reg-back" accept="image/*" class="form-control" style="font-size: 0.8rem;">
+                                <div id="inv-reg-back-preview-container" style="margin-top: 0.5rem; text-align: center; display: none;">
+                                    <img id="img-inv-reg-back-preview" src="" style="max-height: 110px; border-radius: 6px; border: 1px solid var(--border-color); box-shadow: var(--shadow-sm);">
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1113,16 +1131,32 @@
         </div>
     </div>
 
-    <!-- Modal: Plastic Image Viewer -->
+    <!-- Modal: Plastic & Circulation Image Viewer -->
     <div class="modal" id="modal-view-card-plastic">
-        <div class="modal-content card" style="max-width: 650px;">
+        <div class="modal-content card modal-lg" style="max-width: 850px;">
             <div class="card-header justify-between">
-                <h3 id="modal-plastic-title">Fotografía del Plástico</h3>
+                <h3 id="modal-plastic-title">Documentos de Tarjeta y Vehículo</h3>
                 <button class="btn-close" id="btn-close-modal-plastic">&times;</button>
             </div>
-            <div class="card-body text-center" style="padding: 1.5rem 0;">
-                <img id="img-full-plastic" src="" alt="Plástico de Tarjeta" style="max-width: 100%; max-height: 70vh; border-radius: 12px; box-shadow: var(--shadow-lg);">
-                <p id="txt-full-plastic-info" class="text-muted" style="margin-top: 1rem; font-size: 0.85rem;"></p>
+            <div class="card-body" style="padding: 1rem 0;">
+                <p id="txt-full-plastic-info" class="text-muted text-center" style="margin-bottom: 1rem; font-size: 0.85rem; font-weight: 500;"></p>
+                <div style="display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center;" id="container-full-docs">
+                    <div id="wrapper-doc-plastic" style="flex: 1; min-width: 240px; text-align: center; background: var(--bg-card); padding: 0.75rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                        <h4 style="font-size: 0.8rem; margin-bottom: 0.5rem; color: var(--color-primary);"><i data-lucide="credit-card" style="width: 14px; height: 14px; display: inline-block;"></i> Tarjeta (Plástico)</h4>
+                        <img id="img-full-plastic" src="" style="max-width: 100%; max-height: 40vh; border-radius: 8px; box-shadow: var(--shadow-sm); object-fit: contain;">
+                        <span id="no-plastic-text" class="text-muted" style="font-size: 0.75rem; display: none;">Sin foto de plástico</span>
+                    </div>
+                    <div id="wrapper-doc-reg-front" style="flex: 1; min-width: 240px; text-align: center; background: var(--bg-card); padding: 0.75rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                        <h4 style="font-size: 0.8rem; margin-bottom: 0.5rem; color: var(--color-success);"><i data-lucide="file-check" style="width: 14px; height: 14px; display: inline-block;"></i> Circulación (Derecho / Frente)</h4>
+                        <img id="img-full-reg-front" src="" style="max-width: 100%; max-height: 40vh; border-radius: 8px; box-shadow: var(--shadow-sm); object-fit: contain;">
+                        <span id="no-reg-front-text" class="text-muted" style="font-size: 0.75rem; display: none;">Sin foto de frente</span>
+                    </div>
+                    <div id="wrapper-doc-reg-back" style="flex: 1; min-width: 240px; text-align: center; background: var(--bg-card); padding: 0.75rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                        <h4 style="font-size: 0.8rem; margin-bottom: 0.5rem; color: var(--color-warning);"><i data-lucide="file-text" style="width: 14px; height: 14px; display: inline-block;"></i> Circulación (Revés / Reverso)</h4>
+                        <img id="img-full-reg-back" src="" style="max-width: 100%; max-height: 40vh; border-radius: 8px; box-shadow: var(--shadow-sm); object-fit: contain;">
+                        <span id="no-reg-back-text" class="text-muted" style="font-size: 0.75rem; display: none;">Sin foto de reverso</span>
+                    </div>
+                </div>
             </div>
             <div class="modal-footer text-right">
                 <button type="button" class="btn btn-secondary" id="btn-close-view-plastic">Cerrar</button>
