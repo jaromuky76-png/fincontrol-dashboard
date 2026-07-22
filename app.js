@@ -1049,31 +1049,31 @@ function generateCardInventoryPdfReport() {
     ]);
 
     doc.autoTable({
-        startY: 46,
+        startY: 42,
         head: [['#', 'Tipo', 'N° Tarjeta / Banco', 'Responsable', 'Cód. Empleado', 'Placa Vehículo', 'N° Circulación', 'Estado', 'Observaciones']],
         body: tableBody,
         theme: 'grid',
         headStyles: {
             fillColor: [30, 41, 59],
             textColor: [255, 255, 255],
-            fontSize: 8.5,
+            fontSize: 8,
             fontStyle: 'bold',
             halign: 'center'
         },
         styles: {
-            fontSize: 8,
-            cellPadding: 2.5,
+            fontSize: 7.5,
+            cellPadding: 1.8,
             valign: 'middle'
         },
         columnStyles: {
-            0: { halign: 'center', cellWidth: 10 },
-            1: { cellWidth: 25 },
-            2: { cellWidth: 32 },
-            3: { cellWidth: 45 },
-            4: { cellWidth: 25, halign: 'center' },
-            5: { cellWidth: 25, halign: 'center' },
-            6: { cellWidth: 28, halign: 'center' },
-            7: { cellWidth: 22, halign: 'center' },
+            0: { halign: 'center', cellWidth: 8 },
+            1: { cellWidth: 23 },
+            2: { cellWidth: 30 },
+            3: { cellWidth: 42 },
+            4: { cellWidth: 24, halign: 'center' },
+            5: { cellWidth: 24, halign: 'center' },
+            6: { cellWidth: 26, halign: 'center' },
+            7: { cellWidth: 20, halign: 'center' },
             8: { cellWidth: 'auto' }
         },
         didDrawPage: (data) => {
@@ -1085,11 +1085,11 @@ function generateCardInventoryPdfReport() {
         }
     });
 
-    // Signature Area at bottom of main table page
-    let finalY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 20 : 150;
-    if (finalY > doc.internal.pageSize.height - 40) {
+    // Signature Area at bottom of main table page (Ensuring it fits on Page 1)
+    let finalY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 10 : 135;
+    if (finalY > doc.internal.pageSize.height - 25) {
         doc.addPage();
-        finalY = 40;
+        finalY = 30;
     }
 
     doc.setFont('helvetica', 'normal');
@@ -1097,10 +1097,10 @@ function generateCardInventoryPdfReport() {
     doc.setTextColor(71, 85, 105);
 
     doc.line(30, finalY, 110, finalY);
-    doc.text('Elaborado / Entregado por (Administración)', 32, finalY + 5);
+    doc.text('Elaborado / Entregado por (Administración)', 32, finalY + 4.5);
 
     doc.line(160, finalY, 240, finalY);
-    doc.text('Recibido / Verificación por (Contabilidad & Tesorería)', 162, finalY + 5);
+    doc.text('Recibido / Verificación por (Contabilidad & Tesorería)', 162, finalY + 4.5);
 
     // Annex Section: Vehicle Documents & Circulation Images (Derecho & Revés)
     const cardsWithDocs = CardInventoryState.cards.filter(c => c.plasticImage || c.regFrontImage || c.regBackImage);
