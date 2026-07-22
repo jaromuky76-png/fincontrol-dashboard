@@ -51,6 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initNavigation();
     initDragAndDropGlobal();
     initSettingsView();
+    initCardInventoryModule();
     updateDateBadge();
     
     // Initialize icons
@@ -381,3 +382,637 @@ window.AppState = AppState;
 window.showToast = showToast;
 window.formatCurrency = formatCurrency;
 window.parseLocaleDate = parseLocaleDate;
+
+// ==========================================================================
+// CARD INVENTORY & SECURITY MODULE
+// ==========================================================================
+
+const CardInventoryState = {
+    isUnlocked: false,
+    cards: [],
+    searchQuery: '',
+    filterType: 'ALL',
+    filterStatus: 'ALL',
+    editingCardId: null,
+    tempPlasticBase64: ''
+};
+
+function getInventorySecurity() {
+    const data = localStorage.getItem('fincontrol_inv_security');
+    if (!data) return null;
+    try {
+        return JSON.parse(data);
+    } catch (e) {
+        return null;
+    }
+}
+
+function saveInventorySecurity(pin, question, answer) {
+    const secObj = {
+        pin: btoa(pin),
+        question: question,
+        answer: btoa(answer.trim().toLowerCase())
+    };
+    localStorage.setItem('fincontrol_inv_security', JSON.stringify(secObj));
+}
+
+function initCardInventoryModule() {
+    const elLocked = document.getElementById('inv-locked-challenge');
+    const elUnlocked = document.getElementById('inv-unlocked-panel');
+    const formLogin = document.getElementById('form-inv-login');
+    const inputPass = document.getElementById('input-inv-pass');
+    const btnLock = document.getElementById('btn-lock-inv');
+    const btnForgot = document.getElementById('btn-forgot-inv-pass');
+    const btnSetup = document.getElementById('btn-setup-inv-pass');
+    const badgeStatus = document.getElementById('inv-security-status-badge');
+
+    // Modals
+    const modalCard = document.getElementById('modal-inventory-card');
+    const modalSec = document.getElementById('modal-inventory-security');
+    const modalPlastic = document.getElementById('modal-view-card-plastic');
+
+    // Check if security is configured
+    const sec = getInventorySecurity();
+    if (!sec) {
+        // Set default security (PIN: 1234, Question: Palabra Clave, Answer: admin)
+        saveInventorySecurity('1234', '¿Palabra Clave o Código Maestro?', 'admin');
+    }
+
+    // Login Form Submit
+    if (formLogin) {
+        formLogin.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const entered = inputPass.value;
+            const currentSec = getInventorySecurity();
+            if (currentSec && btoa(entered) === currentSec.pin) {
+                CardInventoryState.isUnlocked = true;
+                elLocked.classList.add('hidden');
+                elUnlocked.classList.remove('hidden');
+                inputPass.value = '';
+                if (badgeStatus) {
+                    badgeStatus.innerHTML = `
+                        <span class="badge badge-success" style="font-size: 0.8rem; padding: 0.35rem 0.65rem;">
+                            <i data-lucide="unlock" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle;"></i> Desbloqueado
+                        </span>`;
+                    lucide.createIcons();
+                }
+                showToast('Sesión de inventario iniciada', 'success');
+                loadAndRenderCardInventory();
+            } else {
+                showToast('Contraseña o PIN incorrecto', 'error');
+            }
+        });
+    }
+
+    // Lock Session
+    if (btnLock) {
+        btnLock.addEventListener('click', () => {
+            CardInventoryState.isUnlocked = false;
+            elUnlocked.classList.add('hidden');
+            elLocked.classList.remove('hidden');
+            if (badgeStatus) {
+                badgeStatus.innerHTML = `
+                    <span class="badge badge-warning" style="font-size: 0.8rem; padding: 0.35rem 0.65rem;">
+                        <i data-lucide="lock" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle;"></i> Protegido
+                    </span>`;
+                lucide.createIcons();
+            }
+            showToast('Inventario bloqueado por seguridad', 'info');
+        });
+    }
+
+    // Setup / Recovery Modal Triggers
+    if (btnSetup) {
+        btnSetup.addEventListener('click', () => {
+            openSecurityModal('setup');
+        });
+    }
+    if (btnForgot) {
+        btnForgot.addEventListener('click', () => {
+            openSecurityModal('recovery');
+        });
+    }
+
+    // Security Form Submit
+    const formSec = document.getElementById('form-inv-security');
+    if (formSec) {
+        formSec.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const mode = document.getElementById('input-sec-mode').value;
+            if (mode === 'setup') {
+                const newPin = document.getElementById('input-sec-new-pass').value;
+                const question = document.getElementById('select-sec-question').value;
+                const answer = document.getElementById('input-sec-answer').value;
+                if (!newPin || !answer) {
+                    showToast('Por favor completa todos los campos de seguridad', 'warning');
+                    return;
+                }
+                saveInventorySecurity(newPin, question, answer);
+                modalSec.classList.remove('active');
+                showToast('Contraseña y pregunta secreta guardadas con éxito', 'success');
+            } else if (mode === 'recovery') {
+                const ansInput = document.getElementById('input-sec-recovery-answer').value.trim().toLowerCase();
+                const resetPin = document.getElementById('input-sec-reset-pass').value;
+                const currentSec = getInventorySecurity();
+                if (currentSec && btoa(ansInput) === currentSec.answer) {
+                    if (!resetPin || resetPin.length < 4) {
+                        showToast('La nueva contraseña debe tener al menos 4 caracteres', 'warning');
+                        return;
+                    }
+                    saveInventorySecurity(resetPin, currentSec.question, ansInput);
+                    modalSec.classList.remove('active');
+                    showToast('Contraseña restablecida correctamente. Ya puedes ingresar.', 'success');
+                } else {
+                    showToast('Respuesta secreta incorrecta', 'error');
+                }
+            }
+        });
+    }
+
+    // Modal Security Close/Cancel
+    document.getElementById('btn-close-modal-sec')?.addEventListener('click', () => modalSec.classList.remove('active'));
+    document.getElementById('btn-cancel-modal-sec')?.addEventListener('click', () => modalSec.classList.remove('active'));
+
+    // Search and Filter Listeners
+    document.getElementById('input-search-inv')?.addEventListener('input', (e) => {
+        CardInventoryState.searchQuery = e.target.value.toLowerCase();
+        renderInventoryTable();
+    });
+    document.getElementById('select-filter-inv-type')?.addEventListener('change', (e) => {
+        CardInventoryState.filterType = e.target.value;
+        renderInventoryTable();
+    });
+    document.getElementById('select-filter-inv-status')?.addEventListener('change', (e) => {
+        CardInventoryState.filterStatus = e.target.value;
+        renderInventoryTable();
+    });
+
+    // Add Card Modal Trigger
+    document.getElementById('btn-add-inv-card')?.addEventListener('click', () => {
+        openCardModal(null);
+    });
+
+    // Card Type Select Change in Card Modal (Show/Hide Vehicle section)
+    const selectCardType = document.getElementById('select-inv-card-type');
+    const groupVehicle = document.getElementById('group-inv-vehicle');
+    if (selectCardType && groupVehicle) {
+        selectCardType.addEventListener('change', () => {
+            if (selectCardType.value === 'combustible') {
+                groupVehicle.style.display = 'block';
+            } else {
+                groupVehicle.style.display = 'none';
+            }
+        });
+    }
+
+    // Image Upload Handling
+    const inputPlasticImg = document.getElementById('input-inv-plastic-image');
+    if (inputPlasticImg) {
+        inputPlasticImg.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    CardInventoryState.tempPlasticBase64 = evt.target.result;
+                    const imgPrev = document.getElementById('img-inv-plastic-preview');
+                    const containerPrev = document.getElementById('inv-plastic-preview-container');
+                    if (imgPrev && containerPrev) {
+                        imgPrev.src = evt.target.result;
+                        containerPrev.style.display = 'block';
+                    }
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+    }
+
+    // Form Inventory Card Submit
+    const formCard = document.getElementById('form-inventory-card');
+    if (formCard) {
+        formCard.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = document.getElementById('input-inv-card-id').value || 'card_' + Date.now();
+            const type = document.getElementById('select-inv-card-type').value;
+            const bank = document.getElementById('select-inv-card-bank').value;
+            const cardNumber = document.getElementById('input-inv-card-number').value.trim();
+            const status = document.getElementById('select-inv-card-status').value;
+            const holderName = document.getElementById('input-inv-holder-name').value.trim();
+            const holderCode = document.getElementById('input-inv-holder-code').value.trim();
+            const vehiclePlate = type === 'combustible' ? document.getElementById('input-inv-vehicle-plate').value.trim().toUpperCase() : '';
+            const vehicleReg = type === 'combustible' ? document.getElementById('input-inv-vehicle-reg').value.trim().toUpperCase() : '';
+            const notes = document.getElementById('textarea-inv-notes').value.trim();
+
+            const cardObj = {
+                id: id,
+                type: type,
+                bank: bank,
+                cardNumber: cardNumber,
+                status: status,
+                holderName: holderName,
+                holderCode: holderCode,
+                vehiclePlate: vehiclePlate,
+                vehicleReg: vehicleReg,
+                plasticImage: CardInventoryState.tempPlasticBase64 || '',
+                notes: notes,
+                updatedAt: new Date().toISOString()
+            };
+
+            try {
+                if (window.dbSaveInventoryCard) {
+                    await window.dbSaveInventoryCard(cardObj);
+                }
+                modalCard.classList.remove('active');
+                showToast('Tarjeta de inventario guardada correctamente', 'success');
+                loadAndRenderCardInventory();
+            } catch (err) {
+                console.error('Error saving inventory card:', err);
+                showToast('Error al guardar la tarjeta en la base de datos', 'error');
+            }
+        });
+    }
+
+    // Modal Card Close/Cancel
+    document.getElementById('btn-close-modal-inv-card')?.addEventListener('click', () => modalCard.classList.remove('active'));
+    document.getElementById('btn-cancel-modal-inv-card')?.addEventListener('click', () => modalCard.classList.remove('active'));
+
+    // Modal Plastic Close
+    document.getElementById('btn-close-modal-plastic')?.addEventListener('click', () => modalPlastic.classList.remove('active'));
+    document.getElementById('btn-close-view-plastic')?.addEventListener('click', () => modalPlastic.classList.remove('active'));
+
+    // Reports PDF / CSV Buttons
+    document.getElementById('btn-export-inv-pdf')?.addEventListener('click', () => {
+        generateCardInventoryPdfReport();
+    });
+    document.getElementById('btn-export-inv-csv')?.addEventListener('click', () => {
+        exportCardInventoryCSV();
+    });
+}
+
+function openSecurityModal(mode) {
+    const modalSec = document.getElementById('modal-inventory-security');
+    const titleSec = document.getElementById('modal-sec-title');
+    const modeInput = document.getElementById('input-sec-mode');
+    const fieldsSetup = document.getElementById('sec-fields-setup');
+    const fieldsRecovery = document.getElementById('sec-fields-recovery');
+    const txtQuestion = document.getElementById('txt-sec-recovery-question');
+    const btnSubmit = document.getElementById('btn-submit-sec');
+
+    modeInput.value = mode;
+    if (mode === 'setup') {
+        titleSec.textContent = 'Configuración de Contraseña / PIN';
+        fieldsSetup.classList.remove('hidden');
+        fieldsRecovery.classList.add('hidden');
+        btnSubmit.textContent = 'Guardar Contraseña';
+    } else {
+        titleSec.textContent = 'Recuperación de Contraseña';
+        fieldsSetup.classList.add('hidden');
+        fieldsRecovery.classList.remove('hidden');
+        btnSubmit.textContent = 'Restablecer Contraseña';
+        const currentSec = getInventorySecurity();
+        if (currentSec) {
+            txtQuestion.textContent = 'Pregunta Secreta: ' + currentSec.question;
+        } else {
+            txtQuestion.textContent = 'Pregunta Secreta: ¿Palabra Clave o Código Maestro?';
+        }
+    }
+    modalSec.classList.add('active');
+}
+
+async function loadAndRenderCardInventory() {
+    try {
+        if (window.dbGetAllInventoryCards) {
+            const list = await window.dbGetAllInventoryCards();
+            CardInventoryState.cards = list || [];
+        }
+    } catch (err) {
+        console.error('Error loading inventory cards from DB:', err);
+    }
+    renderInventoryTable();
+}
+
+function renderInventoryTable() {
+    const tbody = document.querySelector('#table-inv-cards tbody');
+    if (!tbody) return;
+
+    let filtered = CardInventoryState.cards.filter(c => {
+        if (CardInventoryState.filterType !== 'ALL' && c.type !== CardInventoryState.filterType) return false;
+        if (CardInventoryState.filterStatus !== 'ALL' && c.status !== CardInventoryState.filterStatus) return false;
+        if (CardInventoryState.searchQuery) {
+            const q = CardInventoryState.searchQuery;
+            const matchCard = (c.cardNumber || '').toLowerCase().includes(q);
+            const matchHolder = (c.holderName || '').toLowerCase().includes(q);
+            const matchCode = (c.holderCode || '').toLowerCase().includes(q);
+            const matchPlate = (c.vehiclePlate || '').toLowerCase().includes(q);
+            const matchReg = (c.vehicleReg || '').toLowerCase().includes(q);
+            const matchBank = (c.bank || '').toLowerCase().includes(q);
+            if (!matchCard && !matchHolder && !matchCode && !matchPlate && !matchReg && !matchBank) return false;
+        }
+        return true;
+    });
+
+    // Update Badges
+    const statTotal = document.getElementById('stat-inv-total-val');
+    const statFuel = document.getElementById('stat-inv-fuel-val');
+    const statCorp = document.getElementById('stat-inv-corp-val');
+    const statIssues = document.getElementById('stat-inv-issues-val');
+
+    if (statTotal) statTotal.textContent = CardInventoryState.cards.length;
+    if (statFuel) statFuel.textContent = CardInventoryState.cards.filter(c => c.type === 'combustible').length;
+    if (statCorp) statCorp.textContent = CardInventoryState.cards.filter(c => c.type === 'corporativa').length;
+    if (statIssues) statIssues.textContent = CardInventoryState.cards.filter(c => c.status !== 'Activa').length;
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" class="text-center text-muted" style="padding: 2rem;">
+                    <i data-lucide="inbox" style="width: 32px; height: 32px; margin-bottom: 0.5rem; display: block; margin: 0 auto; opacity: 0.5;"></i>
+                    No se encontraron tarjetas registradas con los filtros seleccionados.
+                </td>
+            </tr>`;
+        lucide.createIcons();
+        return;
+    }
+
+    let html = '';
+    filtered.forEach(c => {
+        const isFuel = c.type === 'combustible';
+        const typeBadge = isFuel 
+            ? `<span class="badge badge-success"><i data-lucide="truck" style="width: 12px; height: 12px; display: inline-block;"></i> Combustible</span>`
+            : `<span class="badge badge-info"><i data-lucide="building" style="width: 12px; height: 12px; display: inline-block;"></i> Corporativa</span>`;
+
+        let statusBadgeClass = 'badge-success';
+        if (c.status === 'Extraviada' || c.status === 'Dañada') statusBadgeClass = 'badge-danger';
+        if (c.status === 'En Reemplazo') statusBadgeClass = 'badge-warning';
+
+        const statusBadge = `<span class="badge ${statusBadgeClass}">${c.status || 'Activa'}</span>`;
+
+        const plasticBtn = c.plasticImage 
+            ? `<button class="btn btn-sm btn-secondary btn-view-plastic" data-id="${c.id}" style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">
+                 <i data-lucide="image" style="width: 13px; height: 13px; vertical-align: middle;"></i> Ver Foto
+               </button>`
+            : `<span class="text-muted" style="font-size: 0.75rem;">Sin Foto</span>`;
+
+        const vehicleInfo = isFuel 
+            ? `<strong>Placa:</strong> ${c.vehiclePlate || 'N/D'}<br><span class="text-muted" style="font-size: 0.75rem;">Circulación: ${c.vehicleReg || 'N/D'}</span>`
+            : `<span class="text-muted" style="font-size: 0.8rem;">No aplica (Corporativa)</span>`;
+
+        html += `
+            <tr>
+                <td>${typeBadge}</td>
+                <td><strong>**** ${c.cardNumber}</strong><br><span class="text-muted" style="font-size: 0.75rem;">${c.bank || 'BANPRO'}</span></td>
+                <td><strong>${c.holderName || 'N/D'}</strong><br><span class="text-muted" style="font-size: 0.75rem;">Código: ${c.holderCode || 'N/D'}</span></td>
+                <td>${vehicleInfo}</td>
+                <td>${plasticBtn}</td>
+                <td>${statusBadge}</td>
+                <td class="text-center">
+                    <button class="btn btn-sm btn-secondary btn-edit-card" data-id="${c.id}" title="Editar Tarjeta" style="padding: 0.25rem 0.45rem;">
+                        <i data-lucide="edit-2" style="width: 14px; height: 14px;"></i>
+                    </button>
+                    <button class="btn btn-sm btn-danger btn-delete-card" data-id="${c.id}" title="Eliminar Tarjeta" style="padding: 0.25rem 0.45rem;">
+                        <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
+                    </button>
+                </td>
+            </tr>`;
+    });
+
+    tbody.innerHTML = html;
+    lucide.createIcons();
+
+    // Bind action buttons
+    tbody.querySelectorAll('.btn-view-plastic').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const cardId = btn.getAttribute('data-id');
+            const card = CardInventoryState.cards.find(x => x.id === cardId);
+            if (card && card.plasticImage) {
+                const imgFull = document.getElementById('img-full-plastic');
+                const txtInfo = document.getElementById('txt-full-plastic-info');
+                if (imgFull) imgFull.src = card.plasticImage;
+                if (txtInfo) txtInfo.textContent = `Tarjeta: **** ${card.cardNumber} | Responsable: ${card.holderName} (${card.holderCode}) ${card.vehiclePlate ? '| Placa: ' + card.vehiclePlate : ''}`;
+                document.getElementById('modal-view-card-plastic').classList.add('active');
+            }
+        });
+    });
+
+    tbody.querySelectorAll('.btn-edit-card').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const cardId = btn.getAttribute('data-id');
+            const card = CardInventoryState.cards.find(x => x.id === cardId);
+            if (card) {
+                openCardModal(card);
+            }
+        });
+    });
+
+    tbody.querySelectorAll('.btn-delete-card').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const cardId = btn.getAttribute('data-id');
+            if (confirm('¿Estás seguro de eliminar esta tarjeta del inventario?')) {
+                if (window.dbDeleteInventoryCard) {
+                    await window.dbDeleteInventoryCard(cardId);
+                    showToast('Tarjeta eliminada correctamente', 'info');
+                    loadAndRenderCardInventory();
+                }
+            }
+        });
+    });
+}
+
+function openCardModal(cardToEdit) {
+    const modalCard = document.getElementById('modal-inventory-card');
+    const titleModal = document.getElementById('modal-inv-card-title');
+    const groupVehicle = document.getElementById('group-inv-vehicle');
+
+    CardInventoryState.tempPlasticBase64 = cardToEdit ? cardToEdit.plasticImage || '' : '';
+
+    if (cardToEdit) {
+        titleModal.textContent = 'Editar Tarjeta de Inventario';
+        document.getElementById('input-inv-card-id').value = cardToEdit.id;
+        document.getElementById('select-inv-card-type').value = cardToEdit.type || 'combustible';
+        document.getElementById('select-inv-card-bank').value = cardToEdit.bank || 'BANPRO';
+        document.getElementById('input-inv-card-number').value = cardToEdit.cardNumber || '';
+        document.getElementById('select-inv-card-status').value = cardToEdit.status || 'Activa';
+        document.getElementById('input-inv-holder-name').value = cardToEdit.holderName || '';
+        document.getElementById('input-inv-holder-code').value = cardToEdit.holderCode || '';
+        document.getElementById('input-inv-vehicle-plate').value = cardToEdit.vehiclePlate || '';
+        document.getElementById('input-inv-vehicle-reg').value = cardToEdit.vehicleReg || '';
+        document.getElementById('textarea-inv-notes').value = cardToEdit.notes || '';
+
+        const imgPrev = document.getElementById('img-inv-plastic-preview');
+        const containerPrev = document.getElementById('inv-plastic-preview-container');
+        if (cardToEdit.plasticImage && imgPrev && containerPrev) {
+            imgPrev.src = cardToEdit.plasticImage;
+            containerPrev.style.display = 'block';
+        } else if (containerPrev) {
+            containerPrev.style.display = 'none';
+        }
+    } else {
+        titleModal.textContent = 'Registrar Nueva Tarjeta';
+        document.getElementById('form-inventory-card').reset();
+        document.getElementById('input-inv-card-id').value = '';
+        const containerPrev = document.getElementById('inv-plastic-preview-container');
+        if (containerPrev) containerPrev.style.display = 'none';
+    }
+
+    const selectType = document.getElementById('select-inv-card-type');
+    if (selectType.value === 'combustible') {
+        groupVehicle.style.display = 'block';
+    } else {
+        groupVehicle.style.display = 'none';
+    }
+
+    modalCard.classList.add('active');
+}
+
+// Generate Corporate Inventory PDF Report
+function generateCardInventoryPdfReport() {
+    if (!window.jspdf || !window.jspdf.jsPDF) {
+        showToast('Biblioteca jsPDF no disponible', 'error');
+        return;
+    }
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'letter' });
+
+    const totalCards = CardInventoryState.cards.length;
+    const fuelCards = CardInventoryState.cards.filter(c => c.type === 'combustible').length;
+    const corpCards = CardInventoryState.cards.filter(c => c.type === 'corporativa').length;
+    const issueCards = CardInventoryState.cards.filter(c => c.status !== 'Activa').length;
+
+    // Header Title
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.setTextColor(30, 41, 59);
+    doc.text('SILVA INTERNACIONAL S.A.', 14, 15);
+
+    doc.setFontSize(11);
+    doc.setTextColor(99, 102, 241);
+    doc.text('INVENTARIO GENERAL DE TARJETAS Y ASIGNACIÓN DE VEHÍCULOS', 14, 21);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(100, 116, 139);
+    const currentDate = new Date().toLocaleDateString('es-NI', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    doc.text(`Fecha de Emisión: ${currentDate}  |  Generado por: Módulo de Gestión FinControl`, 14, 26);
+
+    // Summary Metric Badges
+    doc.setDrawColor(226, 232, 240);
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(14, 30, 250, 12, 2, 2, 'FD');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(30, 41, 59);
+    doc.text(`Total Tarjetas: ${totalCards}`, 20, 37.5);
+    doc.text(`Tarjetas Combustible (Vehículos): ${fuelCards}`, 80, 37.5);
+    doc.text(`Tarjetas Corporativas: ${corpCards}`, 160, 37.5);
+    doc.setTextColor(239, 68, 68);
+    doc.text(`Alertas/Reemplazo: ${issueCards}`, 225, 37.5);
+
+    // Table Mapping
+    const tableBody = CardInventoryState.cards.map((c, idx) => [
+        (idx + 1).toString(),
+        c.type === 'combustible' ? 'Combustible' : 'Corporativa',
+        `**** ${c.cardNumber}\n(${c.bank || 'BANPRO'})`,
+        `${c.holderName || 'N/D'}`,
+        c.holderCode || 'N/D',
+        c.type === 'combustible' ? (c.vehiclePlate || 'N/D') : 'N/A',
+        c.type === 'combustible' ? (c.vehicleReg || 'N/D') : 'N/A',
+        c.status || 'Activa',
+        c.notes || '-'
+    ]);
+
+    doc.autoTable({
+        startY: 46,
+        head: [['#', 'Tipo', 'N° Tarjeta / Banco', 'Responsable', 'Cód. Empleado', 'Placa Vehículo', 'N° Circulación', 'Estado', 'Observaciones']],
+        body: tableBody,
+        theme: 'grid',
+        headStyles: {
+            fillColor: [30, 41, 59],
+            textColor: [255, 255, 255],
+            fontSize: 8.5,
+            fontStyle: 'bold',
+            halign: 'center'
+        },
+        styles: {
+            fontSize: 8,
+            cellPadding: 2.5,
+            valign: 'middle'
+        },
+        columnStyles: {
+            0: { halign: 'center', cellWidth: 10 },
+            1: { cellWidth: 25 },
+            2: { cellWidth: 32 },
+            3: { cellWidth: 45 },
+            4: { cellWidth: 25, halign: 'center' },
+            5: { cellWidth: 25, halign: 'center' },
+            6: { cellWidth: 28, halign: 'center' },
+            7: { cellWidth: 22, halign: 'center' },
+            8: { cellWidth: 'auto' }
+        },
+        didDrawPage: (data) => {
+            // Footer page numbers
+            const str = `Página ${doc.internal.getNumberOfPages()}`;
+            doc.setFontSize(8);
+            doc.setTextColor(148, 163, 184);
+            doc.text(str, doc.internal.pageSize.width - 25, doc.internal.pageSize.height - 8);
+        }
+    });
+
+    // Signature Area at bottom of last page
+    let finalY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 20 : 150;
+    if (finalY > doc.internal.pageSize.height - 40) {
+        doc.addPage();
+        finalY = 40;
+    }
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(71, 85, 105);
+
+    doc.line(30, finalY, 110, finalY);
+    doc.text('Elaborado / Entregado por (Logística & Administración)', 32, finalY + 5);
+
+    doc.line(160, finalY, 240, finalY);
+    doc.text('Recibido / Verificado por (Contabilidad & Auditoría)', 162, finalY + 5);
+
+    doc.save(`Reporte_Inventario_Tarjetas_${new Date().toISOString().slice(0,10)}.pdf`);
+    showToast('Reporte PDF de inventario generado con éxito', 'success');
+}
+
+// Export CSV for Excel
+function exportCardInventoryCSV() {
+    if (CardInventoryState.cards.length === 0) {
+        showToast('No hay tarjetas registradas para exportar', 'warning');
+        return;
+    }
+
+    let csvContent = '\uFEFF'; // UTF-8 BOM
+    csvContent += 'ID,Tipo,Tarjeta,Banco,Responsable,Codigo_Empleado,Placa_Vehiculo,Numero_Circulacion,Estado,Observaciones,Ultima_Actualizacion\n';
+
+    CardInventoryState.cards.forEach(c => {
+        const row = [
+            `"${c.id}"`,
+            `"${c.type}"`,
+            `"${c.cardNumber}"`,
+            `"${c.bank}"`,
+            `"${(c.holderName || '').replace(/"/g, '""')}"`,
+            `"${c.holderCode || ''}"`,
+            `"${c.vehiclePlate || ''}"`,
+            `"${c.vehicleReg || ''}"`,
+            `"${c.status || ''}"`,
+            `"${(c.notes || '').replace(/"/g, '""')}"`,
+            `"${c.updatedAt || ''}"`
+        ];
+        csvContent += row.join(',') + '\n';
+    });
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Inventario_Tarjetas_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('Exportación a Excel (CSV) completada', 'success');
+}

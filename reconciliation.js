@@ -110,7 +110,8 @@ const reconElements = {
 // --- DATABASE PERSISTENCE (INDEXEDDB) ---
 const DB_NAME = 'FinControlDB';
 const STORE_NAME = 'reconciliations';
-const DB_VERSION = 1;
+const STORE_CARDS = 'card_inventory';
+const DB_VERSION = 2;
 
 function getDB() {
     return new Promise((resolve, reject) => {
@@ -119,6 +120,9 @@ function getDB() {
             const db = e.target.result;
             if (!db.objectStoreNames.contains(STORE_NAME)) {
                 db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+            }
+            if (!db.objectStoreNames.contains(STORE_CARDS)) {
+                db.createObjectStore(STORE_CARDS, { keyPath: 'id' });
             }
         };
         request.onsuccess = (e) => resolve(e.target.result);
@@ -161,6 +165,46 @@ function dbDeleteReconciliation(id) {
         });
     });
 }
+
+function dbSaveInventoryCard(cardRecord) {
+    return getDB().then(db => {
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE_CARDS, 'readwrite');
+            const store = tx.objectStore(STORE_CARDS);
+            const request = store.put(cardRecord);
+            request.onsuccess = () => resolve();
+            request.onerror = () => reject(request.error);
+        });
+    });
+}
+
+function dbGetAllInventoryCards() {
+    return getDB().then(db => {
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE_CARDS, 'readonly');
+            const store = tx.objectStore(STORE_CARDS);
+            const request = store.getAll();
+            request.onsuccess = () => resolve(request.result || []);
+            request.onerror = () => reject(request.error);
+        });
+    });
+}
+
+function dbDeleteInventoryCard(id) {
+    return getDB().then(db => {
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE_CARDS, 'readwrite');
+            const store = tx.objectStore(STORE_CARDS);
+            const request = store.delete(id);
+            request.onsuccess = () => resolve();
+            request.onerror = () => reject(request.error);
+        });
+    });
+}
+
+window.dbSaveInventoryCard = dbSaveInventoryCard;
+window.dbGetAllInventoryCards = dbGetAllInventoryCards;
+window.dbDeleteInventoryCard = dbDeleteInventoryCard;
 
 async function migrateLocalStorageToIndexedDB() {
     try {
