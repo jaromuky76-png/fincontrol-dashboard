@@ -970,10 +970,10 @@ function generateCardInventoryPdfReport() {
     doc.setTextColor(71, 85, 105);
 
     doc.line(30, finalY, 110, finalY);
-    doc.text('Elaborado / Entregado por (Logística & Administración)', 32, finalY + 5);
+    doc.text('Elaborado / Entregado por (Administración)', 32, finalY + 5);
 
     doc.line(160, finalY, 240, finalY);
-    doc.text('Recibido / Verificado por (Contabilidad & Auditoría)', 162, finalY + 5);
+    doc.text('Recibido / Verificación por (Contabilidad & Tesorería)', 162, finalY + 5);
 
     doc.save(`Reporte_Inventario_Tarjetas_${new Date().toISOString().slice(0,10)}.pdf`);
     showToast('Reporte PDF de inventario generado con éxito', 'success');
