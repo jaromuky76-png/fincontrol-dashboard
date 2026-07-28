@@ -6,7 +6,7 @@
  * 2. Ranked from highest to lowest invoicing volume (De mayor a menor facturación).
  * 3. Interactive Chart.js visual analytics (Top 10 activities & Unit Distribution).
  * 4. Automatic Live Sync Polling (Auto-updates UI when datos_costeo.js updates).
- * 5. Catalog Management Modal.
+ * 5. Interactive Modal for Active Catalogs (T49 & T39 inspector).
  */
 
 (function () {
@@ -29,8 +29,8 @@
     let chartTopActivities = null;
     let chartUnitDistribution = null;
 
-    // Live Sync Polling Tracker
-    let lastProcessedAtTimestamp = '';
+    // Modal Active Tab State
+    let activeModalTab = 'T49'; // 'T49' or 'T39'
 
     // DOM Elements Cache
     let elements = {};
@@ -54,6 +54,10 @@
             btnDoneManageCatalogs: document.getElementById('btn-done-manage-catalogs'),
             modalMaestrosCount: document.getElementById('modal-maestros-count'),
             modalCsCount: document.getElementById('modal-cs-count'),
+            btnCatalogTabT49: document.getElementById('btn-catalog-tab-t49'),
+            btnCatalogTabT39: document.getElementById('btn-catalog-tab-t39'),
+            searchModalCatalog: document.getElementById('search-modal-catalog'),
+            tableModalCatalogBody: document.getElementById('table-modal-catalog-body'),
 
             // Period Selector
             selectPeriod: document.getElementById('select-accounting-period'),
@@ -216,17 +220,49 @@
         if (elements.btnManageCatalogs) {
             elements.btnManageCatalogs.addEventListener('click', () => {
                 updateCatalogBadges();
-                if (elements.modalManageCatalogs) elements.modalManageCatalogs.classList.remove('hidden');
+                renderModalCatalogTable();
+                if (elements.modalManageCatalogs) elements.modalManageCatalogs.classList.add('active');
             });
         }
 
         [elements.btnCloseManageCatalogs, elements.btnDoneManageCatalogs].forEach(btn => {
             if (btn) {
                 btn.addEventListener('click', () => {
-                    if (elements.modalManageCatalogs) elements.modalManageCatalogs.classList.add('hidden');
+                    if (elements.modalManageCatalogs) elements.modalManageCatalogs.classList.remove('active');
                 });
             }
         });
+
+        if (elements.modalManageCatalogs) {
+            elements.modalManageCatalogs.addEventListener('click', (e) => {
+                if (e.target === elements.modalManageCatalogs) {
+                    elements.modalManageCatalogs.classList.remove('active');
+                }
+            });
+        }
+
+        // Modal Tab Switcher
+        if (elements.btnCatalogTabT49) {
+            elements.btnCatalogTabT49.addEventListener('click', () => {
+                activeModalTab = 'T49';
+                elements.btnCatalogTabT49.className = 'btn btn-sm btn-primary';
+                if (elements.btnCatalogTabT39) elements.btnCatalogTabT39.className = 'btn btn-sm btn-secondary';
+                renderModalCatalogTable();
+            });
+        }
+
+        if (elements.btnCatalogTabT39) {
+            elements.btnCatalogTabT39.addEventListener('click', () => {
+                activeModalTab = 'T39';
+                elements.btnCatalogTabT39.className = 'btn btn-sm btn-primary';
+                if (elements.btnCatalogTabT49) elements.btnCatalogTabT49.className = 'btn btn-sm btn-secondary';
+                renderModalCatalogTable();
+            });
+        }
+
+        if (elements.searchModalCatalog) {
+            elements.searchModalCatalog.addEventListener('input', () => renderModalCatalogTable());
+        }
 
         // Search Filters
         if (elements.searchMaestros) {
@@ -260,6 +296,47 @@
     }
 
     /**
+     * Render Active Catalog Table inside Modal
+     */
+    function renderModalCatalogTable() {
+        const tbody = elements.tableModalCatalogBody;
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        const catSource = activeModalTab === 'T49' ? maestrosCatalog : csCatalog;
+        const searchTerm = (elements.searchModalCatalog ? elements.searchModalCatalog.value.toLowerCase().trim() : '');
+
+        const entries = Object.entries(catSource).filter(([code, desc]) =>
+            code.toLowerCase().includes(searchTerm) ||
+            desc.toLowerCase().includes(searchTerm)
+        );
+
+        if (entries.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="2" class="text-center text-muted" style="padding: 1.5rem;">
+                        No se encontraron códigos en el catálogo ${activeModalTab === 'T49' ? 'Taller Maestro' : 'Centro de Servicios'}
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        entries.forEach(([code, desc]) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="font-weight: 600; font-family: monospace; color: ${activeModalTab === 'T49' ? 'var(--color-primary)' : 'var(--color-success)'}; white-space: nowrap;">
+                    ${escapeHtml(code)}
+                </td>
+                <td style="font-size: 0.85rem;">
+                    ${escapeHtml(desc)}
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    /**
      * Render KPIs and Consolidated Tables (Sorted DE MAYOR A MENOR)
      */
     function renderAccountingResults() {
@@ -286,7 +363,6 @@
         // 1. Top 10 Activities Horizontal Bar Chart
         const topCanvas = document.getElementById('chart-top-activities');
         if (topCanvas) {
-            // Combine top activities from both units
             const combinedList = [
                 ...currentResults.maestrosMatches.map(i => ({ label: `${i.desc} (T49)`, val: i.frequency, type: 'T49' })),
                 ...currentResults.csMatches.map(i => ({ label: `${i.desc} (T39)`, val: i.frequency, type: 'T39' }))
@@ -503,10 +579,8 @@
      */
     function initLiveSyncPolling() {
         setInterval(() => {
-            // Fetch script tag header timestamp or check COSTEO_HISTORY update
             const scriptTag = document.querySelector('script[src*="datos_costeo.js"]');
             if (scriptTag) {
-                // Dynamically re-inject script tag to fetch latest datos_costeo.js payload
                 const newScript = document.createElement('script');
                 newScript.src = `datos_costeo.js?t=${Date.now()}`;
                 newScript.onload = () => {
@@ -517,7 +591,7 @@
                 };
                 document.body.appendChild(newScript);
             }
-        }, 12000); // Polls every 12 seconds
+        }, 12000);
     }
 
     /**
