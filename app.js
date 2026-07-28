@@ -270,11 +270,17 @@ function initDragAndDropGlobal() {
     const dropzones = document.querySelectorAll('.drop-zone');
 
     dropzones.forEach(zone => {
+        // Skip accounting dropzone as accounting.js manages its own events
+        if (zone.id === 'drop-excel-sales') return;
+
         const input = zone.querySelector('input[type="file"]');
+        if (!input) return;
 
         // Click triggers file dialog
-        zone.addEventListener('click', () => {
-            input.click();
+        zone.addEventListener('click', (e) => {
+            if (e.target !== input) {
+                input.click();
+            }
         });
 
         // Drag events
@@ -291,6 +297,16 @@ function initDragAndDropGlobal() {
                 e.preventDefault();
                 e.stopPropagation();
                 zone.classList.remove('dragover');
+                if (eventName === 'drop' && e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    try {
+                        const dt = new DataTransfer();
+                        Array.from(e.dataTransfer.files).forEach(f => dt.items.add(f));
+                        input.files = dt.files;
+                    } catch (err) {
+                        console.warn('DataTransfer assignment not supported', err);
+                    }
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                }
             }, false);
         });
     });

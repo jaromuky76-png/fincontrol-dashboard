@@ -3,6 +3,8 @@
  * Processes monthly sales consolidated Excel spreadsheets ("Consolidado de Ventas"),
  * identifies labor codes for Taller Maestro (T49) and Centro de Servicios (T39),
  * and generates 2-column reports (Código Identificado y Descripción).
+ * 
+ * Optimized for large Excel files (150MB+) using JSZip streaming and fast XML parsing.
  */
 
 (function () {
@@ -35,8 +37,6 @@
             badgeMaestrosCount: document.getElementById('badge-maestros-count'),
             badgeCsCount: document.getElementById('badge-cs-count'),
             btnUpdateCatalogs: document.getElementById('btn-update-catalogs'),
-            inputCustomMaestros: document.getElementById('input-custom-maestros'),
-            inputCustomCs: document.getElementById('input-custom-cs'),
 
             // Upload & Controls
             dropZoneSales: document.getElementById('drop-excel-sales'),
@@ -86,23 +86,58 @@
     }
 
     function initAccountingEvents() {
-        if (!elements.inputSalesFile) return;
+        if (!elements.inputSalesFile || !elements.dropZoneSales) return;
 
-        // File Selection Listener
+        // Click on dropzone triggers file picker
+        elements.dropZoneSales.addEventListener('click', (e) => {
+            if (e.target !== elements.inputSalesFile) {
+                elements.inputSalesFile.click();
+            }
+        });
+
+        // Drag & Drop event handlers for dropZoneSales
+        ['dragenter', 'dragover'].forEach(eventName => {
+            elements.dropZoneSales.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                elements.dropZoneSales.classList.add('dragover');
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            elements.dropZoneSales.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                elements.dropZoneSales.classList.remove('dragover');
+            }, false);
+        });
+
+        elements.dropZoneSales.addEventListener('drop', (e) => {
+            const files = e.dataTransfer ? e.dataTransfer.files : null;
+            if (files && files.length > 0) {
+                const file = files[0];
+                handleSalesFileSelection(file);
+                processSalesExcelFile(file); // Automatically trigger processing!
+            }
+        });
+
+        // File Selection Listener (File picker change)
         elements.inputSalesFile.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (file) {
                 handleSalesFileSelection(file);
+                processSalesExcelFile(file); // Automatically trigger processing!
             }
         });
 
-        // Process Button Listener
-        elements.btnProcessAccounting.addEventListener('click', () => {
+        // Process Button Listener (Manual fallback click)
+        elements.btnProcessAccounting.addEventListener('click', (e) => {
+            e.stopPropagation();
             const file = elements.inputSalesFile.files[0];
             if (file) {
                 processSalesExcelFile(file);
             } else {
-                showToast('Por favor selecciona un archivo de Consolidado de Ventas (.xlsx)', 'warning');
+                showToast('Por favor selecciona o arrastra un archivo Excel (.xlsx)', 'warning');
             }
         });
 
@@ -113,14 +148,10 @@
 
         // Search Filters
         if (elements.searchMaestros) {
-            elements.searchMaestros.addEventListener('input', () => {
-                renderMaestrosTable();
-            });
+            elements.searchMaestros.addEventListener('input', () => renderMaestrosTable());
         }
         if (elements.searchCs) {
-            elements.searchCs.addEventListener('input', () => {
-                renderCsTable();
-            });
+            elements.searchCs.addEventListener('input', () => renderCsTable());
         }
 
         // Export Buttons for Maestros
@@ -144,14 +175,6 @@
         if (elements.btnCopyCs) {
             elements.btnCopyCs.addEventListener('click', () => copyTableToClipboard(currentResults.csMatches, 'Centro de Servicios T39'));
         }
-
-        // Optional custom catalog file inputs
-        if (elements.inputCustomMaestros) {
-            elements.inputCustomMaestros.addEventListener('change', (e) => loadCustomCatalog(e.target.files[0], 'maestros'));
-        }
-        if (elements.inputCustomCs) {
-            elements.inputCustomCs.addEventListener('change', (e) => loadCustomCatalog(e.target.files[0], 'cs'));
-        }
     }
 
     function handleSalesFileSelection(file) {
@@ -159,13 +182,14 @@
             showToast('Formato no válido. Por favor sube un archivo Excel (.xlsx)', 'error');
             elements.salesFileInfo.textContent = 'Archivo no válido';
             elements.btnProcessAccounting.disabled = true;
-            return;
+            return false;
         }
 
         const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
         elements.salesFileInfo.textContent = `${file.name} (${sizeMb} MB)`;
         elements.btnProcessAccounting.disabled = false;
-        showToast(`Archivo "${file.name}" seleccionado`, 'info');
+        showToast(`Archivo "${file.name}" (${sizeMb} MB) cargado. Procesando...`, 'info');
+        return true;
     }
 
     function resetAccountingForm() {
@@ -185,59 +209,195 @@
         showToast('Vista de costeo reiniciada', 'info');
     }
 
+    function updateProgress(percent, text) {
+        if (elements.panelProgress) elements.panelProgress.classList.remove('hidden');
+        if (elements.progressBar) elements.progressBar.style.width = `${percent}%`;
+        if (elements.progressText) elements.progressText.textContent = text;
+    }
+
     /**
-     * Process Sales Excel File using SheetJS / XLSX library
+     * Process Sales Excel File (Fast JSZip streaming or SheetJS fallback)
      */
-    function processSalesExcelFile(file) {
-        if (typeof XLSX === 'undefined') {
-            showToast('Error: Librería de lectura Excel (SheetJS) no disponible.', 'error');
-            return;
+    async function processSalesExcelFile(file) {
+        if (!file) return;
+
+        elements.btnProcessAccounting.disabled = true;
+        updateProgress(5, 'Iniciando lectura de archivo Excel...');
+
+        setTimeout(async () => {
+            try {
+                let results;
+                if (file.name.match(/\.xlsx$/i) && typeof JSZip !== 'undefined') {
+                    results = await parseXlsxWithJSZip(file);
+                } else if (typeof XLSX !== 'undefined') {
+                    results = await parseWithSheetJS(file);
+                } else {
+                    throw new Error('No se encontró una librería para leer archivos Excel (JSZip / XLSX).');
+                }
+
+                currentResults = results;
+
+                updateProgress(100, 'Procesamiento completado.');
+
+                setTimeout(() => {
+                    elements.panelProgress.classList.add('hidden');
+                    renderAccountingResults();
+                }, 300);
+
+            } catch (err) {
+                console.error('Error processing sales Excel file:', err);
+                elements.panelProgress.classList.add('hidden');
+                elements.btnProcessAccounting.disabled = false;
+                showToast(`Error al procesar archivo: ${err.message}`, 'error');
+            }
+        }, 50);
+    }
+
+    /**
+     * Ultra-fast JSZip XML Parser for 150MB+ .xlsx files
+     */
+    async function parseXlsxWithJSZip(file) {
+        updateProgress(15, `Leyendo buffer del archivo (${(file.size / (1024 * 1024)).toFixed(1)} MB)...`);
+        const arrayBuffer = await file.arrayBuffer();
+
+        updateProgress(35, 'Descomprimiendo estructura Excel (JSZip)...');
+        const zip = await JSZip.loadAsync(arrayBuffer);
+
+        // 1. Locate sheet path for 'Ventas'
+        let sheetPath = null;
+        const wbFile = zip.file('xl/workbook.xml');
+        if (wbFile) {
+            const wbXml = await wbFile.async('string');
+            const sheetMatch = wbXml.match(/<sheet[^>]*name="Ventas"[^>]*r:id="([^"]+)"/i) ||
+                               wbXml.match(/<sheet[^>]*r:id="([^"]+)"[^>]*name="Ventas"/i);
+            if (sheetMatch) {
+                const rId = sheetMatch[1];
+                const relsFile = zip.file('xl/_rels/workbook.xml.rels');
+                if (relsFile) {
+                    const relsXml = await relsFile.async('string');
+                    const relMatch = new RegExp(`rId="${rId}"[^>]*Target="([^"]+)"`, 'i').exec(relsXml) ||
+                                     new RegExp(`Target="([^"]+)"[^>]*rId="${rId}"`, 'i').exec(relsXml);
+                    if (relMatch) {
+                        sheetPath = 'xl/' + relMatch[1].replace(/^\/xl\//, '').replace(/^xl\//, '');
+                    }
+                }
+            }
         }
 
-        elements.panelProgress.classList.remove('hidden');
-        elements.progressText.textContent = 'Leyendo archivo Excel y analizando sábana de ventas...';
-        elements.progressBar.style.width = '20%';
-        elements.btnProcessAccounting.disabled = true;
+        // Fallback sheet search if sheetPath not resolved
+        if (!sheetPath) {
+            const sheetFiles = Object.keys(zip.files).filter(f => f.match(/^xl\/worksheets\/sheet\d+\.xml$/i));
+            sheetPath = sheetFiles.length > 0 ? sheetFiles[0] : 'xl/worksheets/sheet1.xml';
+        }
 
-        setTimeout(() => {
+        updateProgress(55, 'Leyendo tabla de textos compartidos (SharedStrings)...');
+        const sharedStrings = [];
+        const ssFile = zip.file('xl/sharedStrings.xml');
+        if (ssFile) {
+            const ssXml = await ssFile.async('string');
+            const siMatches = ssXml.match(/<si>(.*?)<\/si>/gs) || [];
+            for (let i = 0; i < siMatches.length; i++) {
+                const si = siMatches[i];
+                const textMatch = si.match(/<t[^>]*>(.*?)<\/t>/gs);
+                if (textMatch) {
+                    const strVal = textMatch.map(t => t.replace(/<[^>]+>/g, '')).join('');
+                    sharedStrings.push(strVal);
+                } else {
+                    sharedStrings.push('');
+                }
+            }
+        }
+
+        updateProgress(75, 'Extrayendo y filtrando códigos de mano de obra en Columna Q...');
+        const sheetFile = zip.file(sheetPath);
+        if (!sheetFile) {
+            throw new Error('No se pudo encontrar la hoja "Ventas" en la estructura del archivo Excel.');
+        }
+
+        const sheetXml = await sheetFile.async('string');
+
+        // Regex for cells in Column Q: <c r="Q123" ...><v>12345</v></c>
+        const cellQRegex = /<c r="Q(\d+)"([^>]*)>(.*?)<\/c>/gs;
+        const valRegex = /<v>(.*?)<\/v>/;
+        const tAttrRegex = /t="([^"]+)"/;
+
+        const maestrosFound = {};
+        const csFound = {};
+        let totalRowsProcessed = 0;
+        let totalLaborOccurrences = 0;
+
+        let match;
+        while ((match = cellQRegex.exec(sheetXml)) !== null) {
+            const rowIdx = match[1];
+            const attrs = match[2];
+            const inner = match[3];
+
+            if (rowIdx === '1') continue; // Header row
+
+            totalRowsProcessed++;
+
+            const valMatch = valRegex.exec(inner);
+            if (!valMatch) continue;
+
+            let rawVal = valMatch[1];
+            const tMatch = tAttrRegex.exec(attrs);
+            const cellType = tMatch ? tMatch[1] : '';
+
+            let codeStr = '';
+            if (cellType === 's') {
+                const ssIndex = parseInt(rawVal, 10);
+                codeStr = (sharedStrings[ssIndex] || '').trim();
+            } else {
+                codeStr = rawVal.trim();
+            }
+
+            if (codeStr.endsWith('.0')) {
+                codeStr = codeStr.slice(0, -2);
+            }
+
+            if (maestrosCatalog[codeStr] !== undefined) {
+                totalLaborOccurrences++;
+                if (!maestrosFound[codeStr]) {
+                    maestrosFound[codeStr] = { code: codeStr, desc: maestrosCatalog[codeStr], frequency: 0 };
+                }
+                maestrosFound[codeStr].frequency++;
+            }
+
+            if (csCatalog[codeStr] !== undefined) {
+                totalLaborOccurrences++;
+                if (!csFound[codeStr]) {
+                    csFound[codeStr] = { code: codeStr, desc: csCatalog[codeStr], frequency: 0 };
+                }
+                csFound[codeStr].frequency++;
+            }
+        }
+
+        return {
+            fileName: file.name,
+            totalSalesRows: totalRowsProcessed,
+            totalLaborRows: totalLaborOccurrences,
+            maestrosMatches: Object.values(maestrosFound).sort((a, b) => a.desc.localeCompare(b.desc)),
+            csMatches: Object.values(csFound).sort((a, b) => a.desc.localeCompare(b.desc))
+        };
+    }
+
+    /**
+     * Fallback parsing using SheetJS (XLSX)
+     */
+    function parseWithSheetJS(file) {
+        return new Promise((resolve, reject) => {
             const reader = new FileReader();
-
             reader.onload = function (e) {
                 try {
-                    elements.progressText.textContent = 'Decodificando estructura de hoja "Ventas"...';
-                    elements.progressBar.style.width = '40%';
-
+                    updateProgress(50, 'Parseando archivo Excel con SheetJS...');
                     const data = new Uint8Array(e.target.result);
-                    
-                    // Parse workbook. Try loading only sheet 'Ventas' for maximum performance
-                    let wb;
-                    try {
-                        wb = XLSX.read(data, { type: 'array', sheets: ['Ventas', 'ventas', 'VENTAS'] });
-                    } catch (err) {
-                        wb = XLSX.read(data, { type: 'array' });
-                    }
+                    let wb = XLSX.read(data, { type: 'array', cellFormula: false, cellHTML: false, cellStyles: false, cellText: false });
 
-                    let targetSheetName = wb.SheetNames.find(s => s.trim().toLowerCase() === 'ventas');
-                    if (!targetSheetName) {
-                        targetSheetName = wb.SheetNames[0];
-                    }
-
+                    let targetSheetName = wb.SheetNames.find(s => s.trim().toLowerCase() === 'ventas') || wb.SheetNames[0];
                     const ws = wb.Sheets[targetSheetName];
-                    if (!ws) {
-                        throw new Error(`No se encontró la hoja "Ventas" en el archivo.`);
-                    }
+                    if (!ws) throw new Error('Hoja "Ventas" no encontrada.');
 
-                    elements.progressText.textContent = 'Filtrando códigos de mano de obra en Columna Q (ProductID)...';
-                    elements.progressBar.style.width = '70%';
-
-                    // Convert Sheet to array of rows
                     const sheetRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
-                    
-                    if (sheetRows.length < 2) {
-                        throw new Error('La hoja "Ventas" está vacía o no contiene datos.');
-                    }
-
-                    // Find Column Q index (default index 16 for Q, or look for ProductID header in row 0)
                     let colQIndex = 16;
                     const headerRow = sheetRows[0] || [];
                     for (let c = 0; c < headerRow.length; c++) {
@@ -248,10 +408,8 @@
                         }
                     }
 
-                    // Aggregators for matched codes
-                    const maestrosFound = {}; // code -> { code, desc, count }
-                    const csFound = {};       // code -> { code, desc, count }
-
+                    const maestrosFound = {};
+                    const csFound = {};
                     let totalRowsProcessed = 0;
                     let totalLaborOccurrences = 0;
 
@@ -264,64 +422,35 @@
                         if (rawCode === null || rawCode === undefined || rawCode === '') continue;
 
                         let codeStr = String(rawCode).trim();
-                        if (codeStr.endsWith('.0')) {
-                            codeStr = codeStr.slice(0, -2);
-                        }
+                        if (codeStr.endsWith('.0')) codeStr = codeStr.slice(0, -2);
 
-                        // Check match in Maestros catalog
                         if (maestrosCatalog[codeStr] !== undefined) {
                             totalLaborOccurrences++;
-                            if (!maestrosFound[codeStr]) {
-                                maestrosFound[codeStr] = {
-                                    code: codeStr,
-                                    desc: maestrosCatalog[codeStr],
-                                    frequency: 0
-                                };
-                            }
+                            if (!maestrosFound[codeStr]) maestrosFound[codeStr] = { code: codeStr, desc: maestrosCatalog[codeStr], frequency: 0 };
                             maestrosFound[codeStr].frequency++;
                         }
 
-                        // Check match in Centro de Servicios catalog
                         if (csCatalog[codeStr] !== undefined) {
                             totalLaborOccurrences++;
-                            if (!csFound[codeStr]) {
-                                csFound[codeStr] = {
-                                    code: codeStr,
-                                    desc: csCatalog[codeStr],
-                                    frequency: 0
-                                };
-                            }
+                            if (!csFound[codeStr]) csFound[codeStr] = { code: codeStr, desc: csCatalog[codeStr], frequency: 0 };
                             csFound[codeStr].frequency++;
                         }
                     }
 
-                    elements.progressBar.style.width = '100%';
-                    elements.progressText.textContent = 'Procesamiento completado con éxito.';
-
-                    // Store results
-                    currentResults = {
+                    resolve({
                         fileName: file.name,
                         totalSalesRows: totalRowsProcessed,
                         totalLaborRows: totalLaborOccurrences,
                         maestrosMatches: Object.values(maestrosFound).sort((a, b) => a.desc.localeCompare(b.desc)),
                         csMatches: Object.values(csFound).sort((a, b) => a.desc.localeCompare(b.desc))
-                    };
-
-                    setTimeout(() => {
-                        elements.panelProgress.classList.add('hidden');
-                        renderAccountingResults();
-                    }, 500);
-
+                    });
                 } catch (err) {
-                    console.error('Error processing sales Excel file:', err);
-                    elements.panelProgress.classList.add('hidden');
-                    elements.btnProcessAccounting.disabled = false;
-                    showToast(`Error al procesar archivo: ${err.message}`, 'error');
+                    reject(err);
                 }
             };
-
+            reader.onerror = () => reject(new Error('Error de lectura en FileReader'));
             reader.readAsArrayBuffer(file);
-        }, 100);
+        });
     }
 
     /**
@@ -373,7 +502,7 @@
                     </td>
                 </tr>
             `;
-            lucide.createIcons();
+            if (window.lucide) lucide.createIcons();
             return;
         }
 
@@ -393,7 +522,7 @@
             tbody.appendChild(tr);
         });
 
-        lucide.createIcons();
+        if (window.lucide) lucide.createIcons();
     }
 
     /**
@@ -423,7 +552,7 @@
                     </td>
                 </tr>
             `;
-            lucide.createIcons();
+            if (window.lucide) lucide.createIcons();
             return;
         }
 
@@ -443,7 +572,7 @@
             tbody.appendChild(tr);
         });
 
-        lucide.createIcons();
+        if (window.lucide) lucide.createIcons();
     }
 
     /**
@@ -456,7 +585,6 @@
         }
 
         try {
-            // Prepare clean 2-column data format requested by user
             const exportData = dataArray.map(item => ({
                 'Código Identificado': item.code,
                 'Descripción': item.desc,
@@ -464,13 +592,7 @@
             }));
 
             const ws = XLSX.utils.json_to_sheet(exportData);
-            
-            // Adjust column widths
-            ws['!cols'] = [
-                { wch: 22 }, // Code
-                { wch: 65 }, // Desc
-                { wch: 25 }  // Freq
-            ];
+            ws['!cols'] = [{ wch: 22 }, { wch: 65 }, { wch: 25 }];
 
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, 'Mano de Obra');
@@ -504,9 +626,8 @@
             const { jsPDF } = window.jspdf || window;
             const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
 
-            // Title and Metadata Header
             doc.setFontSize(16);
-            doc.setTextColor(14, 165, 233); // Primary theme color
+            doc.setTextColor(14, 165, 233);
             doc.text(documentTitle, 14, 18);
 
             doc.setFontSize(9);
@@ -514,7 +635,6 @@
             doc.text(`Archivo Sábana: ${currentResults.fileName || 'Consolidado de Ventas'}`, 14, 25);
             doc.text(`Fecha de emisión: ${new Date().toLocaleDateString('es-ES')} | Total códigos: ${dataArray.length}`, 14, 30);
 
-            // Table Rows (2 main columns: Código Identificado y Descripción)
             const tableRows = dataArray.map(item => [item.code, item.desc]);
 
             doc.autoTable({
@@ -570,46 +690,6 @@
             console.error('Clipboard error:', err);
             showToast('No se pudo copiar al portapapeles', 'error');
         });
-    }
-
-    /**
-     * Optional: Load custom/updated catalog Excel file
-     */
-    function loadCustomCatalog(file, unit) {
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = function (e) {
-            try {
-                const data = new Uint8Array(e.target.result);
-                const wb = XLSX.read(data, { type: 'array' });
-                const ws = wb.Sheets[wb.SheetNames[0]];
-                const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
-
-                const newCatalog = {};
-                for (let i = 0; i < rows.length; i++) {
-                    const row = rows[i];
-                    if (!row || row[0] === null || row[0] === undefined) continue;
-                    let cStr = String(row[0]).trim();
-                    if (cStr.endsWith('.0')) cStr = cStr.slice(0, -2);
-                    if (cStr.toLowerCase().includes('código') || cStr.toLowerCase().includes('codigo')) continue;
-                    const descStr = row[1] ? String(row[1]).trim() : '';
-                    newCatalog[cStr] = descStr;
-                }
-
-                if (unit === 'maestros') {
-                    maestrosCatalog = newCatalog;
-                    showToast(`Catálogo Maestros actualizado: ${Object.keys(maestrosCatalog).length} códigos`, 'success');
-                } else {
-                    csCatalog = newCatalog;
-                    showToast(`Catálogo CS actualizado: ${Object.keys(csCatalog).length} códigos`, 'success');
-                }
-
-                updateCatalogBadges();
-            } catch (err) {
-                showToast(`Error al leer archivo de catálogo: ${err.message}`, 'error');
-            }
-        };
-        reader.readAsArrayBuffer(file);
     }
 
     function escapeHtml(str) {
