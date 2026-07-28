@@ -706,5 +706,366 @@ var COSTEO_HISTORY = {
         "frequency": 1
       }
     ]
+  },
+  "Abril 2026": {
+    "fileName": "Consolidado de ventas Abril 2026.xlsx",
+    "monthTag": "Abril 2026",
+    "processedAt": "2026-07-27 19:39:49",
+    "totalSalesRows": 334235,
+    "totalLaborRows": 269,
+    "maestrosMatches": [
+      {
+        "code": "101025389",
+        "desc": "VISITA A DOMICILIO EN CONCEPTO DE DIAGNOSTICO",
+        "frequency": 77
+      },
+      {
+        "code": "101026007",
+        "desc": "INSTALACION AIRE ACONDICIONADO",
+        "frequency": 66
+      },
+      {
+        "code": "130196460",
+        "desc": "INSTALACION DE PUNTO ELECTRICO",
+        "frequency": 6
+      },
+      {
+        "code": "101026031",
+        "desc": "MANTENIMIENTO GENERAL DE AIRE ACONDICIONADO",
+        "frequency": 6
+      },
+      {
+        "code": "145518214",
+        "desc": "VISITA WHATSAPP PARA FUTURA INSTALACION DE AIRE ACONDICIONADO",
+        "frequency": 6
+      },
+      {
+        "code": "133397224",
+        "desc": "TARIFA DE TRANSPORTE MANAGUA TICUANTEPE",
+        "frequency": 6
+      },
+      {
+        "code": "101025995",
+        "desc": "ARMADO DE BARBACOA",
+        "frequency": 4
+      },
+      {
+        "code": "133397241",
+        "desc": "TARIFA DE TRANSPORTE MANAGUA CIUDAD SANDINO",
+        "frequency": 3
+      },
+      {
+        "code": "130196451",
+        "desc": "DESINTALACION DE AIRE ACONDICIONADO",
+        "frequency": 3
+      },
+      {
+        "code": "133397232",
+        "desc": "TARIFA DE TRANSPORTE MANAGUA VERACRUZ",
+        "frequency": 3
+      },
+      {
+        "code": "151580866",
+        "desc": "DIAGNOSTICO DE REFRIGERADORA SIDE BY SIDE/FRENCH DOOR MAESTROS",
+        "frequency": 3
+      },
+      {
+        "code": "101026023",
+        "desc": "MANTENIMIENTO PREVENTIVO AIRE ACONDICIONADO",
+        "frequency": 3
+      },
+      {
+        "code": "133396889",
+        "desc": "TARIFA DE TRANSPORTE MASAYA",
+        "frequency": 3
+      },
+      {
+        "code": "151580971",
+        "desc": "DIAGNOSTICO DE LAVADORA MAESTROS",
+        "frequency": 2
+      },
+      {
+        "code": "133397081",
+        "desc": "TARIFA DE TRANSPORTE CARAZO SAN MARCOS",
+        "frequency": 2
+      },
+      {
+        "code": "133397056",
+        "desc": "TARIFA DE TRANSPORTE CARAZO JINOTEPE",
+        "frequency": 2
+      },
+      {
+        "code": "135496146",
+        "desc": "MANTENIMIENTO PREVENTIVO AIRE ACONDICIONADO 12000 BTU / 18000 BTU",
+        "frequency": 2
+      },
+      {
+        "code": "132393846",
+        "desc": "SERVICIO DE INSTALACION BASICO CALENTADOR DE AGUA GEYSER",
+        "frequency": 1
+      },
+      {
+        "code": "133397136",
+        "desc": "TARIFA DE TRANSPORTE GRANADA",
+        "frequency": 1
+      },
+      {
+        "code": "151580399",
+        "desc": "MANTENIMIENTO PREVENTIVO DE REFRIGERADORA SIDE BY SIDE/FRENCH DOOR MAESTROS",
+        "frequency": 1
+      },
+      {
+        "code": "151529825",
+        "desc": "SERVICIO DE INSTALACIÓN DE AIRE ACONDICIONADO HISENSE CON KIT BÁSICO INCLUIDO",
+        "frequency": 1
+      },
+      {
+        "code": "133397110",
+        "desc": "TARIFA DE TRANSPORTE CARAZO SANTA TERESA",
+        "frequency": 1
+      },
+      {
+        "code": "133397099",
+        "desc": "TARIFA DE TRANSPORTE CARAZO EL ROSARIO",
+        "frequency": 1
+      },
+      {
+        "code": "151580487",
+        "desc": "MANTENIMIENTO CORRECTIVO MENOR DE REFRIGERADORA SIDE BY SIDE/FRENCH DOOR MAESTROS",
+        "frequency": 1
+      },
+      {
+        "code": "132393862",
+        "desc": "SERVICIO DE INSTALACION HIDRONEUMATICO",
+        "frequency": 1
+      },
+      {
+        "code": "101025303",
+        "desc": "INSTALACION DE ABANICO DECORATIVO",
+        "frequency": 1
+      },
+      {
+        "code": "101025741",
+        "desc": "MANT. O REPARAC. DE SISTEMA HIDRONEUMATICO",
+        "frequency": 1
+      },
+      {
+        "code": "151580604",
+        "desc": "MANTENIMIENTO CORRECTIVO MAYOR DE REFRIGERADORA SIDE BY SIDE/FRENCH DOOR MAESTROS",
+        "frequency": 1
+      },
+      {
+        "code": "101026015",
+        "desc": "INSTALACION TANQUE DE AGUA",
+        "frequency": 1
+      },
+      {
+        "code": "101025039",
+        "desc": "INSTALACION SISTEMA HIDRONEUMATICO. CARGO BASICO",
+        "frequency": 1
+      },
+      {
+        "code": "137301040",
+        "desc": "DESINSTALACION DE AIRE 12MIL BTU",
+        "frequency": 1
+      }
+    ],
+    "csMatches": [
+      {
+        "code": "136245365",
+        "desc": "SERVICIOS MISCELANEOS",
+        "frequency": 10
+      },
+      {
+        "code": "148282737",
+        "desc": "DIAGNOSTICO DE REFRIGERADORA SIDE BY SIDE/FRENCH DOOR CS",
+        "frequency": 5
+      },
+      {
+        "code": "134797730",
+        "desc": "MANTENIMIENTO GENERAL DESBROZADORA MOTOR 2 TIEMPOS 26-43-63 CS",
+        "frequency": 3
+      },
+      {
+        "code": "147624686",
+        "desc": "TARIFA DE TRANSPORTE POR SERVICIO CS",
+        "frequency": 2
+      },
+      {
+        "code": "134796315",
+        "desc": "DIAGNÓSTICO CALENTADOR COMBUSTIÓN EXTERNA GAS LICUADO ACUMULACIÓN CS",
+        "frequency": 2
+      },
+      {
+        "code": "134798126",
+        "desc": "MANTENIMIENTO CORRECTIVO BOMBA ALAMBRICAS 2 HP CS",
+        "frequency": 2
+      },
+      {
+        "code": "134798054",
+        "desc": "MANTENIMIENTO CORRECTIVO MENOR TALADRO INALAMBRICO ROTOMARTILLO CS",
+        "frequency": 2
+      },
+      {
+        "code": "147725014",
+        "desc": "TRIFÁSICO INSTALACIÓN COMPLETA UPS CS",
+        "frequency": 1
+      },
+      {
+        "code": "134796147",
+        "desc": "DIAGNÓSTICO GENERADOR ELÉCTRICO MOTOR 4 TIEMPOS COMBUSTIBLE 15000-17500W CS",
+        "frequency": 1
+      },
+      {
+        "code": "134797297",
+        "desc": "CORRECTIVO MAYOR GENERADOR ELÉCTRICO MOTOR 2 TIEMPOS COMBUSTIBLE 800W CS",
+        "frequency": 1
+      },
+      {
+        "code": "134796518",
+        "desc": "DIAGNÓSTICO CALENTADORES ALAMBRICAS DE PASO CS",
+        "frequency": 1
+      },
+      {
+        "code": "134797220",
+        "desc": "DIAGNÓSTICO CORTA GRAMA MECÁNICO CS",
+        "frequency": 1
+      },
+      {
+        "code": "134798193",
+        "desc": "MANTENIMIENTO CORRECTIVO MENOR CALENTADORES ALAMBRICAS DE PASO CS",
+        "frequency": 1
+      },
+      {
+        "code": "147725006",
+        "desc": "DIAGNOSTICO UPS CS",
+        "frequency": 1
+      },
+      {
+        "code": "134798185",
+        "desc": "MANTENIMIENTO CORRECTIVO MAYOR SISTEMA HIDRONEUMÁTICO ALAMBRICAS 100L CS",
+        "frequency": 1
+      },
+      {
+        "code": "134798169",
+        "desc": "MANTENIMIENTO CORRECTIVO MAYOR SISTEMA HIDRONEUMÁTICO ALAMBRICAS 50L CS",
+        "frequency": 1
+      },
+      {
+        "code": "134796198",
+        "desc": "DIAGNÓSTICO BRINQUINA MOTOR 4 TIEMPOS COMBUSTIBLE CS",
+        "frequency": 1
+      },
+      {
+        "code": "134797001",
+        "desc": "DIAGNÓSTICO SIERRA ALÁMBRICA CIRCULAR CS",
+        "frequency": 1
+      },
+      {
+        "code": "134796622",
+        "desc": "DIAGNÓSTICO MOTO SIERRA ALAMBRICAS CS",
+        "frequency": 1
+      },
+      {
+        "code": "134797941",
+        "desc": "MANTENIMIENTO CALENTADOR COMBUSTIÓN EXTERNA GAS LICUADO DE PASO CS",
+        "frequency": 1
+      },
+      {
+        "code": "134798687",
+        "desc": "MANTENIMIENTO CORRECTIVO MAYOR CEPILLO ALÁMBRICA PORTATIL 12 1/2\" CS",
+        "frequency": 1
+      },
+      {
+        "code": "134798281",
+        "desc": "MANTENIMIENTO CORRECTIVO MENOR HIDROLAVADORA ALAMBRICA CS",
+        "frequency": 1
+      },
+      {
+        "code": "134798863",
+        "desc": "MANTENIMIENTO CORRECTIVO ASPIRADORA ALÁMBRICA 16GL CS",
+        "frequency": 1
+      },
+      {
+        "code": "134796358",
+        "desc": "DIAGNÓSTICO ESMERILADORA INALAMBRICAS 4.5\" CS",
+        "frequency": 1
+      },
+      {
+        "code": "135045329",
+        "desc": "DIAGNÓSTICO TALADRO INALAMBRICO PERCUTOR CS",
+        "frequency": 1
+      },
+      {
+        "code": "134796331",
+        "desc": "DIAGNÓSTICO ESMERILADORA ALAMBRICA 4.5\" CS",
+        "frequency": 1
+      },
+      {
+        "code": "134798960",
+        "desc": "MANTENIMIENTO CORRECTIVO DUCHA ALÁMBRICA 120V/240V LORENZETI CS",
+        "frequency": 1
+      },
+      {
+        "code": "134796091",
+        "desc": "DIAGNÓSTICO DESBROZADORA MOTOR 2 TIEMPOS 26-43-63 CS",
+        "frequency": 1
+      },
+      {
+        "code": "134798871",
+        "desc": "MANTENIMIENTO CORRECTIVO MENOR SIERRA ALÁMBRICA INGLETEADORA CS",
+        "frequency": 1
+      },
+      {
+        "code": "135045396",
+        "desc": "MANTENIMIENTO ESMERILADORA INALAMBRICA 7-9\" CS",
+        "frequency": 1
+      },
+      {
+        "code": "134797414",
+        "desc": "MANTENIMIENTO CORRECTIVO MENOR BRINQUINA MOTOR 4 TIEMPOS COMBUSTIBLE CS",
+        "frequency": 1
+      },
+      {
+        "code": "148283035",
+        "desc": "MANTENIMIENTO CORRECTIVO MAYOR DE REFRIGERADORA SIDE BY SIDE/FRENCH DOOR CS",
+        "frequency": 1
+      },
+      {
+        "code": "137702724",
+        "desc": "APLICACIÓN DESENGRASANTE PURPLE BLASTER 1/2 LITRO 1/7 GAL CS",
+        "frequency": 1
+      },
+      {
+        "code": "134798353",
+        "desc": "MANTENIMIENTO CORRECTIVO MOTO SIERRA ALAMBRICAS  CS",
+        "frequency": 1
+      },
+      {
+        "code": "134798118",
+        "desc": "MANTENIMIENTO CORRECTIVO BOMBA ALAMBRICAS 1 HP CS",
+        "frequency": 1
+      },
+      {
+        "code": "134798548",
+        "desc": "MANTENIMIENTO CORRECTIVO MAYOR DEMOLEDOR ALÁMBRICO CS",
+        "frequency": 1
+      },
+      {
+        "code": "147724994",
+        "desc": "MANTENIMIENTO CORRECTIVO UPS CS",
+        "frequency": 1
+      },
+      {
+        "code": "134796155",
+        "desc": "DIAGNÓSTICO GENERADOR ELÉCTRICO MOTOR 4 TIEMPOS COMBUSTIBLE 15000-17500W CS",
+        "frequency": 1
+      },
+      {
+        "code": "134798329",
+        "desc": "MANTENIMIENTO CORRECTIVO MAYOR SOLDADOR ALMÁBRICO TRANSFORMADOR CS",
+        "frequency": 1
+      }
+    ]
   }
 };
