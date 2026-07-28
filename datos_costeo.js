@@ -330,5 +330,381 @@ var COSTEO_HISTORY = {
         "frequency": 1
       }
     ]
+  },
+  "Marzo 2026": {
+    "fileName": "Consolidado de ventas Marzo 2026.xlsx",
+    "monthTag": "Marzo 2026",
+    "processedAt": "2026-07-27 19:39:09",
+    "totalSalesRows": 367739,
+    "totalLaborRows": 450,
+    "maestrosMatches": [
+      {
+        "code": "101026007",
+        "desc": "INSTALACION AIRE ACONDICIONADO",
+        "frequency": 161
+      },
+      {
+        "code": "101025389",
+        "desc": "VISITA A DOMICILIO EN CONCEPTO DE DIAGNOSTICO",
+        "frequency": 133
+      },
+      {
+        "code": "145518214",
+        "desc": "VISITA WHATSAPP PARA FUTURA INSTALACION DE AIRE ACONDICIONADO",
+        "frequency": 8
+      },
+      {
+        "code": "101025995",
+        "desc": "ARMADO DE BARBACOA",
+        "frequency": 8
+      },
+      {
+        "code": "101026031",
+        "desc": "MANTENIMIENTO GENERAL DE AIRE ACONDICIONADO",
+        "frequency": 8
+      },
+      {
+        "code": "130196460",
+        "desc": "INSTALACION DE PUNTO ELECTRICO",
+        "frequency": 8
+      },
+      {
+        "code": "151529825",
+        "desc": "SERVICIO DE INSTALACIÓN DE AIRE ACONDICIONADO HISENSE CON KIT BÁSICO INCLUIDO",
+        "frequency": 4
+      },
+      {
+        "code": "151580971",
+        "desc": "DIAGNOSTICO DE LAVADORA MAESTROS",
+        "frequency": 3
+      },
+      {
+        "code": "130196451",
+        "desc": "DESINTALACION DE AIRE ACONDICIONADO",
+        "frequency": 3
+      },
+      {
+        "code": "133397232",
+        "desc": "TARIFA DE TRANSPORTE MANAGUA VERACRUZ",
+        "frequency": 3
+      },
+      {
+        "code": "151580508",
+        "desc": "MANTENIMIENTO CORRECTIVO MENOR DE LAVADORA MAESTROS",
+        "frequency": 3
+      },
+      {
+        "code": "133397224",
+        "desc": "TARIFA DE TRANSPORTE MANAGUA TICUANTEPE",
+        "frequency": 3
+      },
+      {
+        "code": "133396889",
+        "desc": "TARIFA DE TRANSPORTE MASAYA",
+        "frequency": 3
+      },
+      {
+        "code": "156587645",
+        "desc": "INSTALACION DE CALENTADOR DE AGUA ELECTRICO TITAN",
+        "frequency": 2
+      },
+      {
+        "code": "133396459",
+        "desc": "TARIFA DE TRANSPORTE MATAGALPA SEBACO",
+        "frequency": 2
+      },
+      {
+        "code": "133397144",
+        "desc": "TARIFA DE TRANSPORTE GRANADA DIRIA",
+        "frequency": 2
+      },
+      {
+        "code": "133397136",
+        "desc": "TARIFA DE TRANSPORTE GRANADA",
+        "frequency": 2
+      },
+      {
+        "code": "151580621",
+        "desc": "MANTENIMIENTO CORRECTIVO MAYOR DE LAVADORA MAESTROS",
+        "frequency": 2
+      },
+      {
+        "code": "101025397",
+        "desc": "MANO DE OBRA EN SERVICIOS TECNICOS",
+        "frequency": 2
+      },
+      {
+        "code": "133396475",
+        "desc": "TARIFA DE TRANSPORTE MATAGALPA CIUDAD DARIO",
+        "frequency": 1
+      },
+      {
+        "code": "151580516",
+        "desc": "MANTENIMIENTO CORRECTIVO MENOR DE LAVA VAJILLAS CONTROL FRONTAL MAESTROS",
+        "frequency": 1
+      },
+      {
+        "code": "133396192",
+        "desc": "TARIFA DE TRANSPORTE CHONTALES JUIGALPA",
+        "frequency": 1
+      },
+      {
+        "code": "101024888",
+        "desc": "INSTALACION DE DUCHA ELECTRICA",
+        "frequency": 1
+      },
+      {
+        "code": "132393862",
+        "desc": "SERVICIO DE INSTALACION HIDRONEUMATICO",
+        "frequency": 1
+      },
+      {
+        "code": "101025741",
+        "desc": "MANT. O REPARAC. DE SISTEMA HIDRONEUMATICO",
+        "frequency": 1
+      },
+      {
+        "code": "137301040",
+        "desc": "DESINSTALACION DE AIRE 12MIL BTU",
+        "frequency": 1
+      },
+      {
+        "code": "151580444",
+        "desc": "MANTENIMIENTO GENERAL DE COCINA 5 A 6 QUEMADORES MAESTROS",
+        "frequency": 1
+      },
+      {
+        "code": "133396791",
+        "desc": "TARIFA DE TRANSPORTE LEON",
+        "frequency": 1
+      },
+      {
+        "code": "133396897",
+        "desc": "TARIFA DE TRANSPORTE MASAYA NINDIRI",
+        "frequency": 1
+      },
+      {
+        "code": "151580604",
+        "desc": "MANTENIMIENTO CORRECTIVO MAYOR DE REFRIGERADORA SIDE BY SIDE/FRENCH DOOR MAESTROS",
+        "frequency": 1
+      },
+      {
+        "code": "152081170",
+        "desc": "MANTENIMIENTO GENERAL DE AIRE ACONDICIONADO 12-24 MIL BTU",
+        "frequency": 1
+      },
+      {
+        "code": "151580874",
+        "desc": "DIAGNOSTICO DE REFRIGERADORA CONGELADOR SUPERIOR/INFERIOR MAESTROS",
+        "frequency": 1
+      },
+      {
+        "code": "133397064",
+        "desc": "TARIFA DE TRANSPORTE CARAZO DIRIAMBA",
+        "frequency": 1
+      },
+      {
+        "code": "101026023",
+        "desc": "MANTENIMIENTO PREVENTIVO AIRE ACONDICIONADO",
+        "frequency": 1
+      },
+      {
+        "code": "133397241",
+        "desc": "TARIFA DE TRANSPORTE MANAGUA CIUDAD SANDINO",
+        "frequency": 1
+      },
+      {
+        "code": "152081161",
+        "desc": "MANTENIMIENTO PREVENTIVO DE AIRE ACONDICIONADO 12-24 MIL BTU",
+        "frequency": 1
+      },
+      {
+        "code": "133397056",
+        "desc": "TARIFA DE TRANSPORTE CARAZO JINOTEPE",
+        "frequency": 1
+      }
+    ],
+    "csMatches": [
+      {
+        "code": "136245365",
+        "desc": "SERVICIOS MISCELANEOS",
+        "frequency": 16
+      },
+      {
+        "code": "134797650",
+        "desc": "MANTENIMIENTO PREVENTIVO DESBROZADORA MOTOR 2 TIEMPOS 26-43-63 CS",
+        "frequency": 8
+      },
+      {
+        "code": "142618279",
+        "desc": "VISITA A DOMICILIO EN CONCEPTO DE LEVANTAMIENTO CS",
+        "frequency": 5
+      },
+      {
+        "code": "143768439",
+        "desc": "SERVICIO DE REPARACION DE HERRAMIENTA ELECTRICA CS",
+        "frequency": 4
+      },
+      {
+        "code": "135045329",
+        "desc": "DIAGNÓSTICO TALADRO INALAMBRICO PERCUTOR CS",
+        "frequency": 3
+      },
+      {
+        "code": "134796489",
+        "desc": "DIAGNÓSTICO SISTEMA HIDRONEUMÁTICO ALAMBRICAS 24L CS",
+        "frequency": 2
+      },
+      {
+        "code": "134798100",
+        "desc": "MANTENIMIENTO CORRECTIVO BOMBA ALAMBRICAS 1/2 HP CS",
+        "frequency": 2
+      },
+      {
+        "code": "134798193",
+        "desc": "MANTENIMIENTO CORRECTIVO MENOR CALENTADORES ALAMBRICAS DE PASO CS",
+        "frequency": 2
+      },
+      {
+        "code": "134798767",
+        "desc": "MANTENIMIENTO CORRECTIVO MAYOR COMPRESOR ALÁMBRICO 50L CS",
+        "frequency": 2
+      },
+      {
+        "code": "134798142",
+        "desc": "MANTENIMIENTO CORRECTIVO MAYOR SISTEMA HIDRONEUMÁTICO ALAMBRICAS 24L CS",
+        "frequency": 2
+      },
+      {
+        "code": "147724978",
+        "desc": "INSTALACIÓN TODO UPS CS",
+        "frequency": 1
+      },
+      {
+        "code": "148282761",
+        "desc": "DIAGNOSTICO DE TORRE DE LAVADO CS",
+        "frequency": 1
+      },
+      {
+        "code": "148282737",
+        "desc": "DIAGNOSTICO DE REFRIGERADORA SIDE BY SIDE/FRENCH DOOR CS",
+        "frequency": 1
+      },
+      {
+        "code": "134798062",
+        "desc": "MANTENIMIENTO CORRECTIVO MAYOR TALADRO INALAMBRICO ROTOMARTILLO CS",
+        "frequency": 1
+      },
+      {
+        "code": "134796518",
+        "desc": "DIAGNÓSTICO CALENTADORES ALAMBRICAS DE PASO CS",
+        "frequency": 1
+      },
+      {
+        "code": "134797271",
+        "desc": "MANTENIMIENTO CORRECTIVO SOPLADORA MOTOR 2 TIEMPOS  CS",
+        "frequency": 1
+      },
+      {
+        "code": "134798206",
+        "desc": "MANTENIMIENTO CORRECTIVO MAYOR CALENTADORES ALAMBRICAS DE PASO CS",
+        "frequency": 1
+      },
+      {
+        "code": "134798038",
+        "desc": "MANTENIMIENTO CORRECTIVO TALADRO ALAMBRICO ROTOMARTILLO CAJA DE ENGRANAJE 3 CS",
+        "frequency": 1
+      },
+      {
+        "code": "134797941",
+        "desc": "MANTENIMIENTO CALENTADOR COMBUSTIÓN EXTERNA GAS LICUADO DE PASO CS",
+        "frequency": 1
+      },
+      {
+        "code": "134796307",
+        "desc": "DIAGNÓSTICO CALENTADOR COMBUSTIÓN EXTERNA GAS LICUADO DE PASO CS",
+        "frequency": 1
+      },
+      {
+        "code": "134797625",
+        "desc": "MANTENIMIENTO CORRECTIVO MAYOR CALENTADOR COMBUSTIÓN EXTERNA GAS LICUADO ACUMULACIÓN CS",
+        "frequency": 1
+      },
+      {
+        "code": "134797422",
+        "desc": "MANTENIMIENTO CORRECTIVO MAYOR BRINQUINA MOTOR 4 TIEMPOS COMBUSTIBLE CS",
+        "frequency": 1
+      },
+      {
+        "code": "134799006",
+        "desc": "MANTENIMIENTO ESMERILADORA ALAMBRICA 4.5\" CS",
+        "frequency": 1
+      },
+      {
+        "code": "134797983",
+        "desc": "MANTENIMIENTO CORRECTIVO ESMERILADORA ALAMBRICA 4.5\" CS",
+        "frequency": 1
+      },
+      {
+        "code": "135045409",
+        "desc": "MANTENIMIENTO CORRECTIVO ESMERILADORA INALAMBRICA 7-9\" CS",
+        "frequency": 1
+      },
+      {
+        "code": "135045396",
+        "desc": "MANTENIMIENTO ESMERILADORA INALAMBRICA 7-9\" CS",
+        "frequency": 1
+      },
+      {
+        "code": "134798126",
+        "desc": "MANTENIMIENTO CORRECTIVO BOMBA ALAMBRICAS 2 HP CS",
+        "frequency": 1
+      },
+      {
+        "code": "134797449",
+        "desc": "MANTENIMIENTO CORRECTIVO MAYOR MOTOBOMBA MOTOR 4 TIEMPOS COMBUSTIBLE CS",
+        "frequency": 1
+      },
+      {
+        "code": "134799938",
+        "desc": "MANTENIMIENTO REFRIGERADOR INVERTER CS",
+        "frequency": 1
+      },
+      {
+        "code": "134798986",
+        "desc": "MANTENIMIENTO CORRECTIVO PISTOLA PARA PINTAR CS",
+        "frequency": 1
+      },
+      {
+        "code": "134796500",
+        "desc": "DIAGNÓSTICO SISTEMA HIDRONEUMÁTICO ALAMBRICAS 100L CS",
+        "frequency": 1
+      },
+      {
+        "code": "134796788",
+        "desc": "DIAGNÓSTICO ATORNILLADOR INALÁMBRICO CS",
+        "frequency": 1
+      },
+      {
+        "code": "148282796",
+        "desc": "DIAGNOSTICO DE TV 40-55 CS",
+        "frequency": 1
+      },
+      {
+        "code": "134796884",
+        "desc": "DIAGNÓSTICO COMPRESOR ALÁMBRICO 25L CS",
+        "frequency": 1
+      },
+      {
+        "code": "134796147",
+        "desc": "DIAGNÓSTICO GENERADOR ELÉCTRICO MOTOR 4 TIEMPOS COMBUSTIBLE 15000-17500W CS",
+        "frequency": 1
+      },
+      {
+        "code": "134798468",
+        "desc": "MANTENIMIENTO CORRECTIVO MENOR ABANICO ALÁMBRICO DE TECHO DECORATIVO CS",
+        "frequency": 1
+      }
+    ]
   }
 };
