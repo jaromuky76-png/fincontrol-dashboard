@@ -2,7 +2,7 @@
 var COSTEO_DATA = {
   "fileName": "Consolidado de ventas Junio 2026.xlsx",
   "monthTag": "Junio 2026",
-  "processedAt": "2026-07-27 19:08:42",
+  "processedAt": "2026-07-27 19:11:52",
   "totalSalesRows": 347388,
   "totalLaborRows": 255,
   "isConsolidated": true,
