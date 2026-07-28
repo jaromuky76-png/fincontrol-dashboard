@@ -27,11 +27,13 @@ const elements = {
     // Sidebar Links
     menuReconciliation: document.getElementById('menu-reconciliation'),
     menuAvailability: document.getElementById('menu-availability'),
+    menuAccounting: document.getElementById('menu-accounting'),
     menuSettings: document.getElementById('menu-settings'),
     
     // Views
     viewReconciliation: document.getElementById('view-reconciliation'),
     viewAvailability: document.getElementById('view-availability'),
+    viewAccounting: document.getElementById('view-accounting'),
     viewSettings: document.getElementById('view-settings'),
 
     // Settings elements
@@ -217,22 +219,28 @@ function initNavigation() {
     const menuItems = [
         { btn: elements.menuReconciliation, view: elements.viewReconciliation, title: 'Rendición de Cuentas', subtitle: 'Concilia facturas (ZIP) con tu estado de cuenta BANPRO (PDF)' },
         { btn: elements.menuAvailability, view: elements.viewAvailability, title: 'Disponibilidad de Tarjetas', subtitle: 'Extrae saldos disponibles de los PDFs de Tesorería' },
+        { btn: elements.menuAccounting, view: elements.viewAccounting, title: 'Modo Contable - Costeo de Mano de Obra', subtitle: 'Identifica y procesa los códigos de mano de obra por unidad de negocio desde la sábana de ventas' },
         { btn: elements.menuSettings, view: elements.viewSettings, title: 'Configuración de Parámetros', subtitle: 'Administra tus tarjetas corporativas y variables de sistema' }
     ];
 
     menuItems.forEach(item => {
+        if (!item.btn || !item.view) return;
         item.btn.addEventListener('click', (e) => {
             e.preventDefault();
             
             // Deactivate all
             menuItems.forEach(mi => {
-                mi.btn.classList.remove('active');
-                mi.view.classList.remove('active');
+                if (mi.btn && mi.view) {
+                    mi.btn.classList.remove('active');
+                    mi.view.classList.remove('active');
+                    mi.view.classList.add('hidden');
+                }
             });
 
             // Activate current
             item.btn.classList.add('active');
             item.view.classList.add('active');
+            item.view.classList.remove('hidden');
             
             // Update titles
             elements.viewTitle.textContent = item.title;
@@ -247,9 +255,11 @@ function initNavigation() {
 
     // Check hash for routing on initial load
     const hash = window.location.hash;
-    if (hash === '#availability') {
+    if (hash === '#availability' && elements.menuAvailability) {
         elements.menuAvailability.click();
-    } else if (hash === '#settings') {
+    } else if (hash === '#accounting' && elements.menuAccounting) {
+        elements.menuAccounting.click();
+    } else if (hash === '#settings' && elements.menuSettings) {
         elements.menuSettings.click();
     }
 }

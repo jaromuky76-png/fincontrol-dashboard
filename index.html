@@ -16,6 +16,8 @@
         cssLink.href = 'styles.css?t=' + Date.now();
         document.head.appendChild(cssLink);
     </script>
+    <!-- SheetJS (XLSX) CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <!-- JSZip CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <!-- PDF.js CDN -->
@@ -48,6 +50,10 @@
                 <a href="#availability" class="menu-item" id="menu-availability">
                     <i data-lucide="credit-card"></i>
                     <span>Disponibilidad Tarjetas</span>
+                </a>
+                <a href="#accounting" class="menu-item" id="menu-accounting">
+                    <i data-lucide="calculator"></i>
+                    <span>Modo Contable</span>
                 </a>
                 <a href="#settings" class="menu-item" id="menu-settings">
                     <i data-lucide="settings"></i>
@@ -736,6 +742,230 @@
                     </div>
                 </div>
             </section>
+
+            <!-- View 4: Modo Contable (Costeo Mano de Obra) -->
+            <section id="view-accounting" class="content-view hidden">
+                <!-- Master Catalogs Info Card & File Upload -->
+                <div class="grid-2">
+                    <div class="card upload-card" id="card-sales-upload">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <i data-lucide="file-spreadsheet" class="icon-primary"></i>
+                                <span>1. Consolidado de Ventas (Excel .xlsx)</span>
+                            </div>
+                            <span class="card-subtitle">Sábana mensual de facturación (Ej. Consolidado de ventas Junio 2026)</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="drop-zone" id="drop-excel-sales">
+                                <i data-lucide="upload-cloud" class="drop-icon"></i>
+                                <p class="drop-text">Arrastra el archivo Excel de ventas (.xlsx) o haz clic para examinar</p>
+                                <span class="file-info" id="sales-file-info">Ningún archivo seleccionado</span>
+                                <input type="file" id="input-excel-sales" accept=".xlsx,.xls,.csv" class="hidden-input">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <i data-lucide="database" class="icon-primary"></i>
+                                <span>2. Catálogos Activos de Mano de Obra</span>
+                            </div>
+                            <span class="card-subtitle">Base de códigos de referencia para filtrado</span>
+                        </div>
+                        <div class="card-body" style="display: flex; flex-direction: column; gap: 1rem; justify-content: center;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: var(--bg-hover); border-radius: 8px; border: 1px solid var(--border-color);">
+                                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                    <span class="badge" style="background: rgba(14, 165, 233, 0.15); color: var(--color-primary); border: 1px solid var(--color-primary);">T49</span>
+                                    <div>
+                                        <div style="font-weight: 600; font-size: 0.9rem;">Taller Maestro</div>
+                                        <div style="font-size: 0.75rem; color: var(--text-muted);">Codificación RMS Columna A-B</div>
+                                    </div>
+                                </div>
+                                <span class="badge" id="badge-maestros-count" style="background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-main);">307 códigos</span>
+                            </div>
+
+                            <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: var(--bg-hover); border-radius: 8px; border: 1px solid var(--border-color);">
+                                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                    <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: var(--color-success); border: 1px solid var(--color-success);">T39</span>
+                                    <div>
+                                        <div style="font-weight: 600; font-size: 0.9rem;">Centro de Servicios</div>
+                                        <div style="font-size: 0.75rem; color: var(--text-muted);">Codificación RMS Columna A-B</div>
+                                    </div>
+                                </div>
+                                <span class="badge" id="badge-cs-count" style="background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-main);">493 códigos</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Process Button & Controls -->
+                <div class="action-bar text-center" style="display: flex; gap: 1rem; justify-content: center; align-items: center; flex-wrap: wrap;">
+                    <button id="btn-process-accounting" class="btn btn-primary" disabled>
+                        <i data-lucide="calculator"></i>
+                        <span>Identificar y Costear Mano de Obra</span>
+                    </button>
+                    <button id="btn-clear-accounting" class="btn btn-secondary hidden" type="button">
+                        <i data-lucide="rotate-ccw"></i>
+                        <span>Limpiar Consulta</span>
+                    </button>
+                </div>
+
+                <!-- Progress Bar Panel -->
+                <div class="card progress-card hidden" id="panel-progress-accounting" style="margin-top: 1.5rem;">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <i data-lucide="loader" class="spinning icon-primary"></i>
+                            <span id="progress-text-accounting">Analizando sábana de ventas...</span>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div style="width: 100%; background: var(--bg-hover); height: 8px; border-radius: 4px; overflow: hidden; margin-top: 0.5rem;">
+                            <div id="progress-bar-accounting" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--color-primary), var(--color-success)); transition: width 0.3s ease;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Results & Reports Area -->
+                <div id="panel-accounting-results" class="hidden" style="margin-top: 1.5rem;">
+                    <!-- KPI Summary Cards -->
+                    <div class="grid-4" style="margin-bottom: 1.5rem;">
+                        <div class="stat-card">
+                            <div class="stat-icon bg-primary-light color-primary">
+                                <i data-lucide="check-circle-2"></i>
+                            </div>
+                            <div class="stat-content">
+                                <span class="stat-value" id="kpi-total-identified">0</span>
+                                <span class="stat-label">Códigos Distintos Identificados</span>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon" style="background: rgba(14, 165, 233, 0.15); color: var(--color-primary);">
+                                <i data-lucide="wrench"></i>
+                            </div>
+                            <div class="stat-content">
+                                <span class="stat-value" id="kpi-maestros-codes">0</span>
+                                <span class="stat-label">Taller Maestro (T49)</span>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon" style="background: rgba(16, 185, 129, 0.15); color: var(--color-success);">
+                                <i data-lucide="settings"></i>
+                            </div>
+                            <div class="stat-content">
+                                <span class="stat-value" id="kpi-cs-codes">0</span>
+                                <span class="stat-label">Centro de Servicios (T39)</span>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon" style="background: rgba(245, 158, 11, 0.15); color: var(--color-warning);">
+                                <i data-lucide="layers"></i>
+                            </div>
+                            <div class="stat-content">
+                                <span class="stat-value" id="kpi-total-occurrences">0</span>
+                                <span class="stat-label">Líneas de MO en Sábana</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="background: var(--bg-hover); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.75rem 1.25rem; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+                        <span style="font-size: 0.85rem; color: var(--text-muted);">
+                            <i data-lucide="file-check" style="width: 16px; height: 16px; vertical-align: middle; margin-right: 0.35rem; color: var(--color-success);"></i>
+                            Archivo analizado: <strong id="lbl-sales-filename" style="color: var(--text-main);">--</strong>
+                        </span>
+                        <span class="badge" style="background: var(--bg-card); border: 1px solid var(--border-color); font-size: 0.75rem;">Filtro: Columna Q (ProductID)</span>
+                    </div>
+
+                    <!-- Two Reports Grid (T49 & T39) -->
+                    <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+                        <!-- Report 1: Taller Maestro (T49) -->
+                        <div class="card">
+                            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                                <div>
+                                    <div class="card-title">
+                                        <i data-lucide="wrench" class="icon-primary"></i>
+                                        <span>Reporte Mano de Obra - Taller Maestro (T49)</span>
+                                    </div>
+                                    <span class="card-subtitle" id="count-maestros-table">0 códigos identificados</span>
+                                </div>
+                                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                                    <div class="search-box" style="position: relative; min-width: 200px;">
+                                        <input type="text" id="search-maestros" class="form-control form-control-sm" placeholder="Buscar código o descripción..." style="padding-left: 2rem; font-size: 0.8rem;">
+                                        <i data-lucide="search" style="position: absolute; left: 0.6rem; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: var(--text-muted);"></i>
+                                    </div>
+                                    <button class="btn btn-secondary btn-sm" id="btn-export-maestros-excel" title="Exportar a Excel">
+                                        <i data-lucide="file-spreadsheet"></i> Excel
+                                    </button>
+                                    <button class="btn btn-secondary btn-sm" id="btn-export-maestros-pdf" title="Exportar a PDF">
+                                        <i data-lucide="file-text"></i> PDF
+                                    </button>
+                                    <button class="btn btn-secondary btn-sm" id="btn-copy-maestros" title="Copiar Tabla">
+                                        <i data-lucide="copy"></i> Copiar
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body" style="padding: 0;">
+                                <div class="table-responsive">
+                                    <table class="table" style="margin-bottom: 0;">
+                                        <thead>
+                                            <tr>
+                                                <th style="width: 220px;">Código Identificado</th>
+                                                <th>Descripción de la Actividad</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="table-maestros-body">
+                                            <!-- Dynamic Rows -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Report 2: Centro de Servicios (T39) -->
+                        <div class="card">
+                            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                                <div>
+                                    <div class="card-title">
+                                        <i data-lucide="settings" style="color: var(--color-success);"></i>
+                                        <span>Reporte Mano de Obra - Centro de Servicios (T39)</span>
+                                    </div>
+                                    <span class="card-subtitle" id="count-cs-table">0 códigos identificados</span>
+                                </div>
+                                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                                    <div class="search-box" style="position: relative; min-width: 200px;">
+                                        <input type="text" id="search-cs" class="form-control form-control-sm" placeholder="Buscar código o descripción..." style="padding-left: 2rem; font-size: 0.8rem;">
+                                        <i data-lucide="search" style="position: absolute; left: 0.6rem; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: var(--text-muted);"></i>
+                                    </div>
+                                    <button class="btn btn-secondary btn-sm" id="btn-export-cs-excel" title="Exportar a Excel">
+                                        <i data-lucide="file-spreadsheet"></i> Excel
+                                    </button>
+                                    <button class="btn btn-secondary btn-sm" id="btn-export-cs-pdf" title="Exportar a PDF">
+                                        <i data-lucide="file-text"></i> PDF
+                                    </button>
+                                    <button class="btn btn-secondary btn-sm" id="btn-copy-cs" title="Copiar Tabla">
+                                        <i data-lucide="copy"></i> Copiar
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body" style="padding: 0;">
+                                <div class="table-responsive">
+                                    <table class="table" style="margin-bottom: 0;">
+                                        <thead>
+                                            <tr>
+                                                <th style="width: 220px;">Código Identificado</th>
+                                                <th>Descripción de la Actividad</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="table-cs-body">
+                                            <!-- Dynamic Rows -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
         </main>
     </div>
 
@@ -1165,6 +1395,8 @@
     </div>
 
     <!-- Main scripts -->
+    <script src="master_catalogs.js?v=1.0"></script>
+    <script src="accounting.js?v=1.0"></script>
     <script src="app.js?v=2.0"></script>
     <script src="reconciliation.js?v=2.0"></script>
     <script src="availability.js?v=2.0"></script>

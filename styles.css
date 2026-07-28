@@ -1256,3 +1256,24 @@ select option {
     }
 }
 
+/* Accounting Module Styles */
+.badge-freq {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.15rem 0.5rem;
+    border-radius: 12px;
+    background: rgba(14, 165, 233, 0.12);
+    color: var(--color-primary);
+    border: 1px solid rgba(14, 165, 233, 0.25);
+    white-space: nowrap;
+    font-family: var(--font-secondary);
+}
+
+.badge-freq.badge-cs {
+    background: rgba(16, 185, 129, 0.12);
+    color: var(--color-success);
+    border-color: rgba(16, 185, 129, 0.25);
+}
+
+
