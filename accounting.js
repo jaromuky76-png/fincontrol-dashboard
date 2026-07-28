@@ -284,21 +284,20 @@
             const relsXml = relsFile ? await relsFile.async('string') : '';
 
             // Extract all <sheet ...> tags
-            const sheetTagRegex = /<sheet\s+[^>]*>/gi;
-            let match;
+            const sheetTagMatches = wbXml.match(/<sheet\s+[^>]*>/gi) || [];
             let foundRId = null;
 
-            while ((match = sheetTagRegex.exec(wbXml)) !== null) {
-                const tag = match[0];
+            for (const tag of sheetTagMatches) {
                 const nameMatch = /name="([^"]+)"/i.exec(tag);
-                const idMatch = /:id="([^"]+)"/i.exec(tag);
-
-                if (nameMatch && idMatch) {
-                    const sheetName = nameMatch[1].trim();
-                    const rId = idMatch[1];
-                    if (sheetName.toLowerCase().includes('venta') || sheetName.toLowerCase().includes('sale') || sheetName.toLowerCase().includes('factur')) {
-                        foundRId = rId;
-                        break;
+                if (nameMatch) {
+                    const sheetName = nameMatch[1].trim().toLowerCase();
+                    if (sheetName.includes('venta') || sheetName.includes('sale') || sheetName.includes('factur')) {
+                        // Match r:id="rId3" specifically (avoid matching sheetId="5")
+                        const rIdMatch = /\br:id="([^"]+)"/i.exec(tag) || /:id="([^"]+)"/i.exec(tag);
+                        if (rIdMatch) {
+                            foundRId = rIdMatch[1];
+                            break;
+                        }
                     }
                 }
             }
@@ -312,21 +311,11 @@
             }
         }
 
-        // 2. Fallback: If not resolved via workbook rels, search sheet files in zip by largest size
+        // 2. Fallback sheet search if sheetPath not resolved
         if (!targetSheetPath || !zipKeys.some(k => k.toLowerCase() === targetSheetPath.toLowerCase())) {
             const sheetFiles = zipKeys.filter(f => f.match(/^xl\/worksheets\/sheet\d+\.xml$/i));
-            let maxSize = -1;
-            let largestFile = null;
-
-            for (const sf of sheetFiles) {
-                const entry = zip.files[sf];
-                const size = entry && entry._data ? (entry._data.uncompressedSize || 0) : 0;
-                if (size > maxSize) {
-                    maxSize = size;
-                    largestFile = sf;
-                }
-            }
-            targetSheetPath = largestFile || 'xl/worksheets/sheet3.xml';
+            const sheet3 = sheetFiles.find(f => f.toLowerCase().includes('sheet3'));
+            targetSheetPath = sheet3 || (sheetFiles.length > 0 ? sheetFiles[0] : 'xl/worksheets/sheet3.xml');
         }
 
         // Match case-insensitive key in zip.files
@@ -417,7 +406,6 @@
             }
         }
 
-        // If JSZip found 0 rows or 0 matches (e.g. column Q was not indexed as Q), fallback to SheetJS
         if (totalRowsProcessed === 0) {
             console.warn('JSZip parser extracted 0 rows in Q column, falling back to SheetJS...');
             return await parseWithSheetJS(file);
@@ -444,9 +432,13 @@
                     const data = new Uint8Array(e.target.result);
                     let wb = XLSX.read(data, { type: 'array', cellFormula: false, cellHTML: false, cellStyles: false, cellText: false });
 
-                    let targetSheetName = wb.SheetNames.find(s => s.trim().toLowerCase().includes('venta')) || wb.SheetNames[0];
+                    let targetSheetName = wb.SheetNames.find(s => s.trim().toLowerCase().includes('venta')) ||
+                                          wb.SheetNames.find(s => s.trim().toLowerCase().includes('maestro')) ||
+                                          wb.SheetNames[2] ||
+                                          wb.SheetNames[0];
+
                     const ws = wb.Sheets[targetSheetName];
-                    if (!ws) throw new Error('Hoja "Ventas" no encontrada.');
+                    if (!ws) throw new Error('No se pudo encontrar ninguna hoja de ventas válida en el archivo.');
 
                     const sheetRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
                     let colQIndex = 16;
