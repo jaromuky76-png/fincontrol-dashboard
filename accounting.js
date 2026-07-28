@@ -4,7 +4,8 @@
  * identifies labor codes for Taller Maestro (T49) and Centro de Servicios (T39),
  * and generates 2-column reports (Código Identificado y Descripción).
  * 
- * Optimized for large Excel files (150MB+) using JSZip streaming and fast XML parsing.
+ * Optimized for large Excel files (150MB+) using JSZip streaming and fast XML parsing
+ * with automatic fallback to SheetJS.
  */
 
 (function () {
@@ -226,18 +227,27 @@
 
         setTimeout(async () => {
             try {
-                let results;
+                let results = null;
                 if (file.name.match(/\.xlsx$/i) && typeof JSZip !== 'undefined') {
-                    results = await parseXlsxWithJSZip(file);
+                    try {
+                        results = await parseXlsxWithJSZip(file);
+                    } catch (zipErr) {
+                        console.warn('JSZip streaming parser warning, trying SheetJS fallback...', zipErr);
+                        results = await parseWithSheetJS(file);
+                    }
                 } else if (typeof XLSX !== 'undefined') {
                     results = await parseWithSheetJS(file);
                 } else {
                     throw new Error('No se encontró una librería para leer archivos Excel (JSZip / XLSX).');
                 }
 
+                if (!results) {
+                    throw new Error('No se pudieron extraer datos del archivo.');
+                }
+
                 currentResults = results;
 
-                updateProgress(100, 'Procesamiento completado.');
+                updateProgress(100, 'Procesamiento completado con éxito.');
 
                 setTimeout(() => {
                     elements.panelProgress.classList.add('hidden');
@@ -263,36 +273,76 @@
         updateProgress(35, 'Descomprimiendo estructura Excel (JSZip)...');
         const zip = await JSZip.loadAsync(arrayBuffer);
 
+        const zipKeys = Object.keys(zip.files);
+
         // 1. Locate sheet path for 'Ventas'
-        let sheetPath = null;
+        let targetSheetPath = null;
         const wbFile = zip.file('xl/workbook.xml');
         if (wbFile) {
             const wbXml = await wbFile.async('string');
-            const sheetMatch = wbXml.match(/<sheet[^>]*name="Ventas"[^>]*r:id="([^"]+)"/i) ||
-                               wbXml.match(/<sheet[^>]*r:id="([^"]+)"[^>]*name="Ventas"/i);
-            if (sheetMatch) {
-                const rId = sheetMatch[1];
-                const relsFile = zip.file('xl/_rels/workbook.xml.rels');
-                if (relsFile) {
-                    const relsXml = await relsFile.async('string');
-                    const relMatch = new RegExp(`rId="${rId}"[^>]*Target="([^"]+)"`, 'i').exec(relsXml) ||
-                                     new RegExp(`Target="([^"]+)"[^>]*rId="${rId}"`, 'i').exec(relsXml);
-                    if (relMatch) {
-                        sheetPath = 'xl/' + relMatch[1].replace(/^\/xl\//, '').replace(/^xl\//, '');
+            const relsFile = zip.file('xl/_rels/workbook.xml.rels');
+            const relsXml = relsFile ? await relsFile.async('string') : '';
+
+            // Extract all <sheet ...> tags
+            const sheetTagRegex = /<sheet\s+[^>]*>/gi;
+            let match;
+            let foundRId = null;
+
+            while ((match = sheetTagRegex.exec(wbXml)) !== null) {
+                const tag = match[0];
+                const nameMatch = /name="([^"]+)"/i.exec(tag);
+                const idMatch = /:id="([^"]+)"/i.exec(tag);
+
+                if (nameMatch && idMatch) {
+                    const sheetName = nameMatch[1].trim();
+                    const rId = idMatch[1];
+                    if (sheetName.toLowerCase().includes('venta') || sheetName.toLowerCase().includes('sale') || sheetName.toLowerCase().includes('factur')) {
+                        foundRId = rId;
+                        break;
                     }
+                }
+            }
+
+            if (foundRId && relsXml) {
+                const relRegex = new RegExp(`Id="${foundRId}"[^>]*Target="([^"]+)"`, 'i');
+                const relMatch = relRegex.exec(relsXml);
+                if (relMatch) {
+                    targetSheetPath = 'xl/' + relMatch[1].replace(/^\/?(xl\/)?/, '');
                 }
             }
         }
 
-        // Fallback sheet search if sheetPath not resolved
-        if (!sheetPath) {
-            const sheetFiles = Object.keys(zip.files).filter(f => f.match(/^xl\/worksheets\/sheet\d+\.xml$/i));
-            sheetPath = sheetFiles.length > 0 ? sheetFiles[0] : 'xl/worksheets/sheet1.xml';
+        // 2. Fallback: If not resolved via workbook rels, search sheet files in zip by largest size
+        if (!targetSheetPath || !zipKeys.some(k => k.toLowerCase() === targetSheetPath.toLowerCase())) {
+            const sheetFiles = zipKeys.filter(f => f.match(/^xl\/worksheets\/sheet\d+\.xml$/i));
+            let maxSize = -1;
+            let largestFile = null;
+
+            for (const sf of sheetFiles) {
+                const entry = zip.files[sf];
+                const size = entry && entry._data ? (entry._data.uncompressedSize || 0) : 0;
+                if (size > maxSize) {
+                    maxSize = size;
+                    largestFile = sf;
+                }
+            }
+            targetSheetPath = largestFile || 'xl/worksheets/sheet3.xml';
+        }
+
+        // Match case-insensitive key in zip.files
+        const actualZipKey = zipKeys.find(k => k.toLowerCase() === targetSheetPath.toLowerCase()) || targetSheetPath;
+        const sheetFile = zip.file(actualZipKey);
+
+        if (!sheetFile) {
+            console.warn('JSZip sheet file not found, falling back to SheetJS...');
+            return await parseWithSheetJS(file);
         }
 
         updateProgress(55, 'Leyendo tabla de textos compartidos (SharedStrings)...');
         const sharedStrings = [];
-        const ssFile = zip.file('xl/sharedStrings.xml');
+        const ssKey = zipKeys.find(k => k.toLowerCase() === 'xl/sharedstrings.xml');
+        const ssFile = ssKey ? zip.file(ssKey) : null;
+
         if (ssFile) {
             const ssXml = await ssFile.async('string');
             const siMatches = ssXml.match(/<si>(.*?)<\/si>/gs) || [];
@@ -309,14 +359,9 @@
         }
 
         updateProgress(75, 'Extrayendo y filtrando códigos de mano de obra en Columna Q...');
-        const sheetFile = zip.file(sheetPath);
-        if (!sheetFile) {
-            throw new Error('No se pudo encontrar la hoja "Ventas" en la estructura del archivo Excel.');
-        }
-
         const sheetXml = await sheetFile.async('string');
 
-        // Regex for cells in Column Q: <c r="Q123" ...><v>12345</v></c>
+        // Parse Column Q (<c r="Q...">)
         const cellQRegex = /<c r="Q(\d+)"([^>]*)>(.*?)<\/c>/gs;
         const valRegex = /<v>(.*?)<\/v>/;
         const tAttrRegex = /t="([^"]+)"/;
@@ -372,6 +417,12 @@
             }
         }
 
+        // If JSZip found 0 rows or 0 matches (e.g. column Q was not indexed as Q), fallback to SheetJS
+        if (totalRowsProcessed === 0) {
+            console.warn('JSZip parser extracted 0 rows in Q column, falling back to SheetJS...');
+            return await parseWithSheetJS(file);
+        }
+
         return {
             fileName: file.name,
             totalSalesRows: totalRowsProcessed,
@@ -393,7 +444,7 @@
                     const data = new Uint8Array(e.target.result);
                     let wb = XLSX.read(data, { type: 'array', cellFormula: false, cellHTML: false, cellStyles: false, cellText: false });
 
-                    let targetSheetName = wb.SheetNames.find(s => s.trim().toLowerCase() === 'ventas') || wb.SheetNames[0];
+                    let targetSheetName = wb.SheetNames.find(s => s.trim().toLowerCase().includes('venta')) || wb.SheetNames[0];
                     const ws = wb.Sheets[targetSheetName];
                     if (!ws) throw new Error('Hoja "Ventas" no encontrada.');
 
