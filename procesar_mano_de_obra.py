@@ -35,37 +35,77 @@ def load_catalog(filepath):
     wb.close()
     return catalog
 
-print("\n1. Cargando catálogos de referencia...")
+print("\n1. Cargando catálogos de referencia de mano de obra...")
 maestros_catalog = load_catalog(maestros_path)
 cs_catalog = load_catalog(cs_path)
 
 print(f" -> Taller Maestro (T49): {len(maestros_catalog)} códigos cargados")
 print(f" -> Centro de Servicios (T39): {len(cs_catalog)} códigos cargados")
 
-# 2. Locate Sales Consolidated File
+# 2. Locate and Select Sales Consolidated File
 sales_dir = r'CONSOLIDADO DE VENTAS'
 excel_files = []
 if os.path.exists(sales_dir):
     for f in os.listdir(sales_dir):
         if f.endswith('.xlsx') and not f.startswith('~$'):
-            excel_files.append(os.path.join(sales_dir, f))
+            full_p = os.path.join(sales_dir, f)
+            excel_files.append((full_p, f, os.path.getmtime(full_p)))
+
+# Sort by modification date (most recent first)
+excel_files.sort(key=lambda x: x[2], reverse=True)
 
 if not excel_files:
     print("\nError: No se encontró ningún archivo .xlsx en la carpeta CONSOLIDADO DE VENTAS.")
     input("\nPresiona Enter para salir...")
     sys.exit(1)
 
-sales_file = excel_files[0]
-filename_base = os.path.basename(sales_file)
-print(f"\n2. Procesando sábana de ventas: {filename_base} ({(os.path.getsize(sales_file)/1024/1024):.1f} MB)...")
+selected_file_path = None
 
-# 3. Fast Unconsolidated Parsing (Individual Transaction Lines)
-maestros_rows = []
-cs_rows = []
+if len(excel_files) == 1:
+    selected_file_path = excel_files[0][0]
+    filename_base = excel_files[0][1]
+    print(f"\n2. Sábana de ventas detectada: {filename_base}")
+else:
+    print("\n2. Se encontraron varios archivos de sábana en 'CONSOLIDADO DE VENTAS':")
+    for idx, (path, fname, mtime) in enumerate(excel_files, 1):
+        mtime_str = time.strftime('%d/%m/%Y %H:%M', time.localtime(mtime))
+        size_mb = os.path.getsize(path) / (1024 * 1024)
+        recency = " (Más reciente)" if idx == 1 else ""
+        print(f"   [{idx}] {fname} ({size_mb:.1f} MB - {mtime_str}){recency}")
+    
+    user_choice = input(f"\nSelecciona el número del archivo a procesar [1-{len(excel_files)}] (Presiona ENTER para la opción [1]): ").strip()
+    
+    if not user_choice:
+        selected_file_path = excel_files[0][0]
+        filename_base = excel_files[0][1]
+    else:
+        try:
+            choice_idx = int(user_choice) - 1
+            if 0 <= choice_idx < len(excel_files):
+                selected_file_path = excel_files[choice_idx][0]
+                filename_base = excel_files[choice_idx][1]
+            else:
+                selected_file_path = excel_files[0][0]
+                filename_base = excel_files[0][1]
+        except ValueError:
+            selected_file_path = excel_files[0][0]
+            filename_base = excel_files[0][1]
+
+size_mb = os.path.getsize(selected_file_path) / (1024 * 1024)
+print(f"\nProcesando archivo seleccionado: {filename_base} ({size_mb:.1f} MB)...")
+
+# 3. Fast Parsing: Extract Both Unconsolidated Rows (for Excel) & Consolidated Summary (for Web)
+maestros_unconsolidated = []  # List of { row, code, desc }
+cs_unconsolidated = []        # List of { row, code, desc }
+
+maestros_grouped = {}         # code -> { code, desc, frequency }
+cs_grouped = {}               # code -> { code, desc, frequency }
+
 total_sales_rows = 0
+total_labor_occurrences = 0
 
 try:
-    with zipfile.ZipFile(sales_file, 'r') as z:
+    with zipfile.ZipFile(selected_file_path, 'r') as z:
         # Load Shared Strings
         shared_strings = []
         if 'xl/sharedStrings.xml' in z.namelist():
@@ -102,7 +142,7 @@ try:
             sheet_files.sort(key=lambda f: z.getinfo(f).file_size, reverse=True)
             sheet_path = sheet_files[0] if sheet_files else 'xl/worksheets/sheet3.xml'
 
-        print(f" -> Analizando hoja: {sheet_path}")
+        print(f" -> Analizando hoja de ventas: {sheet_path}")
         sheet_bytes = z.read(sheet_path)
 
         cell_q_regex = re.compile(rb'<c r="Q(\d+)"([^>]*)>(.*?)</c>', re.DOTALL)
@@ -131,36 +171,47 @@ try:
             if code_str.endswith('.0'):
                 code_str = code_str[:-2]
 
-            # Individual row record (Unconsolidated)
             row_num = int(row_idx_str)
 
+            # Maestros match
             if code_str in maestros_catalog:
-                maestros_rows.append({
-                    'row': row_num,
-                    'code': code_str,
-                    'desc': maestros_catalog[code_str]
-                })
+                total_labor_occurrences += 1
+                desc = maestros_catalog[code_str]
+                
+                # Unconsolidated record for local Excel
+                maestros_unconsolidated.append({'row': row_num, 'code': code_str, 'desc': desc})
+                
+                # Consolidated aggregator for Web Dashboard
+                if code_str not in maestros_grouped:
+                    maestros_grouped[code_str] = {'code': code_str, 'desc': desc, 'frequency': 0}
+                maestros_grouped[code_str]['frequency'] += 1
 
+            # CS match
             if code_str in cs_catalog:
-                cs_rows.append({
-                    'row': row_num,
-                    'code': code_str,
-                    'desc': cs_catalog[code_str]
-                })
+                total_labor_occurrences += 1
+                desc = cs_catalog[code_str]
+                
+                # Unconsolidated record for local Excel
+                cs_unconsolidated.append({'row': row_num, 'code': code_str, 'desc': desc})
+
+                # Consolidated aggregator for Web Dashboard
+                if code_str not in cs_grouped:
+                    cs_grouped[code_str] = {'code': code_str, 'desc': desc, 'frequency': 0}
+                cs_grouped[code_str]['frequency'] += 1
 
     print(f"\n3. Extracción completada en {time.time()-t0:.2f} segundos:")
     print(f" -> Filas totales analizadas: {total_sales_rows:,}")
-    print(f" -> Transacciones de Mano de Obra en Maestros (T49): {len(maestros_rows)} filas individuales")
-    print(f" -> Transacciones de Mano de Obra en Centro de Servicios (T39): {len(cs_rows)} filas individuales")
+    print(f" -> Transacciones de Mano de Obra en Maestros (T49): {len(maestros_unconsolidated)} filas ({len(maestros_grouped)} códigos únicos)")
+    print(f" -> Transacciones de Mano de Obra en Centro de Servicios (T39): {len(cs_unconsolidated)} filas ({len(cs_grouped)} códigos únicos)")
 
-    # 4. Generate Unconsolidated Excel Report (Individual Rows)
+    # 4. Generate Unconsolidated Excel Report (Individual Rows - Fila por Fila)
     out_wb = openpyxl.Workbook()
     header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
     code_font = Font(name="Consolas", size=10, bold=True, color="0284C7")
     code_font_cs = Font(name="Consolas", size=10, bold=True, color="059669")
     regular_font = Font(name="Calibri", size=10)
 
-    # Sheet 1: Taller Maestro (T49)
+    # Sheet 1: Taller Maestro (T49) - Fila por fila
     ws1 = out_wb.active
     ws1.title = "Taller Maestro (T49)"
     header_fill_m = PatternFill(start_color="0EA5E9", end_color="0EA5E9", fill_type="solid")
@@ -171,7 +222,7 @@ try:
         cell.font = header_font
         cell.alignment = Alignment(horizontal="left", vertical="center")
 
-    for r in sorted(maestros_rows, key=lambda x: x['row']):
+    for r in sorted(maestros_unconsolidated, key=lambda x: x['row']):
         ws1.append([r['row'], r['code'], r['desc']])
 
     for r in range(2, ws1.max_row + 1):
@@ -183,7 +234,7 @@ try:
     ws1.column_dimensions['B'].width = 25
     ws1.column_dimensions['C'].width = 75
 
-    # Sheet 2: Centro de Servicios (T39)
+    # Sheet 2: Centro de Servicios (T39) - Fila por fila
     ws2 = out_wb.create_sheet(title="Centro de Servicios (T39)")
     header_fill_cs = PatternFill(start_color="10B981", end_color="10B981", fill_type="solid")
 
@@ -193,7 +244,7 @@ try:
         cell.font = header_font
         cell.alignment = Alignment(horizontal="left", vertical="center")
 
-    for r in sorted(cs_rows, key=lambda x: x['row']):
+    for r in sorted(cs_unconsolidated, key=lambda x: x['row']):
         ws2.append([r['row'], r['code'], r['desc']])
 
     for r in range(2, ws2.max_row + 1):
@@ -208,33 +259,39 @@ try:
     output_excel = f"Reporte_Mano_de_Obra_{os.path.splitext(filename_base)[0]}.xlsx"
     out_wb.save(output_excel)
     out_wb.close()
-    print(f"\n -> Reporte Excel individual generado: {os.path.abspath(output_excel)}")
+    print(f"\n -> Reporte Excel FILA POR FILA generado: {os.path.abspath(output_excel)}")
 
-    # 5. Export JSON data payload for Web Dashboard (datos_costeo.js)
-    month_name = os.path.splitext(filename_base)[0].replace("Consolidado de ventas", "").strip()
+    # 5. Export Consolidated Data Payload for Web Dashboard (datos_costeo.js)
+    month_clean = os.path.splitext(filename_base)[0].replace("Consolidado de ventas", "").strip()
+    
+    # Sort consolidated entries by description
+    maestros_web = sorted(list(maestros_grouped.values()), key=lambda x: x['desc'])
+    cs_web = sorted(list(cs_grouped.values()), key=lambda x: x['desc'])
+
     costeo_payload = {
         "fileName": filename_base,
-        "monthTag": month_name or "Actual",
+        "monthTag": month_clean or "Actual",
         "processedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
         "totalSalesRows": total_sales_rows,
-        "totalLaborRows": len(maestros_rows) + len(cs_rows),
-        "maestrosRows": sorted(maestros_rows, key=lambda x: x['row']),
-        "csRows": sorted(cs_rows, key=lambda x: x['row'])
+        "totalLaborRows": total_labor_occurrences,
+        "isConsolidated": True,
+        "maestrosMatches": maestros_web,
+        "csMatches": cs_web
     }
 
-    js_content = f"// Datos procesados automáticamente por el Agente Contable\nvar COSTEO_DATA = {json.dumps(costeo_payload, ensure_ascii=False, indent=2)};\n"
+    js_content = f"// Datos consolidados procesados automáticamente para la Web\nvar COSTEO_DATA = {json.dumps(costeo_payload, ensure_ascii=False, indent=2)};\n"
     with open("datos_costeo.js", "w", encoding="utf-8") as f:
         f.write(js_content)
 
-    print(" -> Datos sincronizados para la Web Dashboard (datos_costeo.js)")
+    print(" -> Datos CONSOLIDADOS sincronizados para la Web Dashboard (datos_costeo.js)")
 
-    # 6. Auto Push to GitHub Pages if git available
+    # 6. Auto Push to GitHub Pages
     print("\n4. Publicando actualización automática en el Dashboard Web (GitHub Pages)...")
     try:
         subprocess.run(["git", "add", "datos_costeo.js"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run(["git", "commit", "-m", f"Auto-sync: Resultados de costeo de mano de obra para {filename_base}"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["git", "commit", "-m", f"Auto-sync: Consolidado de mano de obra para {filename_base}"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(["git", "push", "origin", "main"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        print(" -> ¡Sincronizado con éxito en GitHub Pages!")
+        print(" -> ¡Publicado con éxito en GitHub Pages!")
     except Exception as ge:
         print(" -> (Sincronizado localmente para la web)")
 
@@ -242,7 +299,7 @@ try:
     print(f"  ¡PROCESO COMPLETADO Y PUBLICADO CON ÉXITO!")
     print(f"==========================================================")
 
-    # Automatically open output Excel file
+    # Automatically open local unconsolidated Excel file
     try:
         os.startfile(os.path.abspath(output_excel))
     except Exception:

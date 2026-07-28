@@ -1,7 +1,7 @@
 /**
  * FinControl - Accounting & Labor Costing Module (Modo Contable)
- * Automatically displays individual (unconsolidated) transaction lines processed by 
- * the local processing agent for Taller Maestro (T49) and Centro de Servicios (T39).
+ * Automatically displays consolidated labor code movement (Código Identificado, Descripción y Facturaciones)
+ * for Taller Maestro (T49) and Centro de Servicios (T39).
  */
 
 (function () {
@@ -17,8 +17,8 @@
         processedAt: '',
         totalSalesRows: 0,
         totalLaborRows: 0,
-        maestrosRows: [], // Array of { row, code, desc } (unconsolidated individual lines)
-        csRows: []        // Array of { row, code, desc } (unconsolidated individual lines)
+        maestrosMatches: [], // Array of { code, desc, frequency }
+        csMatches: []        // Array of { code, desc, frequency }
     };
 
     // DOM Elements Cache
@@ -85,15 +85,15 @@
     }
 
     function autoLoadCosteoData() {
-        if (typeof COSTEO_DATA !== 'undefined' && COSTEO_DATA.maestrosRows) {
+        if (typeof COSTEO_DATA !== 'undefined') {
             currentResults = {
                 fileName: COSTEO_DATA.fileName || 'Consolidado de Ventas',
                 monthTag: COSTEO_DATA.monthTag || '',
                 processedAt: COSTEO_DATA.processedAt || '',
                 totalSalesRows: COSTEO_DATA.totalSalesRows || 0,
-                totalLaborRows: COSTEO_DATA.totalLaborRows || (COSTEO_DATA.maestrosRows.length + COSTEO_DATA.csRows.length),
-                maestrosRows: COSTEO_DATA.maestrosRows || [],
-                csRows: COSTEO_DATA.csRows || []
+                totalLaborRows: COSTEO_DATA.totalLaborRows || 0,
+                maestrosMatches: COSTEO_DATA.maestrosMatches || [],
+                csMatches: COSTEO_DATA.csMatches || []
             };
             renderAccountingResults();
         }
@@ -170,24 +170,24 @@
 
         // Export Buttons for Maestros
         if (elements.btnExportMaestrosExcel) {
-            elements.btnExportMaestrosExcel.addEventListener('click', () => exportToExcel('Maestros_T49', currentResults.maestrosRows, 'Mano de Obra - Taller Maestro (T49)'));
+            elements.btnExportMaestrosExcel.addEventListener('click', () => exportToExcel('Maestros_T49', currentResults.maestrosMatches, 'Mano de Obra - Taller Maestro (T49)'));
         }
         if (elements.btnExportMaestrosPdf) {
-            elements.btnExportMaestrosPdf.addEventListener('click', () => exportToPDF('Maestros_T49', currentResults.maestrosRows, 'Reporte de Mano de Obra - Taller Maestro (T49)'));
+            elements.btnExportMaestrosPdf.addEventListener('click', () => exportToPDF('Maestros_T49', currentResults.maestrosMatches, 'Reporte de Mano de Obra - Taller Maestro (T49)'));
         }
         if (elements.btnCopyMaestros) {
-            elements.btnCopyMaestros.addEventListener('click', () => copyTableToClipboard(currentResults.maestrosRows, 'Maestros T49'));
+            elements.btnCopyMaestros.addEventListener('click', () => copyTableToClipboard(currentResults.maestrosMatches, 'Maestros T49'));
         }
 
         // Export Buttons for CS
         if (elements.btnExportCsExcel) {
-            elements.btnExportCsExcel.addEventListener('click', () => exportToExcel('Centro_Servicios_T39', currentResults.csRows, 'Mano de Obra - Centro de Servicios (T39)'));
+            elements.btnExportCsExcel.addEventListener('click', () => exportToExcel('Centro_Servicios_T39', currentResults.csMatches, 'Mano de Obra - Centro de Servicios (T39)'));
         }
         if (elements.btnExportCsPdf) {
-            elements.btnExportCsPdf.addEventListener('click', () => exportToPDF('Centro_Servicios_T39', currentResults.csRows, 'Reporte de Mano de Obra - Centro de Servicios (T39)'));
+            elements.btnExportCsPdf.addEventListener('click', () => exportToPDF('Centro_Servicios_T39', currentResults.csMatches, 'Reporte de Mano de Obra - Centro de Servicios (T39)'));
         }
         if (elements.btnCopyCs) {
-            elements.btnCopyCs.addEventListener('click', () => copyTableToClipboard(currentResults.csRows, 'Centro de Servicios T39'));
+            elements.btnCopyCs.addEventListener('click', () => copyTableToClipboard(currentResults.csMatches, 'Centro de Servicios T39'));
         }
     }
 
@@ -202,7 +202,7 @@
         const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
         elements.salesFileInfo.textContent = `${file.name} (${sizeMb} MB)`;
         elements.btnProcessAccounting.disabled = false;
-        showToast(`Archivo "${file.name}" cargado.`, 'info');
+        showToast(`Archivo "${file.name}" seleccionado`, 'info');
         return true;
     }
 
@@ -217,8 +217,8 @@
             fileName: '',
             totalSalesRows: 0,
             totalLaborRows: 0,
-            maestrosRows: [],
-            csRows: []
+            maestrosMatches: [],
+            csMatches: []
         };
         showToast('Vista de costeo reiniciada', 'info');
     }
@@ -248,33 +248,45 @@
                     const sheetM = wb.Sheets['Taller Maestro (T49)'] || wb.Sheets[wb.SheetNames[0]];
                     const sheetCS = wb.Sheets['Centro de Servicios (T39)'] || wb.Sheets[wb.SheetNames[1]];
 
-                    let mRows = [];
-                    let csRows = [];
+                    let mMatches = [];
+                    let csMatches = [];
 
                     if (sheetM) {
                         const jsonM = XLSX.utils.sheet_to_json(sheetM);
-                        mRows = jsonM.map((r, idx) => ({
-                            row: r['N° Fila Sábana'] || r['Fila'] || (idx + 2),
-                            code: String(r['Código Identificado'] || r['Código'] || '').trim(),
-                            desc: String(r['Descripción de la Actividad'] || r['Descripción'] || '').trim()
-                        })).filter(r => r.code !== '');
+                        const mDict = {};
+                        jsonM.forEach(r => {
+                            const c = String(r['Código Identificado'] || r['Código'] || '').trim();
+                            const d = String(r['Descripción de la Actividad'] || r['Descripción'] || '').trim();
+                            if (c) {
+                                if (!mDict[c]) mDict[c] = { code: c, desc: d, frequency: 0 };
+                                mDict[c].frequency++;
+                            }
+                        });
+                        mMatches = Object.values(mDict).sort((a, b) => a.desc.localeCompare(b.desc));
                     }
 
                     if (sheetCS) {
                         const jsonCS = XLSX.utils.sheet_to_json(sheetCS);
-                        csRows = jsonCS.map((r, idx) => ({
-                            row: r['N° Fila Sábana'] || r['Fila'] || (idx + 2),
-                            code: String(r['Código Identificado'] || r['Código'] || '').trim(),
-                            desc: String(r['Descripción de la Actividad'] || r['Descripción'] || '').trim()
-                        })).filter(r => r.code !== '');
+                        const csDict = {};
+                        jsonCS.forEach(r => {
+                            const c = String(r['Código Identificado'] || r['Código'] || '').trim();
+                            const d = String(r['Descripción de la Actividad'] || r['Descripción'] || '').trim();
+                            if (c) {
+                                if (!csDict[c]) csDict[c] = { code: c, desc: d, frequency: 0 };
+                                csDict[c].frequency++;
+                            }
+                        });
+                        csMatches = Object.values(csDict).sort((a, b) => a.desc.localeCompare(b.desc));
                     }
+
+                    const totalLabor = mMatches.reduce((a, b) => a + b.frequency, 0) + csMatches.reduce((a, b) => a + b.frequency, 0);
 
                     currentResults = {
                         fileName: file.name,
-                        totalSalesRows: mRows.length + csRows.length,
-                        totalLaborRows: mRows.length + csRows.length,
-                        maestrosRows: mRows,
-                        csRows: csRows
+                        totalSalesRows: totalLabor,
+                        totalLaborRows: totalLabor,
+                        maestrosMatches: mMatches,
+                        csMatches: csMatches
                     };
 
                     updateProgress(100, 'Procesamiento completado.');
@@ -296,29 +308,29 @@
     }
 
     /**
-     * Render KPIs and Unconsolidated Table Reports (2 Columns: Código Identificado & Descripción)
+     * Render KPIs and Consolidated Code Tables (2 Columns: Código Identificado & Descripción)
      */
     function renderAccountingResults() {
         elements.panelResults.classList.remove('hidden');
         elements.btnClearAccounting.classList.remove('hidden');
 
         // Update KPIs
-        const totalLaborCount = currentResults.maestrosRows.length + currentResults.csRows.length;
-        elements.kpiTotalIdentified.textContent = totalLaborCount.toLocaleString();
-        elements.kpiMaestrosCodes.textContent = currentResults.maestrosRows.length.toLocaleString();
-        elements.kpiCsCodes.textContent = currentResults.csRows.length.toLocaleString();
-        elements.kpiTotalOccurrences.textContent = totalLaborCount.toLocaleString();
+        const totalDistinctCodes = currentResults.maestrosMatches.length + currentResults.csMatches.length;
+        elements.kpiTotalIdentified.textContent = totalDistinctCodes.toLocaleString();
+        elements.kpiMaestrosCodes.textContent = currentResults.maestrosMatches.length.toLocaleString();
+        elements.kpiCsCodes.textContent = currentResults.csMatches.length.toLocaleString();
+        elements.kpiTotalOccurrences.textContent = currentResults.totalLaborRows.toLocaleString();
         elements.lblSalesFilename.textContent = currentResults.fileName;
 
-        // Render Individual Tables
+        // Render Consolidated Tables
         renderMaestrosTable();
         renderCsTable();
 
-        showToast(`Cargadas ${currentResults.maestrosRows.length} líneas de Maestros y ${currentResults.csRows.length} líneas de Centro de Servicios`, 'success');
+        showToast(`Consolidado cargado: ${currentResults.maestrosMatches.length} códigos en Maestros y ${currentResults.csMatches.length} en Centro de Servicios`, 'success');
     }
 
     /**
-     * Render Maestros T49 Report Table (Individual Transaction Rows, Exactly 2 columns)
+     * Render Maestros T49 Consolidated Report Table (Exactly 2 columns + Frequency badge)
      */
     function renderMaestrosTable() {
         const tbody = elements.tableMaestrosBody;
@@ -326,13 +338,13 @@
 
         const searchTerm = (elements.searchMaestros ? elements.searchMaestros.value.toLowerCase().trim() : '');
 
-        const filtered = currentResults.maestrosRows.filter(item =>
+        const filtered = currentResults.maestrosMatches.filter(item =>
             item.code.toLowerCase().includes(searchTerm) ||
             item.desc.toLowerCase().includes(searchTerm)
         );
 
         if (elements.countMaestrosTable) {
-            elements.countMaestrosTable.textContent = `${filtered.length} de ${currentResults.maestrosRows.length} transacciones individuales`;
+            elements.countMaestrosTable.textContent = `${filtered.length} de ${currentResults.maestrosMatches.length} códigos identificados`;
         }
 
         if (filtered.length === 0) {
@@ -340,7 +352,7 @@
                 <tr>
                     <td colspan="2" class="text-center text-muted" style="padding: 2rem;">
                         <i data-lucide="search-x" style="width: 24px; height: 24px; margin-bottom: 0.5rem; opacity: 0.5;"></i>
-                        <p>No se encontraron líneas de transacciones de mano de obra para Maestros (T49)</p>
+                        <p>No se encontraron códigos de mano de obra para Maestros (T49)</p>
                     </td>
                 </tr>
             `;
@@ -357,7 +369,7 @@
                 <td>
                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
                         <span>${escapeHtml(item.desc)}</span>
-                        <span class="badge-freq" title="Línea #${item.row} en la sábana">Fila #${item.row}</span>
+                        <span class="badge-freq" title="${item.frequency} facturaciones en el mes">${item.frequency} facturaciones</span>
                     </div>
                 </td>
             `;
@@ -368,7 +380,7 @@
     }
 
     /**
-     * Render Centro de Servicios T39 Report Table (Individual Transaction Rows, Exactly 2 columns)
+     * Render Centro de Servicios T39 Consolidated Report Table (Exactly 2 columns + Frequency badge)
      */
     function renderCsTable() {
         const tbody = elements.tableCsBody;
@@ -376,13 +388,13 @@
 
         const searchTerm = (elements.searchCs ? elements.searchCs.value.toLowerCase().trim() : '');
 
-        const filtered = currentResults.csRows.filter(item =>
+        const filtered = currentResults.csMatches.filter(item =>
             item.code.toLowerCase().includes(searchTerm) ||
             item.desc.toLowerCase().includes(searchTerm)
         );
 
         if (elements.countCsTable) {
-            elements.countCsTable.textContent = `${filtered.length} de ${currentResults.csRows.length} transacciones individuales`;
+            elements.countCsTable.textContent = `${filtered.length} de ${currentResults.csMatches.length} códigos identificados`;
         }
 
         if (filtered.length === 0) {
@@ -390,7 +402,7 @@
                 <tr>
                     <td colspan="2" class="text-center text-muted" style="padding: 2rem;">
                         <i data-lucide="search-x" style="width: 24px; height: 24px; margin-bottom: 0.5rem; opacity: 0.5;"></i>
-                        <p>No se encontraron líneas de transacciones de mano de obra para Centro de Servicios (T39)</p>
+                        <p>No se encontraron códigos de mano de obra para Centro de Servicios (T39)</p>
                     </td>
                 </tr>
             `;
@@ -407,7 +419,7 @@
                 <td>
                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
                         <span>${escapeHtml(item.desc)}</span>
-                        <span class="badge-freq badge-cs" title="Línea #${item.row} en la sábana">Fila #${item.row}</span>
+                        <span class="badge-freq badge-cs" title="${item.frequency} facturaciones en el mes">${item.frequency} facturaciones</span>
                     </div>
                 </td>
             `;
@@ -418,7 +430,7 @@
     }
 
     /**
-     * Export individual transaction rows to Excel (.xlsx)
+     * Export consolidated codes to Excel (.xlsx)
      */
     function exportToExcel(filenamePrefix, dataArray, sheetTitle) {
         if (!dataArray || dataArray.length === 0) {
@@ -428,19 +440,19 @@
 
         try {
             const exportData = dataArray.map(item => ({
-                'N° Fila Sábana': item.row,
                 'Código Identificado': item.code,
-                'Descripción de la Actividad': item.desc
+                'Descripción de la Actividad': item.desc,
+                'Facturaciones (Frecuencia)': item.frequency
             }));
 
             const ws = XLSX.utils.json_to_sheet(exportData);
-            ws['!cols'] = [{ wch: 16 }, { wch: 22 }, { wch: 75 }];
+            ws['!cols'] = [{ wch: 22 }, { wch: 65 }, { wch: 25 }];
 
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, 'Mano de Obra');
 
             const monthTag = currentResults.fileName.replace(/\.xlsx$/i, '').trim();
-            const fullFilename = `Reporte_Individual_${filenamePrefix}_${monthTag || 'Costeo'}.xlsx`;
+            const fullFilename = `Consolidado_${filenamePrefix}_${monthTag || 'Costeo'}.xlsx`;
 
             XLSX.writeFile(wb, fullFilename);
             showToast(`Reporte descargado: ${fullFilename}`, 'success');
@@ -451,7 +463,7 @@
     }
 
     /**
-     * Export individual transaction rows to PDF
+     * Export consolidated codes to PDF
      */
     function exportToPDF(filenamePrefix, dataArray, documentTitle) {
         if (!dataArray || dataArray.length === 0) {
@@ -475,7 +487,7 @@
             doc.setFontSize(9);
             doc.setTextColor(100);
             doc.text(`Archivo Sábana: ${currentResults.fileName || 'Consolidado de Ventas'}`, 14, 25);
-            doc.text(`Total transacciones individuales: ${dataArray.length}`, 14, 30);
+            doc.text(`Total códigos de mano de obra distintos: ${dataArray.length}`, 14, 30);
 
             const tableRows = dataArray.map(item => [item.code, item.desc]);
 
@@ -501,7 +513,7 @@
             });
 
             const monthTag = currentResults.fileName.replace(/\.xlsx$/i, '').trim();
-            const fullFilename = `Reporte_Individual_${filenamePrefix}_${monthTag || 'Costeo'}.pdf`;
+            const fullFilename = `Consolidado_${filenamePrefix}_${monthTag || 'Costeo'}.pdf`;
 
             doc.save(fullFilename);
             showToast(`PDF descargado: ${fullFilename}`, 'success');
@@ -527,7 +539,7 @@
 
         const textToCopy = lines.join('\n');
         navigator.clipboard.writeText(textToCopy).then(() => {
-            showToast(`Reporte ${label} copiado al portapapeles (2 columnas)`, 'success');
+            showToast(`Consolidado ${label} copiado al portapapeles (2 columnas)`, 'success');
         }).catch(err => {
             console.error('Clipboard error:', err);
             showToast('No se pudo copiar al portapapeles', 'error');
