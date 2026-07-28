@@ -1071,7 +1071,7 @@ var COSTEO_HISTORY = {
   "Mayo": {
     "fileName": "Consolidado de ventas Mayo.xlsx",
     "monthTag": "Mayo",
-    "processedAt": "2026-07-27 19:42:48",
+    "processedAt": "2026-07-27 19:48:43",
     "totalSalesRows": 357411,
     "totalLaborRows": 481,
     "maestrosMatches": [
