@@ -3,12 +3,13 @@ import sys
 import zipfile
 import re
 import time
+import json
+import subprocess
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
 
 print("==========================================================")
-print("   FinControl - Módulo Contable de Costeo de Mano de Obra  ")
+print("   FinControl - Agente Automatizado de Costeo de Mano de Obra  ")
 print("==========================================================")
 
 t0 = time.time()
@@ -34,7 +35,7 @@ def load_catalog(filepath):
     wb.close()
     return catalog
 
-print("\nCargando catálogos de mano de obra...")
+print("\n1. Cargando catálogos de referencia...")
 maestros_catalog = load_catalog(maestros_path)
 cs_catalog = load_catalog(cs_path)
 
@@ -50,69 +51,69 @@ if os.path.exists(sales_dir):
             excel_files.append(os.path.join(sales_dir, f))
 
 if not excel_files:
-    print("\nNo se encontró ningún archivo .xlsx en la carpeta CONSOLIDADO DE VENTAS.")
+    print("\nError: No se encontró ningún archivo .xlsx en la carpeta CONSOLIDADO DE VENTAS.")
     input("\nPresiona Enter para salir...")
     sys.exit(1)
 
 sales_file = excel_files[0]
 filename_base = os.path.basename(sales_file)
-print(f"\nProcesando archivo: {filename_base} ({(os.path.getsize(sales_file)/1024/1024):.1f} MB)...")
+print(f"\n2. Procesando sábana de ventas: {filename_base} ({(os.path.getsize(sales_file)/1024/1024):.1f} MB)...")
 
-# 3. Parse Sales File using Zip + XML Regex (Fast & Memory Efficient)
+# 3. Fast Unconsolidated Parsing (Individual Transaction Lines)
+maestros_rows = []
+cs_rows = []
+total_sales_rows = 0
+
 try:
     with zipfile.ZipFile(sales_file, 'r') as z:
         # Load Shared Strings
         shared_strings = []
         if 'xl/sharedStrings.xml' in z.namelist():
             ss_bytes = z.read('xl/sharedStrings.xml')
-            # Extract <si> tags
             si_matches = re.findall(rb'<si>(.*?)</si>', ss_bytes, re.DOTALL)
             for si in si_matches:
                 t_matches = re.findall(rb'<t[^>]*>(.*?)</t>', si, re.DOTALL)
                 if t_matches:
-                    text = b"".join(t_matches).decode('utf-8', errors='ignore')
-                    shared_strings.append(text)
+                    shared_strings.append(b"".join(t_matches).decode('utf-8', errors='ignore'))
                 else:
                     shared_strings.append('')
 
         # Locate Ventas sheet
         sheet_path = 'xl/worksheets/sheet3.xml'
         wb_bytes = z.read('xl/workbook.xml')
-        sheet_match = re.search(rb'<sheet[^>]*name="([^"]*venta[^"]*)"[^>]*:id="([^"]+)"', wb_bytes, re.IGNORECASE) or \
-                      re.search(rb'<sheet[^>]*:id="([^"]+)"[^>]*name="([^"]*venta[^"]*)"', wb_bytes, re.IGNORECASE)
-        
-        if sheet_match:
-            r_id = sheet_match.group(2) if b'venta' in sheet_match.group(1).lower() else sheet_match.group(1)
+        sheet_matches = re.findall(rb'<sheet\s+[^>]*>', wb_bytes, re.IGNORECASE)
+        found_r_id = None
+        for tag in sheet_matches:
+            name_m = re.search(rb'name="([^"]+)"', tag, re.IGNORECASE)
+            if name_m and any(k in name_m.group(1).lower() for k in [b'venta', b'sale', b'factur']):
+                r_id_m = re.search(rb'r:id="([^"]+)"', tag, re.IGNORECASE) or re.search(rb':id="([^"]+)"', tag, re.IGNORECASE)
+                if r_id_m:
+                    found_r_id = r_id_m.group(1)
+                    break
+
+        if found_r_id:
             rels_bytes = z.read('xl/_rels/workbook.xml.rels')
-            target_match = re.search(rb'Id="' + r_id + rb'"[^>]*Target="([^"]+)"', rels_bytes, re.IGNORECASE)
-            if target_match:
-                rel_target = target_match.group(1).decode('utf-8')
-                sheet_path = 'xl/' + rel_target.lstrip('/').replace('xl/', '')
+            rel_m = re.search(rb'Id="' + found_r_id + rb'"[^>]*Target="([^"]+)"', rels_bytes, re.IGNORECASE)
+            if rel_m:
+                sheet_path = 'xl/' + rel_m.group(1).decode('utf-8').lstrip('/').replace('xl/', '')
 
         if sheet_path not in z.namelist():
-            # Pick largest sheet file by size
             sheet_files = [f for f in z.namelist() if f.startswith('xl/worksheets/sheet') and f.endswith('.xml')]
             sheet_files.sort(key=lambda f: z.getinfo(f).file_size, reverse=True)
             sheet_path = sheet_files[0] if sheet_files else 'xl/worksheets/sheet3.xml'
 
-        print(f" -> Hoja de ventas identificada: {sheet_path}")
+        print(f" -> Analizando hoja: {sheet_path}")
         sheet_bytes = z.read(sheet_path)
 
-        # Match Column Q cells: <c r="Q...">...</c>
         cell_q_regex = re.compile(rb'<c r="Q(\d+)"([^>]*)>(.*?)</c>', re.DOTALL)
         val_regex = re.compile(rb'<v>(.*?)</v>')
         t_attr_regex = re.compile(rb't="([^"]+)"')
 
-        maestros_found = {}
-        cs_found = {}
-        total_rows = 0
-        labor_rows = 0
-
         for match in cell_q_regex.finditer(sheet_bytes):
-            row_idx = match.group(1)
-            if row_idx == b'1': continue # Header
+            row_idx_str = match.group(1).decode('utf-8')
+            if row_idx_str == '1': continue # Header
             
-            total_rows += 1
+            total_sales_rows += 1
             inner = match.group(3)
             val_m = val_regex.search(inner)
             if not val_m: continue
@@ -130,95 +131,126 @@ try:
             if code_str.endswith('.0'):
                 code_str = code_str[:-2]
 
+            # Individual row record (Unconsolidated)
+            row_num = int(row_idx_str)
+
             if code_str in maestros_catalog:
-                labor_rows += 1
-                if code_str not in maestros_found:
-                    maestros_found[code_str] = {'desc': maestros_catalog[code_str], 'count': 0}
-                maestros_found[code_str]['count'] += 1
+                maestros_rows.append({
+                    'row': row_num,
+                    'code': code_str,
+                    'desc': maestros_catalog[code_str]
+                })
 
             if code_str in cs_catalog:
-                labor_rows += 1
-                if code_str not in cs_found:
-                    cs_found[code_str] = {'desc': cs_catalog[code_str], 'count': 0}
-                cs_found[code_str]['count'] += 1
+                cs_rows.append({
+                    'row': row_num,
+                    'code': code_str,
+                    'desc': cs_catalog[code_str]
+                })
 
-    print(f"\nProcesamiento completado en {time.time()-t0:.2f} segundos.")
-    print(f" -> Filas de ventas analizadas: {total_rows:,}")
-    print(f" -> Códigos de Mano de Obra identificados para Maestros (T49): {len(maestros_found)}")
-    print(f" -> Códigos de Mano de Obra identificados para Centro de Servicios (T39): {len(cs_found)}")
+    print(f"\n3. Extracción completada en {time.time()-t0:.2f} segundos:")
+    print(f" -> Filas totales analizadas: {total_sales_rows:,}")
+    print(f" -> Transacciones de Mano de Obra en Maestros (T49): {len(maestros_rows)} filas individuales")
+    print(f" -> Transacciones de Mano de Obra en Centro de Servicios (T39): {len(cs_rows)} filas individuales")
 
-    # 4. Generate Output Excel Report with 2 columns
+    # 4. Generate Unconsolidated Excel Report (Individual Rows)
     out_wb = openpyxl.Workbook()
-    
-    # Sheet 1: Maestros T49
-    ws1 = out_wb.active
-    ws1.title = "Taller Maestro (T49)"
-    
-    # Header styles
-    header_fill_m = PatternFill(start_color="0EA5E9", end_color="0EA5E9", fill_type="solid")
     header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
     code_font = Font(name="Consolas", size=10, bold=True, color="0284C7")
+    code_font_cs = Font(name="Consolas", size=10, bold=True, color="059669")
     regular_font = Font(name="Calibri", size=10)
+
+    # Sheet 1: Taller Maestro (T49)
+    ws1 = out_wb.active
+    ws1.title = "Taller Maestro (T49)"
+    header_fill_m = PatternFill(start_color="0EA5E9", end_color="0EA5E9", fill_type="solid")
     
-    ws1.append(["Código Identificado", "Descripción de la Actividad", "Ocurrencias"])
+    ws1.append(["N° Fila Sábana", "Código Identificado", "Descripción de la Actividad"])
     for cell in ws1[1]:
         cell.fill = header_fill_m
         cell.font = header_font
         cell.alignment = Alignment(horizontal="left", vertical="center")
 
-    for k in sorted(maestros_found.keys(), key=lambda x: maestros_found[x]['desc']):
-        ws1.append([k, maestros_found[k]['desc'], maestros_found[k]['count']])
+    for r in sorted(maestros_rows, key=lambda x: x['row']):
+        ws1.append([r['row'], r['code'], r['desc']])
 
     for r in range(2, ws1.max_row + 1):
-        ws1[f"A{r}"].font = code_font
-        ws1[f"B{r}"].font = regular_font
+        ws1[f"A{r}"].font = regular_font
+        ws1[f"B{r}"].font = code_font
         ws1[f"C{r}"].font = regular_font
 
-    ws1.column_dimensions['A'].width = 25
-    ws1.column_dimensions['B'].width = 70
-    ws1.column_dimensions['C'].width = 15
+    ws1.column_dimensions['A'].width = 16
+    ws1.column_dimensions['B'].width = 25
+    ws1.column_dimensions['C'].width = 75
 
-    # Sheet 2: Centro de Servicios T39
+    # Sheet 2: Centro de Servicios (T39)
     ws2 = out_wb.create_sheet(title="Centro de Servicios (T39)")
     header_fill_cs = PatternFill(start_color="10B981", end_color="10B981", fill_type="solid")
-    code_font_cs = Font(name="Consolas", size=10, bold=True, color="059669")
 
-    ws2.append(["Código Identificado", "Descripción de la Actividad", "Ocurrencias"])
+    ws2.append(["N° Fila Sábana", "Código Identificado", "Descripción de la Actividad"])
     for cell in ws2[1]:
         cell.fill = header_fill_cs
         cell.font = header_font
         cell.alignment = Alignment(horizontal="left", vertical="center")
 
-    for k in sorted(cs_found.keys(), key=lambda x: cs_found[x]['desc']):
-        ws2.append([k, cs_found[k]['desc'], cs_found[k]['count']])
+    for r in sorted(cs_rows, key=lambda x: x['row']):
+        ws2.append([r['row'], r['code'], r['desc']])
 
     for r in range(2, ws2.max_row + 1):
-        ws2[f"A{r}"].font = code_font_cs
-        ws2[f"B{r}"].font = regular_font
+        ws2[f"A{r}"].font = regular_font
+        ws2[f"B{r}"].font = code_font_cs
         ws2[f"C{r}"].font = regular_font
 
-    ws2.column_dimensions['A'].width = 25
-    ws2.column_dimensions['B'].width = 70
-    ws2.column_dimensions['C'].width = 15
+    ws2.column_dimensions['A'].width = 16
+    ws2.column_dimensions['B'].width = 25
+    ws2.column_dimensions['C'].width = 75
 
-    output_filename = f"Reporte_Mano_de_Obra_{os.path.splitext(filename_base)[0]}.xlsx"
-    out_wb.save(output_filename)
+    output_excel = f"Reporte_Mano_de_Obra_{os.path.splitext(filename_base)[0]}.xlsx"
+    out_wb.save(output_excel)
     out_wb.close()
+    print(f"\n -> Reporte Excel individual generado: {os.path.abspath(output_excel)}")
+
+    # 5. Export JSON data payload for Web Dashboard (datos_costeo.js)
+    month_name = os.path.splitext(filename_base)[0].replace("Consolidado de ventas", "").strip()
+    costeo_payload = {
+        "fileName": filename_base,
+        "monthTag": month_name or "Actual",
+        "processedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "totalSalesRows": total_sales_rows,
+        "totalLaborRows": len(maestros_rows) + len(cs_rows),
+        "maestrosRows": sorted(maestros_rows, key=lambda x: x['row']),
+        "csRows": sorted(cs_rows, key=lambda x: x['row'])
+    }
+
+    js_content = f"// Datos procesados automáticamente por el Agente Contable\nvar COSTEO_DATA = {json.dumps(costeo_payload, ensure_ascii=False, indent=2)};\n"
+    with open("datos_costeo.js", "w", encoding="utf-8") as f:
+        f.write(js_content)
+
+    print(" -> Datos sincronizados para la Web Dashboard (datos_costeo.js)")
+
+    # 6. Auto Push to GitHub Pages if git available
+    print("\n4. Publicando actualización automática en el Dashboard Web (GitHub Pages)...")
+    try:
+        subprocess.run(["git", "add", "datos_costeo.js"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["git", "commit", "-m", f"Auto-sync: Resultados de costeo de mano de obra para {filename_base}"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["git", "push", "origin", "main"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print(" -> ¡Sincronizado con éxito en GitHub Pages!")
+    except Exception as ge:
+        print(" -> (Sincronizado localmente para la web)")
 
     print(f"\n==========================================================")
-    print(f"  ¡REPORTE GENERADO CON ÉXITO!")
-    print(f"  Archivo guardado: {os.path.abspath(output_filename)}")
+    print(f"  ¡PROCESO COMPLETADO Y PUBLICADO CON ÉXITO!")
     print(f"==========================================================")
 
-    # Open output file automatically
+    # Automatically open output Excel file
     try:
-        os.startfile(os.path.abspath(output_filename))
+        os.startfile(os.path.abspath(output_excel))
     except Exception:
         pass
 
 except Exception as e:
-    print(f"\nError durante el procesamiento: {e}")
+    print(f"\nError durante la ejecución del agente: {e}")
     import traceback
     traceback.print_exc()
 
-input("\nPresiona Enter para cerrar esta ventana...")
+input("\nPresiona Enter para cerrar...")

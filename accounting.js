@@ -1,23 +1,24 @@
 /**
  * FinControl - Accounting & Labor Costing Module (Modo Contable)
- * Processes monthly sales consolidated Excel spreadsheets ("Consolidado de Ventas"),
- * identifies labor codes for Taller Maestro (T49) and Centro de Servicios (T39),
- * and generates 2-column reports (Código Identificado y Descripción).
+ * Automatically displays individual (unconsolidated) transaction lines processed by 
+ * the local processing agent for Taller Maestro (T49) and Centro de Servicios (T39).
  */
 
 (function () {
 
-    // Active Catalogs State (initialized with defaults from master_catalogs.js)
+    // Active Catalogs State
     let maestrosCatalog = (typeof DEFAULT_MAESTROS_CATALOG !== 'undefined') ? { ...DEFAULT_MAESTROS_CATALOG } : {};
     let csCatalog = (typeof DEFAULT_CS_CATALOG !== 'undefined') ? { ...DEFAULT_CS_CATALOG } : {};
 
     // Current Analysis Results State
     let currentResults = {
         fileName: '',
+        monthTag: '',
+        processedAt: '',
         totalSalesRows: 0,
         totalLaborRows: 0,
-        maestrosMatches: [], // Array of { code, desc, frequency }
-        csMatches: []        // Array of { code, desc, frequency }
+        maestrosRows: [], // Array of { row, code, desc } (unconsolidated individual lines)
+        csRows: []        // Array of { row, code, desc } (unconsolidated individual lines)
     };
 
     // DOM Elements Cache
@@ -27,6 +28,7 @@
         initAccountingElements();
         initAccountingEvents();
         updateCatalogBadges();
+        autoLoadCosteoData();
     });
 
     function initAccountingElements() {
@@ -82,6 +84,21 @@
         }
     }
 
+    function autoLoadCosteoData() {
+        if (typeof COSTEO_DATA !== 'undefined' && COSTEO_DATA.maestrosRows) {
+            currentResults = {
+                fileName: COSTEO_DATA.fileName || 'Consolidado de Ventas',
+                monthTag: COSTEO_DATA.monthTag || '',
+                processedAt: COSTEO_DATA.processedAt || '',
+                totalSalesRows: COSTEO_DATA.totalSalesRows || 0,
+                totalLaborRows: COSTEO_DATA.totalLaborRows || (COSTEO_DATA.maestrosRows.length + COSTEO_DATA.csRows.length),
+                maestrosRows: COSTEO_DATA.maestrosRows || [],
+                csRows: COSTEO_DATA.csRows || []
+            };
+            renderAccountingResults();
+        }
+    }
+
     function initAccountingEvents() {
         if (!elements.inputSalesFile || !elements.dropZoneSales) return;
 
@@ -92,7 +109,7 @@
             }
         });
 
-        // Drag & Drop event handlers
+        // Drag & Drop handlers
         ['dragenter', 'dragover'].forEach(eventName => {
             elements.dropZoneSales.addEventListener(eventName, (e) => {
                 e.preventDefault();
@@ -134,7 +151,7 @@
             if (file) {
                 processSalesExcelFile(file);
             } else {
-                showToast('Por favor selecciona o arrastra un archivo Excel (.xlsx)', 'warning');
+                showToast('Por favor selecciona un archivo Excel', 'warning');
             }
         });
 
@@ -153,29 +170,29 @@
 
         // Export Buttons for Maestros
         if (elements.btnExportMaestrosExcel) {
-            elements.btnExportMaestrosExcel.addEventListener('click', () => exportToExcel('Maestros_T49', currentResults.maestrosMatches, 'Mano de Obra - Taller Maestro (T49)'));
+            elements.btnExportMaestrosExcel.addEventListener('click', () => exportToExcel('Maestros_T49', currentResults.maestrosRows, 'Mano de Obra - Taller Maestro (T49)'));
         }
         if (elements.btnExportMaestrosPdf) {
-            elements.btnExportMaestrosPdf.addEventListener('click', () => exportToPDF('Maestros_T49', currentResults.maestrosMatches, 'Reporte de Mano de Obra - Taller Maestro (T49)'));
+            elements.btnExportMaestrosPdf.addEventListener('click', () => exportToPDF('Maestros_T49', currentResults.maestrosRows, 'Reporte de Mano de Obra - Taller Maestro (T49)'));
         }
         if (elements.btnCopyMaestros) {
-            elements.btnCopyMaestros.addEventListener('click', () => copyTableToClipboard(currentResults.maestrosMatches, 'Maestros T49'));
+            elements.btnCopyMaestros.addEventListener('click', () => copyTableToClipboard(currentResults.maestrosRows, 'Maestros T49'));
         }
 
         // Export Buttons for CS
         if (elements.btnExportCsExcel) {
-            elements.btnExportCsExcel.addEventListener('click', () => exportToExcel('Centro_Servicios_T39', currentResults.csMatches, 'Mano de Obra - Centro de Servicios (T39)'));
+            elements.btnExportCsExcel.addEventListener('click', () => exportToExcel('Centro_Servicios_T39', currentResults.csRows, 'Mano de Obra - Centro de Servicios (T39)'));
         }
         if (elements.btnExportCsPdf) {
-            elements.btnExportCsPdf.addEventListener('click', () => exportToPDF('Centro_Servicios_T39', currentResults.csMatches, 'Reporte de Mano de Obra - Centro de Servicios (T39)'));
+            elements.btnExportCsPdf.addEventListener('click', () => exportToPDF('Centro_Servicios_T39', currentResults.csRows, 'Reporte de Mano de Obra - Centro de Servicios (T39)'));
         }
         if (elements.btnCopyCs) {
-            elements.btnCopyCs.addEventListener('click', () => copyTableToClipboard(currentResults.csMatches, 'Centro de Servicios T39'));
+            elements.btnCopyCs.addEventListener('click', () => copyTableToClipboard(currentResults.csRows, 'Centro de Servicios T39'));
         }
     }
 
     function handleSalesFileSelection(file) {
-        if (!file.name.match(/\.(xlsx|xls|csv)$/i)) {
+        if (!file.name.match(/\.(xlsx|xls|csv|js|json)$/i)) {
             showToast('Formato no válido. Por favor sube un archivo Excel (.xlsx)', 'error');
             elements.salesFileInfo.textContent = 'Archivo no válido';
             elements.btnProcessAccounting.disabled = true;
@@ -185,7 +202,7 @@
         const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
         elements.salesFileInfo.textContent = `${file.name} (${sizeMb} MB)`;
         elements.btnProcessAccounting.disabled = false;
-        showToast(`Archivo "${file.name}" seleccionado`, 'info');
+        showToast(`Archivo "${file.name}" cargado.`, 'info');
         return true;
     }
 
@@ -200,8 +217,8 @@
             fileName: '',
             totalSalesRows: 0,
             totalLaborRows: 0,
-            maestrosMatches: [],
-            csMatches: []
+            maestrosRows: [],
+            csRows: []
         };
         showToast('Vista de costeo reiniciada', 'info');
     }
@@ -213,164 +230,95 @@
     }
 
     /**
-     * Process Sales Excel File or Pre-processed Report File
+     * Process File directly in Browser if needed (e.g. pre-processed Excel or JS/JSON payload)
      */
     async function processSalesExcelFile(file) {
         if (!file) return;
 
         elements.btnProcessAccounting.disabled = true;
-        updateProgress(10, 'Leyendo estructura del archivo...');
+        updateProgress(20, 'Leyendo datos del reporte...');
 
-        setTimeout(async () => {
-            try {
-                if (typeof XLSX === 'undefined') {
-                    throw new Error('Librería SheetJS no disponible');
-                }
+        setTimeout(() => {
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const wb = XLSX.read(data, { type: 'array' });
 
-                const reader = new FileReader();
-                reader.onload = function (e) {
-                    try {
-                        const data = new Uint8Array(e.target.result);
-                        updateProgress(50, 'Decodificando hojas de cálculo...');
-                        const wb = XLSX.read(data, { type: 'array' });
+                    const sheetM = wb.Sheets['Taller Maestro (T49)'] || wb.Sheets[wb.SheetNames[0]];
+                    const sheetCS = wb.Sheets['Centro de Servicios (T39)'] || wb.Sheets[wb.SheetNames[1]];
 
-                        // Check if loading a pre-generated Report file (e.g. Reporte_Mano_de_Obra_...)
-                        const sheetM = wb.Sheets['Taller Maestro (T49)'];
-                        const sheetCS = wb.Sheets['Centro de Servicios (T39)'];
+                    let mRows = [];
+                    let csRows = [];
 
-                        if (sheetM && sheetCS) {
-                            // Parse pre-generated report directly
-                            const rowsM = XLSX.utils.sheet_to_json(sheetM);
-                            const rowsCS = XLSX.utils.sheet_to_json(sheetCS);
-
-                            const mMatches = rowsM.map(r => ({
-                                code: String(r['Código Identificado'] || '').trim(),
-                                desc: String(r['Descripción de la Actividad'] || '').trim(),
-                                frequency: parseInt(r['Ocurrencias'] || 1, 10)
-                            }));
-
-                            const csMatches = rowsCS.map(r => ({
-                                code: String(r['Código Identificado'] || '').trim(),
-                                desc: String(r['Descripción de la Actividad'] || '').trim(),
-                                frequency: parseInt(r['Ocurrencias'] || 1, 10)
-                            }));
-
-                            const totalLabor = mMatches.reduce((a, b) => a + b.frequency, 0) + csMatches.reduce((a, b) => a + b.frequency, 0);
-
-                            currentResults = {
-                                fileName: file.name,
-                                totalSalesRows: 347388,
-                                totalLaborRows: totalLabor,
-                                maestrosMatches: mMatches,
-                                csMatches: csMatches
-                            };
-                        } else {
-                            // Parse raw sales sheet
-                            const targetSheetName = wb.SheetNames.find(s => s.trim().toLowerCase().includes('venta')) ||
-                                                     wb.SheetNames.find(s => s.trim().toLowerCase().includes('maestro')) ||
-                                                     wb.SheetNames[0];
-
-                            const ws = wb.Sheets[targetSheetName];
-                            if (!ws) throw new Error('No se encontró ninguna hoja válida en el archivo.');
-
-                            const sheetRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
-                            let colQIndex = 16;
-                            const headerRow = sheetRows[0] || [];
-                            for (let c = 0; c < headerRow.length; c++) {
-                                const hVal = String(headerRow[c] || '').trim().toLowerCase();
-                                if (hVal === 'productid' || hVal === 'codigo' || hVal === 'código' || hVal === 'rms') {
-                                    colQIndex = c;
-                                    break;
-                                }
-                            }
-
-                            const maestrosFound = {};
-                            const csFound = {};
-                            let totalRowsProcessed = 0;
-                            let totalLaborOccurrences = 0;
-
-                            for (let i = 1; i < sheetRows.length; i++) {
-                                const row = sheetRows[i];
-                                if (!row) continue;
-                                totalRowsProcessed++;
-
-                                let rawCode = row[colQIndex];
-                                if (rawCode === null || rawCode === undefined || rawCode === '') continue;
-
-                                let codeStr = String(rawCode).trim();
-                                if (codeStr.endsWith('.0')) codeStr = codeStr.slice(0, -2);
-
-                                if (maestrosCatalog[codeStr] !== undefined) {
-                                    totalLaborOccurrences++;
-                                    if (!maestrosFound[codeStr]) maestrosFound[codeStr] = { code: codeStr, desc: maestrosCatalog[codeStr], frequency: 0 };
-                                    maestrosFound[codeStr].frequency++;
-                                }
-
-                                if (csCatalog[codeStr] !== undefined) {
-                                    totalLaborOccurrences++;
-                                    if (!csFound[codeStr]) csFound[codeStr] = { code: codeStr, desc: csCatalog[codeStr], frequency: 0 };
-                                    csFound[codeStr].frequency++;
-                                }
-                            }
-
-                            currentResults = {
-                                fileName: file.name,
-                                totalSalesRows: totalRowsProcessed,
-                                totalLaborRows: totalLaborOccurrences,
-                                maestrosMatches: Object.values(maestrosFound).sort((a, b) => a.desc.localeCompare(b.desc)),
-                                csMatches: Object.values(csFound).sort((a, b) => a.desc.localeCompare(b.desc))
-                            };
-                        }
-
-                        updateProgress(100, 'Procesamiento completado.');
-
-                        setTimeout(() => {
-                            elements.panelProgress.classList.add('hidden');
-                            renderAccountingResults();
-                        }, 300);
-
-                    } catch (err) {
-                        console.error('Error processing file:', err);
-                        elements.panelProgress.classList.add('hidden');
-                        elements.btnProcessAccounting.disabled = false;
-                        showToast(`Error al procesar archivo: ${err.message}`, 'error');
+                    if (sheetM) {
+                        const jsonM = XLSX.utils.sheet_to_json(sheetM);
+                        mRows = jsonM.map((r, idx) => ({
+                            row: r['N° Fila Sábana'] || r['Fila'] || (idx + 2),
+                            code: String(r['Código Identificado'] || r['Código'] || '').trim(),
+                            desc: String(r['Descripción de la Actividad'] || r['Descripción'] || '').trim()
+                        })).filter(r => r.code !== '');
                     }
-                };
 
-                reader.readAsArrayBuffer(file);
-            } catch (err) {
-                console.error('Error processing file:', err);
-                elements.panelProgress.classList.add('hidden');
-                elements.btnProcessAccounting.disabled = false;
-                showToast(`Error al procesar archivo: ${err.message}`, 'error');
-            }
+                    if (sheetCS) {
+                        const jsonCS = XLSX.utils.sheet_to_json(sheetCS);
+                        csRows = jsonCS.map((r, idx) => ({
+                            row: r['N° Fila Sábana'] || r['Fila'] || (idx + 2),
+                            code: String(r['Código Identificado'] || r['Código'] || '').trim(),
+                            desc: String(r['Descripción de la Actividad'] || r['Descripción'] || '').trim()
+                        })).filter(r => r.code !== '');
+                    }
+
+                    currentResults = {
+                        fileName: file.name,
+                        totalSalesRows: mRows.length + csRows.length,
+                        totalLaborRows: mRows.length + csRows.length,
+                        maestrosRows: mRows,
+                        csRows: csRows
+                    };
+
+                    updateProgress(100, 'Procesamiento completado.');
+
+                    setTimeout(() => {
+                        elements.panelProgress.classList.add('hidden');
+                        renderAccountingResults();
+                    }, 300);
+
+                } catch (err) {
+                    console.error('Error parsing file:', err);
+                    elements.panelProgress.classList.add('hidden');
+                    elements.btnProcessAccounting.disabled = false;
+                    showToast(`Error al procesar: ${err.message}`, 'error');
+                }
+            };
+            reader.readAsArrayBuffer(file);
         }, 50);
     }
 
     /**
-     * Render KPIs and Table Reports
+     * Render KPIs and Unconsolidated Table Reports (2 Columns: Código Identificado & Descripción)
      */
     function renderAccountingResults() {
         elements.panelResults.classList.remove('hidden');
         elements.btnClearAccounting.classList.remove('hidden');
 
         // Update KPIs
-        const totalDistinctCodes = currentResults.maestrosMatches.length + currentResults.csMatches.length;
-        elements.kpiTotalIdentified.textContent = totalDistinctCodes.toLocaleString();
-        elements.kpiMaestrosCodes.textContent = currentResults.maestrosMatches.length.toLocaleString();
-        elements.kpiCsCodes.textContent = currentResults.csMatches.length.toLocaleString();
-        elements.kpiTotalOccurrences.textContent = currentResults.totalLaborRows.toLocaleString();
+        const totalLaborCount = currentResults.maestrosRows.length + currentResults.csRows.length;
+        elements.kpiTotalIdentified.textContent = totalLaborCount.toLocaleString();
+        elements.kpiMaestrosCodes.textContent = currentResults.maestrosRows.length.toLocaleString();
+        elements.kpiCsCodes.textContent = currentResults.csRows.length.toLocaleString();
+        elements.kpiTotalOccurrences.textContent = totalLaborCount.toLocaleString();
         elements.lblSalesFilename.textContent = currentResults.fileName;
 
-        // Render Tables
+        // Render Individual Tables
         renderMaestrosTable();
         renderCsTable();
 
-        showToast(`Mano de obra identificada: ${currentResults.maestrosMatches.length} Maestros y ${currentResults.csMatches.length} Centro de Servicios`, 'success');
+        showToast(`Cargadas ${currentResults.maestrosRows.length} líneas de Maestros y ${currentResults.csRows.length} líneas de Centro de Servicios`, 'success');
     }
 
     /**
-     * Render Maestros T49 Report Table (Exactly 2 columns: Código Identificado & Descripción)
+     * Render Maestros T49 Report Table (Individual Transaction Rows, Exactly 2 columns)
      */
     function renderMaestrosTable() {
         const tbody = elements.tableMaestrosBody;
@@ -378,13 +326,13 @@
 
         const searchTerm = (elements.searchMaestros ? elements.searchMaestros.value.toLowerCase().trim() : '');
 
-        const filtered = currentResults.maestrosMatches.filter(item =>
+        const filtered = currentResults.maestrosRows.filter(item =>
             item.code.toLowerCase().includes(searchTerm) ||
             item.desc.toLowerCase().includes(searchTerm)
         );
 
         if (elements.countMaestrosTable) {
-            elements.countMaestrosTable.textContent = `${filtered.length} de ${currentResults.maestrosMatches.length} identificados`;
+            elements.countMaestrosTable.textContent = `${filtered.length} de ${currentResults.maestrosRows.length} transacciones individuales`;
         }
 
         if (filtered.length === 0) {
@@ -392,7 +340,7 @@
                 <tr>
                     <td colspan="2" class="text-center text-muted" style="padding: 2rem;">
                         <i data-lucide="search-x" style="width: 24px; height: 24px; margin-bottom: 0.5rem; opacity: 0.5;"></i>
-                        <p>No se encontraron códigos de mano de obra para Maestros (T49)</p>
+                        <p>No se encontraron líneas de transacciones de mano de obra para Maestros (T49)</p>
                     </td>
                 </tr>
             `;
@@ -409,7 +357,7 @@
                 <td>
                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
                         <span>${escapeHtml(item.desc)}</span>
-                        <span class="badge-freq" title="${item.frequency} facturaciones en la sábana">${item.frequency} f.</span>
+                        <span class="badge-freq" title="Línea #${item.row} en la sábana">Fila #${item.row}</span>
                     </div>
                 </td>
             `;
@@ -420,7 +368,7 @@
     }
 
     /**
-     * Render Centro de Servicios T39 Report Table (Exactly 2 columns: Código Identificado & Descripción)
+     * Render Centro de Servicios T39 Report Table (Individual Transaction Rows, Exactly 2 columns)
      */
     function renderCsTable() {
         const tbody = elements.tableCsBody;
@@ -428,13 +376,13 @@
 
         const searchTerm = (elements.searchCs ? elements.searchCs.value.toLowerCase().trim() : '');
 
-        const filtered = currentResults.csMatches.filter(item =>
+        const filtered = currentResults.csRows.filter(item =>
             item.code.toLowerCase().includes(searchTerm) ||
             item.desc.toLowerCase().includes(searchTerm)
         );
 
         if (elements.countCsTable) {
-            elements.countCsTable.textContent = `${filtered.length} de ${currentResults.csMatches.length} identificados`;
+            elements.countCsTable.textContent = `${filtered.length} de ${currentResults.csRows.length} transacciones individuales`;
         }
 
         if (filtered.length === 0) {
@@ -442,7 +390,7 @@
                 <tr>
                     <td colspan="2" class="text-center text-muted" style="padding: 2rem;">
                         <i data-lucide="search-x" style="width: 24px; height: 24px; margin-bottom: 0.5rem; opacity: 0.5;"></i>
-                        <p>No se encontraron códigos de mano de obra para Centro de Servicios (T39)</p>
+                        <p>No se encontraron líneas de transacciones de mano de obra para Centro de Servicios (T39)</p>
                     </td>
                 </tr>
             `;
@@ -459,7 +407,7 @@
                 <td>
                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
                         <span>${escapeHtml(item.desc)}</span>
-                        <span class="badge-freq badge-cs" title="${item.frequency} facturaciones en la sábana">${item.frequency} f.</span>
+                        <span class="badge-freq badge-cs" title="Línea #${item.row} en la sábana">Fila #${item.row}</span>
                     </div>
                 </td>
             `;
@@ -470,7 +418,7 @@
     }
 
     /**
-     * Export unit results to Excel (.xlsx)
+     * Export individual transaction rows to Excel (.xlsx)
      */
     function exportToExcel(filenamePrefix, dataArray, sheetTitle) {
         if (!dataArray || dataArray.length === 0) {
@@ -480,19 +428,19 @@
 
         try {
             const exportData = dataArray.map(item => ({
+                'N° Fila Sábana': item.row,
                 'Código Identificado': item.code,
-                'Descripción': item.desc,
-                'Facturaciones (Frecuencia)': item.frequency
+                'Descripción de la Actividad': item.desc
             }));
 
             const ws = XLSX.utils.json_to_sheet(exportData);
-            ws['!cols'] = [{ wch: 22 }, { wch: 65 }, { wch: 25 }];
+            ws['!cols'] = [{ wch: 16 }, { wch: 22 }, { wch: 75 }];
 
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, 'Mano de Obra');
 
             const monthTag = currentResults.fileName.replace(/\.xlsx$/i, '').trim();
-            const fullFilename = `Reporte_${filenamePrefix}_${monthTag || 'Costeo'}.xlsx`;
+            const fullFilename = `Reporte_Individual_${filenamePrefix}_${monthTag || 'Costeo'}.xlsx`;
 
             XLSX.writeFile(wb, fullFilename);
             showToast(`Reporte descargado: ${fullFilename}`, 'success');
@@ -503,7 +451,7 @@
     }
 
     /**
-     * Export unit results to PDF using jsPDF & AutoTable
+     * Export individual transaction rows to PDF
      */
     function exportToPDF(filenamePrefix, dataArray, documentTitle) {
         if (!dataArray || dataArray.length === 0) {
@@ -520,14 +468,14 @@
             const { jsPDF } = window.jspdf || window;
             const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
 
-            doc.setFontSize(16);
+            doc.setFontSize(15);
             doc.setTextColor(14, 165, 233);
             doc.text(documentTitle, 14, 18);
 
             doc.setFontSize(9);
             doc.setTextColor(100);
             doc.text(`Archivo Sábana: ${currentResults.fileName || 'Consolidado de Ventas'}`, 14, 25);
-            doc.text(`Fecha de emisión: ${new Date().toLocaleDateString('es-ES')} | Total códigos: ${dataArray.length}`, 14, 30);
+            doc.text(`Total transacciones individuales: ${dataArray.length}`, 14, 30);
 
             const tableRows = dataArray.map(item => [item.code, item.desc]);
 
@@ -553,7 +501,7 @@
             });
 
             const monthTag = currentResults.fileName.replace(/\.xlsx$/i, '').trim();
-            const fullFilename = `Reporte_${filenamePrefix}_${monthTag || 'Costeo'}.pdf`;
+            const fullFilename = `Reporte_Individual_${filenamePrefix}_${monthTag || 'Costeo'}.pdf`;
 
             doc.save(fullFilename);
             showToast(`PDF descargado: ${fullFilename}`, 'success');
