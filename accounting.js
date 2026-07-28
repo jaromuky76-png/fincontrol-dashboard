@@ -1,11 +1,12 @@
 /**
  * FinControl - Accounting & Labor Costing Module (Modo Contable)
  * 
- * Features:
+ * Executive Features:
  * 1. Multi-month and annual historical data aggregation (COSTEO_HISTORY).
  * 2. Ranked from highest to lowest invoicing volume (De mayor a menor facturación).
- * 3. Interactive Period Filter (Selección por Mes o Acumulado Anual).
- * 4. Executive Decision-Making Highlights (Top Facturados vs Baja Facturación).
+ * 3. Interactive Chart.js visual analytics (Top 10 activities & Unit Distribution).
+ * 4. Automatic Live Sync Polling (Auto-updates UI when datos_costeo.js updates).
+ * 5. Catalog Management Modal.
  */
 
 (function () {
@@ -15,7 +16,7 @@
     let csCatalog = (typeof DEFAULT_CS_CATALOG !== 'undefined') ? { ...DEFAULT_CS_CATALOG } : {};
 
     // Current Active Display Results
-    let currentPeriodKey = 'ALL'; // 'ALL' or specific month tag e.g. 'Junio 2026'
+    let currentPeriodKey = 'ALL';
     let currentResults = {
         periodLabel: '',
         totalSalesRows: 0,
@@ -23,6 +24,13 @@
         maestrosMatches: [], // Sorted de mayor a menor: [{ code, desc, frequency }]
         csMatches: []        // Sorted de mayor a menor: [{ code, desc, frequency }]
     };
+
+    // Chart Instances
+    let chartTopActivities = null;
+    let chartUnitDistribution = null;
+
+    // Live Sync Polling Tracker
+    let lastProcessedAtTimestamp = '';
 
     // DOM Elements Cache
     let elements = {};
@@ -32,28 +40,23 @@
         initAccountingEvents();
         updateCatalogBadges();
         autoLoadCosteoHistory();
+        initLiveSyncPolling();
     });
 
     function initAccountingElements() {
         elements = {
-            // Catalogs UI
+            // Catalogs UI & Modal
             badgeMaestrosCount: document.getElementById('badge-maestros-count'),
             badgeCsCount: document.getElementById('badge-cs-count'),
+            btnManageCatalogs: document.getElementById('btn-manage-catalogs'),
+            modalManageCatalogs: document.getElementById('modal-manage-catalogs'),
+            btnCloseManageCatalogs: document.getElementById('btn-close-manage-catalogs'),
+            btnDoneManageCatalogs: document.getElementById('btn-done-manage-catalogs'),
+            modalMaestrosCount: document.getElementById('modal-maestros-count'),
+            modalCsCount: document.getElementById('modal-cs-count'),
 
             // Period Selector
             selectPeriod: document.getElementById('select-accounting-period'),
-
-            // Upload & Controls
-            dropZoneSales: document.getElementById('drop-excel-sales'),
-            inputSalesFile: document.getElementById('input-excel-sales'),
-            salesFileInfo: document.getElementById('sales-file-info'),
-            btnProcessAccounting: document.getElementById('btn-process-accounting'),
-            btnClearAccounting: document.getElementById('btn-clear-accounting'),
-
-            // Progress Panel
-            panelProgress: document.getElementById('panel-progress-accounting'),
-            progressBar: document.getElementById('progress-bar-accounting'),
-            progressText: document.getElementById('progress-text-accounting'),
 
             // Results Panel & KPIs
             panelResults: document.getElementById('panel-accounting-results'),
@@ -81,12 +84,14 @@
     }
 
     function updateCatalogBadges() {
-        if (elements.badgeMaestrosCount) {
-            elements.badgeMaestrosCount.textContent = `${Object.keys(maestrosCatalog).length} códigos`;
-        }
-        if (elements.badgeCsCount) {
-            elements.badgeCsCount.textContent = `${Object.keys(csCatalog).length} códigos`;
-        }
+        const mCount = Object.keys(maestrosCatalog).length;
+        const csCount = Object.keys(csCatalog).length;
+
+        if (elements.badgeMaestrosCount) elements.badgeMaestrosCount.textContent = `${mCount} códigos`;
+        if (elements.badgeCsCount) elements.badgeCsCount.textContent = `${csCount} códigos`;
+
+        if (elements.modalMaestrosCount) elements.modalMaestrosCount.textContent = `${mCount} códigos activos`;
+        if (elements.modalCsCount) elements.modalCsCount.textContent = `${csCount} códigos activos`;
     }
 
     /**
@@ -95,7 +100,6 @@
     function autoLoadCosteoHistory() {
         if (typeof COSTEO_HISTORY === 'undefined' || Object.keys(COSTEO_HISTORY).length === 0) {
             if (typeof COSTEO_DATA !== 'undefined' && COSTEO_DATA.maestrosMatches) {
-                // Fallback single payload
                 window.COSTEO_HISTORY = {
                     [COSTEO_DATA.monthTag || 'Actual']: COSTEO_DATA
                 };
@@ -105,13 +109,14 @@
         }
 
         populatePeriodSelector();
-        switchPeriod('ALL');
+        switchPeriod(currentPeriodKey);
     }
 
     function populatePeriodSelector() {
         if (!elements.selectPeriod) return;
 
         const months = Object.keys(COSTEO_HISTORY);
+        const prevValue = elements.selectPeriod.value;
         elements.selectPeriod.innerHTML = '';
 
         if (months.length === 0) return;
@@ -119,7 +124,7 @@
         // Option 1: All Periods (Annual Cumulative)
         const optAll = document.createElement('option');
         optAll.value = 'ALL';
-        optAll.textContent = `📊 Acumulado Anual / Todos (${months.length} ${months.length === 1 ? 'mes' : 'meses'})`;
+        optAll.textContent = `📊 Acumulado Anual (${months.length} ${months.length === 1 ? 'mes' : 'meses'})`;
         elements.selectPeriod.appendChild(optAll);
 
         // Individual Months (most recent first)
@@ -130,8 +135,12 @@
             elements.selectPeriod.appendChild(opt);
         });
 
-        // Set default to Most Recent Month or ALL if multiple
-        currentPeriodKey = months.length > 1 ? 'ALL' : months[0];
+        if (prevValue && (prevValue === 'ALL' || months.includes(prevValue))) {
+            currentPeriodKey = prevValue;
+        } else {
+            currentPeriodKey = months.length > 1 ? 'ALL' : months[0];
+        }
+
         elements.selectPeriod.value = currentPeriodKey;
     }
 
@@ -139,7 +148,6 @@
         currentPeriodKey = periodKey;
 
         if (periodKey === 'ALL') {
-            // Aggregate all stored months
             const maestrosAgg = {};
             const csAgg = {};
             let grandSales = 0;
@@ -169,7 +177,7 @@
             const csSorted = Object.values(csAgg).sort((a, b) => b.frequency - a.frequency);
 
             currentResults = {
-                periodLabel: 'Acumulado Anual (Todos los Meses)',
+                periodLabel: 'Acumulado Anual',
                 totalSalesRows: grandSales,
                 totalLaborRows: grandLabor,
                 maestrosMatches: mSorted,
@@ -193,11 +201,10 @@
         }
 
         renderAccountingResults();
+        renderAccountingCharts();
     }
 
     function initAccountingEvents() {
-        if (!elements.inputSalesFile || !elements.dropZoneSales) return;
-
         // Period Selector change event
         if (elements.selectPeriod) {
             elements.selectPeriod.addEventListener('change', (e) => {
@@ -205,62 +212,20 @@
             });
         }
 
-        // Click on dropzone triggers file picker
-        elements.dropZoneSales.addEventListener('click', (e) => {
-            if (e.target !== elements.inputSalesFile) {
-                elements.inputSalesFile.click();
+        // Manage Catalogs Modal Events
+        if (elements.btnManageCatalogs) {
+            elements.btnManageCatalogs.addEventListener('click', () => {
+                updateCatalogBadges();
+                if (elements.modalManageCatalogs) elements.modalManageCatalogs.classList.remove('hidden');
+            });
+        }
+
+        [elements.btnCloseManageCatalogs, elements.btnDoneManageCatalogs].forEach(btn => {
+            if (btn) {
+                btn.addEventListener('click', () => {
+                    if (elements.modalManageCatalogs) elements.modalManageCatalogs.classList.add('hidden');
+                });
             }
-        });
-
-        // Drag & Drop handlers
-        ['dragenter', 'dragover'].forEach(eventName => {
-            elements.dropZoneSales.addEventListener(eventName, (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                elements.dropZoneSales.classList.add('dragover');
-            }, false);
-        });
-
-        ['dragleave', 'drop'].forEach(eventName => {
-            elements.dropZoneSales.addEventListener(eventName, (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                elements.dropZoneSales.classList.remove('dragover');
-            }, false);
-        });
-
-        elements.dropZoneSales.addEventListener('drop', (e) => {
-            const files = e.dataTransfer ? e.dataTransfer.files : null;
-            if (files && files.length > 0) {
-                const file = files[0];
-                handleSalesFileSelection(file);
-                processSalesExcelFile(file);
-            }
-        });
-
-        // File Selection Listener
-        elements.inputSalesFile.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (file) {
-                handleSalesFileSelection(file);
-                processSalesExcelFile(file);
-            }
-        });
-
-        // Process Button Listener
-        elements.btnProcessAccounting.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const file = elements.inputSalesFile.files[0];
-            if (file) {
-                processSalesExcelFile(file);
-            } else {
-                showToast('Por favor selecciona un archivo Excel', 'warning');
-            }
-        });
-
-        // Clear Button Listener
-        elements.btnClearAccounting.addEventListener('click', () => {
-            resetAccountingForm();
         });
 
         // Search Filters
@@ -294,145 +259,127 @@
         }
     }
 
-    function handleSalesFileSelection(file) {
-        if (!file.name.match(/\.(xlsx|xls|csv)$/i)) {
-            showToast('Formato no válido. Por favor sube un archivo Excel (.xlsx)', 'error');
-            elements.salesFileInfo.textContent = 'Archivo no válido';
-            elements.btnProcessAccounting.disabled = true;
-            return false;
-        }
-
-        const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
-        elements.salesFileInfo.textContent = `${file.name} (${sizeMb} MB)`;
-        elements.btnProcessAccounting.disabled = false;
-        showToast(`Archivo "${file.name}" cargado.`, 'info');
-        return true;
-    }
-
-    function resetAccountingForm() {
-        elements.inputSalesFile.value = '';
-        elements.salesFileInfo.textContent = 'Ningún archivo seleccionado';
-        elements.btnProcessAccounting.disabled = true;
-        elements.panelProgress.classList.add('hidden');
-        elements.panelResults.classList.add('hidden');
-        elements.btnClearAccounting.classList.add('hidden');
-        showToast('Vista de costeo reiniciada', 'info');
-    }
-
-    function updateProgress(percent, text) {
-        if (elements.panelProgress) elements.panelProgress.classList.remove('hidden');
-        if (elements.progressBar) elements.progressBar.style.width = `${percent}%`;
-        if (elements.progressText) elements.progressText.textContent = text;
-    }
-
-    /**
-     * Browser direct File Processor
-     */
-    async function processSalesExcelFile(file) {
-        if (!file) return;
-
-        elements.btnProcessAccounting.disabled = true;
-        updateProgress(20, 'Leyendo datos del archivo Excel...');
-
-        setTimeout(() => {
-            const reader = new FileReader();
-            reader.onload = function (e) {
-                try {
-                    const data = new Uint8Array(e.target.result);
-                    const wb = XLSX.read(data, { type: 'array' });
-
-                    const sheetM = wb.Sheets['Taller Maestro (T49)'] || wb.Sheets[wb.SheetNames[0]];
-                    const sheetCS = wb.Sheets['Centro de Servicios (T39)'] || wb.Sheets[wb.SheetNames[1]];
-
-                    let mMatches = [];
-                    let csMatches = [];
-
-                    if (sheetM) {
-                        const jsonM = XLSX.utils.sheet_to_json(sheetM);
-                        const mDict = {};
-                        jsonM.forEach(r => {
-                            const c = String(r['Código Identificado'] || r['Código'] || '').trim();
-                            const d = String(r['Descripción de la Actividad'] || r['Descripción'] || '').trim();
-                            if (c) {
-                                if (!mDict[c]) mDict[c] = { code: c, desc: d, frequency: 0 };
-                                mDict[c].frequency++;
-                            }
-                        });
-                        // Sort DE MAYOR A MENOR
-                        mMatches = Object.values(mDict).sort((a, b) => b.frequency - a.frequency);
-                    }
-
-                    if (sheetCS) {
-                        const jsonCS = XLSX.utils.sheet_to_json(sheetCS);
-                        const csDict = {};
-                        jsonCS.forEach(r => {
-                            const c = String(r['Código Identificado'] || r['Código'] || '').trim();
-                            const d = String(r['Descripción de la Actividad'] || r['Descripción'] || '').trim();
-                            if (c) {
-                                if (!csDict[c]) csDict[c] = { code: c, desc: d, frequency: 0 };
-                                csDict[c].frequency++;
-                            }
-                        });
-                        // Sort DE MAYOR A MENOR
-                        csMatches = Object.values(csDict).sort((a, b) => b.frequency - a.frequency);
-                    }
-
-                    const totalLabor = mMatches.reduce((a, b) => a + b.frequency, 0) + csMatches.reduce((a, b) => a + b.frequency, 0);
-                    const monthTag = file.name.replace(/Consolidado de ventas/i, '').replace(/\.xlsx$/i, '').trim() || 'Nuevo Mes';
-
-                    const monthData = {
-                        fileName: file.name,
-                        monthTag: monthTag,
-                        processedAt: new Date().toISOString(),
-                        totalSalesRows: totalLabor,
-                        totalLaborRows: totalLabor,
-                        maestrosMatches: mMatches,
-                        csMatches: csMatches
-                    };
-
-                    if (typeof COSTEO_HISTORY === 'undefined') window.COSTEO_HISTORY = {};
-                    COSTEO_HISTORY[monthTag] = monthData;
-
-                    populatePeriodSelector();
-                    elements.selectPeriod.value = monthTag;
-                    switchPeriod(monthTag);
-
-                    updateProgress(100, 'Procesamiento completado.');
-
-                    setTimeout(() => {
-                        elements.panelProgress.classList.add('hidden');
-                    }, 300);
-
-                } catch (err) {
-                    console.error('Error parsing file:', err);
-                    elements.panelProgress.classList.add('hidden');
-                    elements.btnProcessAccounting.disabled = false;
-                    showToast(`Error al procesar: ${err.message}`, 'error');
-                }
-            };
-            reader.readAsArrayBuffer(file);
-        }, 50);
-    }
-
     /**
      * Render KPIs and Consolidated Tables (Sorted DE MAYOR A MENOR)
      */
     function renderAccountingResults() {
-        elements.panelResults.classList.remove('hidden');
-        elements.btnClearAccounting.classList.remove('hidden');
+        if (elements.panelResults) elements.panelResults.classList.remove('hidden');
 
         // Update KPIs
         const totalDistinctCodes = currentResults.maestrosMatches.length + currentResults.csMatches.length;
-        elements.kpiTotalIdentified.textContent = totalDistinctCodes.toLocaleString();
-        elements.kpiMaestrosCodes.textContent = currentResults.maestrosMatches.length.toLocaleString();
-        elements.kpiCsCodes.textContent = currentResults.csMatches.length.toLocaleString();
-        elements.kpiTotalOccurrences.textContent = currentResults.totalLaborRows.toLocaleString();
+        if (elements.kpiTotalIdentified) elements.kpiTotalIdentified.textContent = totalDistinctCodes.toLocaleString();
+        if (elements.kpiMaestrosCodes) elements.kpiMaestrosCodes.textContent = currentResults.maestrosMatches.length.toLocaleString();
+        if (elements.kpiCsCodes) elements.kpiCsCodes.textContent = currentResults.csMatches.length.toLocaleString();
+        if (elements.kpiTotalOccurrences) elements.kpiTotalOccurrences.textContent = currentResults.totalLaborRows.toLocaleString();
 
-        // Render Tables (De Mayor a Menor)
+        // Render Tables
         renderMaestrosTable();
         renderCsTable();
+    }
 
-        showToast(`Periodo "${currentResults.periodLabel}": ${currentResults.maestrosMatches.length} códigos en Maestros y ${currentResults.csMatches.length} en Centro de Servicios`, 'success');
+    /**
+     * Render Interactive Chart.js Visual Analytics
+     */
+    function renderAccountingCharts() {
+        if (typeof Chart === 'undefined') return;
+
+        // 1. Top 10 Activities Horizontal Bar Chart
+        const topCanvas = document.getElementById('chart-top-activities');
+        if (topCanvas) {
+            // Combine top activities from both units
+            const combinedList = [
+                ...currentResults.maestrosMatches.map(i => ({ label: `${i.desc} (T49)`, val: i.frequency, type: 'T49' })),
+                ...currentResults.csMatches.map(i => ({ label: `${i.desc} (T39)`, val: i.frequency, type: 'T39' }))
+            ].sort((a, b) => b.val - a.val).slice(0, 8);
+
+            const labels = combinedList.map(i => i.label.length > 32 ? i.label.substring(0, 30) + '...' : i.label);
+            const dataVals = combinedList.map(i => i.val);
+            const bgColors = combinedList.map(i => i.type === 'T49' ? 'rgba(14, 165, 233, 0.85)' : 'rgba(16, 185, 129, 0.85)');
+
+            if (chartTopActivities) chartTopActivities.destroy();
+
+            chartTopActivities = new Chart(topCanvas, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Facturaciones en el Periodo',
+                        data: dataVals,
+                        backgroundColor: bgColors,
+                        borderRadius: 6,
+                        borderSkipped: false
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function (context) {
+                                    return ` Facturaciones: ${context.parsed.x}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { color: 'rgba(255, 255, 255, 0.6)', font: { size: 10 } }
+                        },
+                        y: {
+                            grid: { display: false },
+                            ticks: { color: 'rgba(255, 255, 255, 0.85)', font: { size: 10, weight: '600' } }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 2. Unit Distribution Doughnut Chart
+        const unitCanvas = document.getElementById('chart-unit-distribution');
+        if (unitCanvas) {
+            const mTotal = currentResults.maestrosMatches.reduce((a, b) => a + b.frequency, 0);
+            const csTotal = currentResults.csMatches.reduce((a, b) => a + b.frequency, 0);
+
+            if (chartUnitDistribution) chartUnitDistribution.destroy();
+
+            chartUnitDistribution = new Chart(unitCanvas, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Taller Maestro (T49)', 'Centro de Servicios (T39)'],
+                    datasets: [{
+                        data: [mTotal, csTotal],
+                        backgroundColor: ['rgba(14, 165, 233, 0.85)', 'rgba(16, 185, 129, 0.85)'],
+                        borderColor: 'transparent',
+                        hoverOffset: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { color: 'rgba(255, 255, 255, 0.85)', font: { size: 11, weight: '600' } }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function (context) {
+                                    const total = mTotal + csTotal;
+                                    const val = context.parsed;
+                                    const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
+                                    return ` ${context.label}: ${val} facturaciones (${pct}%)`;
+                                }
+                            }
+                        }
+                    },
+                    cutout: '65%'
+                }
+            });
+        }
     }
 
     /**
@@ -440,6 +387,7 @@
      */
     function renderMaestrosTable() {
         const tbody = elements.tableMaestrosBody;
+        if (!tbody) return;
         tbody.innerHTML = '';
 
         const searchTerm = (elements.searchMaestros ? elements.searchMaestros.value.toLowerCase().trim() : '');
@@ -469,7 +417,6 @@
         filtered.forEach((item, index) => {
             const tr = document.createElement('tr');
             
-            // Rank highlight badge for top 3
             let rankBadge = '';
             if (index === 0) rankBadge = '<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid #ef4444; margin-right: 0.5rem; font-weight: 700;">#1 🔥</span>';
             else if (index === 1) rankBadge = '<span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid #f59e0b; margin-right: 0.5rem; font-weight: 700;">#2 ⭐️</span>';
@@ -498,6 +445,7 @@
      */
     function renderCsTable() {
         const tbody = elements.tableCsBody;
+        if (!tbody) return;
         tbody.innerHTML = '';
 
         const searchTerm = (elements.searchCs ? elements.searchCs.value.toLowerCase().trim() : '');
@@ -527,7 +475,6 @@
         filtered.forEach((item, index) => {
             const tr = document.createElement('tr');
 
-            // Rank highlight badge for top 3
             let rankBadge = '';
             if (index === 0) rankBadge = '<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid #ef4444; margin-right: 0.5rem; font-weight: 700;">#1 🔥</span>';
             else if (index === 1) rankBadge = '<span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid #f59e0b; margin-right: 0.5rem; font-weight: 700;">#2 ⭐️</span>';
@@ -552,7 +499,29 @@
     }
 
     /**
-     * Export consolidated codes to Excel (.xlsx) sorted DE MAYOR A MENOR
+     * Live Polling Sync (Auto-detects data updates without browser refresh)
+     */
+    function initLiveSyncPolling() {
+        setInterval(() => {
+            // Fetch script tag header timestamp or check COSTEO_HISTORY update
+            const scriptTag = document.querySelector('script[src*="datos_costeo.js"]');
+            if (scriptTag) {
+                // Dynamically re-inject script tag to fetch latest datos_costeo.js payload
+                const newScript = document.createElement('script');
+                newScript.src = `datos_costeo.js?t=${Date.now()}`;
+                newScript.onload = () => {
+                    if (typeof COSTEO_HISTORY !== 'undefined') {
+                        autoLoadCosteoHistory();
+                    }
+                    newScript.remove();
+                };
+                document.body.appendChild(newScript);
+            }
+        }, 12000); // Polls every 12 seconds
+    }
+
+    /**
+     * Export consolidated codes to Excel (.xlsx)
      */
     function exportToExcel(filenamePrefix, dataArray, sheetTitle) {
         if (!dataArray || dataArray.length === 0) {
@@ -586,7 +555,7 @@
     }
 
     /**
-     * Export consolidated codes to PDF sorted DE MAYOR A MENOR
+     * Export consolidated codes to PDF
      */
     function exportToPDF(filenamePrefix, dataArray, documentTitle) {
         if (!dataArray || dataArray.length === 0) {
@@ -649,7 +618,7 @@
     }
 
     /**
-     * Copy table content to Clipboard (Tab delimited: Code \t Desc \t Freq)
+     * Copy table content to Clipboard
      */
     function copyTableToClipboard(dataArray, label) {
         if (!dataArray || dataArray.length === 0) {

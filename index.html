@@ -27,6 +27,8 @@
     <!-- jsPDF and jsPDF-AutoTable CDNs -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Lucide Icons CDN -->
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
@@ -745,89 +747,45 @@
 
             <!-- View 4: Modo Contable (Costeo Mano de Obra) -->
             <section id="view-accounting" class="content-view hidden">
-                <!-- Master Catalogs Info Card & File Upload -->
-                <div class="grid-2">
-                    <div class="card upload-card" id="card-sales-upload">
-                        <div class="card-header">
-                            <div class="card-title">
-                                <i data-lucide="file-spreadsheet" class="icon-primary"></i>
-                                <span>1. Consolidado de Ventas (Excel .xlsx)</span>
-                            </div>
-                            <span class="card-subtitle">Sábana mensual de facturación (Ej. Consolidado de ventas Junio 2026)</span>
-                        </div>
-                        <div class="card-body">
-                            <div class="drop-zone" id="drop-excel-sales">
-                                <i data-lucide="upload-cloud" class="drop-icon"></i>
-                                <p class="drop-text">Arrastra el archivo Excel de ventas (.xlsx) o haz clic para examinar</p>
-                                <span class="file-info" id="sales-file-info">Ningún archivo seleccionado</span>
-                                <input type="file" id="input-excel-sales" accept=".xlsx,.xls,.csv" class="hidden-input">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-header">
-                            <div class="card-title">
-                                <i data-lucide="database" class="icon-primary"></i>
-                                <span>2. Catálogos Activos de Mano de Obra</span>
-                            </div>
-                            <span class="card-subtitle">Base de códigos de referencia para filtrado</span>
-                        </div>
-                        <div class="card-body" style="display: flex; flex-direction: column; gap: 1rem; justify-content: center;">
-                            <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: var(--bg-hover); border-radius: 8px; border: 1px solid var(--border-color);">
-                                <div style="display: flex; align-items: center; gap: 0.75rem;">
-                                    <span class="badge" style="background: rgba(14, 165, 233, 0.15); color: var(--color-primary); border: 1px solid var(--color-primary);">T49</span>
-                                    <div>
-                                        <div style="font-weight: 600; font-size: 0.9rem;">Taller Maestro</div>
-                                        <div style="font-size: 0.75rem; color: var(--text-muted);">Codificación RMS Columna A-B</div>
-                                    </div>
+                <!-- Executive Header Bar & Controls -->
+                <div class="card" style="margin-bottom: 1.5rem; background: linear-gradient(135deg, rgba(14, 165, 233, 0.05), rgba(16, 185, 129, 0.05)); border: 1px solid var(--border-color);">
+                    <div class="card-body" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; padding: 1.25rem 1.5rem;">
+                        <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <i data-lucide="calculator" class="icon-primary" style="width: 24px; height: 24px;"></i>
+                                <div>
+                                    <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700;">Modo Contable - Costeo de Mano de Obra</h3>
+                                    <span style="font-size: 0.78rem; color: var(--text-muted);">Sincronización automática de facturación y análisis ejecutivo de movimiento</span>
                                 </div>
-                                <span class="badge" id="badge-maestros-count" style="background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-main);">307 códigos</span>
+                            </div>
+                            <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: var(--color-success); border: 1px solid var(--color-success); display: flex; align-items: center; gap: 0.35rem;">
+                                <span style="width: 7px; height: 7px; border-radius: 50%; background: var(--color-success); display: inline-block;"></span>
+                                Agente Automatizado Activo
+                            </span>
+                        </div>
+
+                        <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                            <!-- Period Selector -->
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <label for="select-accounting-period" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); margin: 0; white-space: nowrap;">
+                                    <i data-lucide="calendar" style="width: 15px; height: 15px; vertical-align: middle; color: var(--color-primary);"></i> Periodo:
+                                </label>
+                                <select id="select-accounting-period" class="form-control form-control-sm" style="min-width: 220px; font-weight: 700; color: var(--color-primary); background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; padding: 0.4rem 0.75rem;">
+                                    <!-- Options populated dynamically from COSTEO_HISTORY -->
+                                </select>
                             </div>
 
-                            <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: var(--bg-hover); border-radius: 8px; border: 1px solid var(--border-color);">
-                                <div style="display: flex; align-items: center; gap: 0.75rem;">
-                                    <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: var(--color-success); border: 1px solid var(--color-success);">T39</span>
-                                    <div>
-                                        <div style="font-weight: 600; font-size: 0.9rem;">Centro de Servicios</div>
-                                        <div style="font-size: 0.75rem; color: var(--text-muted);">Codificación RMS Columna A-B</div>
-                                    </div>
-                                </div>
-                                <span class="badge" id="badge-cs-count" style="background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-main);">493 códigos</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Process Button & Controls -->
-                <div class="action-bar text-center" style="display: flex; gap: 1rem; justify-content: center; align-items: center; flex-wrap: wrap;">
-                    <button id="btn-process-accounting" class="btn btn-primary" disabled>
-                        <i data-lucide="calculator"></i>
-                        <span>Identificar y Costear Mano de Obra</span>
-                    </button>
-                    <button id="btn-clear-accounting" class="btn btn-secondary hidden" type="button">
-                        <i data-lucide="rotate-ccw"></i>
-                        <span>Limpiar Consulta</span>
-                    </button>
-                </div>
-
-                <!-- Progress Bar Panel -->
-                <div class="card progress-card hidden" id="panel-progress-accounting" style="margin-top: 1.5rem;">
-                    <div class="card-header">
-                        <div class="card-title">
-                            <i data-lucide="loader" class="spinning icon-primary"></i>
-                            <span id="progress-text-accounting">Analizando sábana de ventas...</span>
-                        </div>
-                    </div>
-                    <div class="card-body">
-                        <div style="width: 100%; background: var(--bg-hover); height: 8px; border-radius: 4px; overflow: hidden; margin-top: 0.5rem;">
-                            <div id="progress-bar-accounting" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--color-primary), var(--color-success)); transition: width 0.3s ease;"></div>
+                            <!-- Manage Catalogs Button -->
+                            <button id="btn-manage-catalogs" class="btn btn-secondary btn-sm" type="button" style="display: flex; align-items: center; gap: 0.35rem;">
+                                <i data-lucide="database" style="width: 14px; height: 14px;"></i>
+                                <span>Catálogos Activos</span>
+                            </button>
                         </div>
                     </div>
                 </div>
 
                 <!-- Results & Reports Area -->
-                <div id="panel-accounting-results" class="hidden" style="margin-top: 1.5rem;">
+                <div id="panel-accounting-results" style="margin-top: 1rem;">
                     <!-- KPI Summary Cards -->
                     <div class="grid-4" style="margin-bottom: 1.5rem;">
                         <div class="stat-card">
@@ -863,24 +821,39 @@
                             </div>
                             <div class="stat-content">
                                 <span class="stat-value" id="kpi-total-occurrences">0</span>
-                                <span class="stat-label">Líneas de MO en Sábana</span>
+                                <span class="stat-label">Facturaciones de MO en Periodo</span>
                             </div>
                         </div>
                     </div>
 
-                    <div style="background: var(--bg-hover); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.75rem 1.25rem; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
-                        <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-                            <label for="select-accounting-period" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); display: flex; align-items: center; gap: 0.35rem;">
-                                <i data-lucide="calendar" style="width: 16px; height: 16px; color: var(--color-primary);"></i>
-                                <span>Periodo / Mes Analizado:</span>
-                            </label>
-                            <select id="select-accounting-period" class="form-control form-control-sm" style="min-width: 220px; font-weight: 700; color: var(--color-primary); background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; padding: 0.35rem 0.75rem;">
-                                <!-- Dynamically populated from COSTEO_HISTORY -->
-                            </select>
+                    <!-- Interactive Charts Row -->
+                    <div class="grid-2" style="margin-bottom: 1.5rem;">
+                        <!-- Chart 1: Top Actividades Más Facturadas -->
+                        <div class="card">
+                            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                                <div class="card-title">
+                                    <i data-lucide="bar-chart-3" class="icon-primary"></i>
+                                    <span>Top Actividades Más Facturadas</span>
+                                </div>
+                                <span class="badge" style="background: var(--bg-hover); color: var(--text-muted); font-size: 0.75rem;">De mayor a menor</span>
+                            </div>
+                            <div class="card-body" style="height: 280px; position: relative;">
+                                <canvas id="chart-top-activities"></canvas>
+                            </div>
                         </div>
-                        <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: var(--text-muted);">
-                            <i data-lucide="arrow-down-narrow-wide" style="width: 16px; height: 16px; color: var(--color-success);"></i>
-                            <span>Orden: <strong style="color: var(--color-success);">Mayor a Menor Facturación</strong></span>
+
+                        <!-- Chart 2: Distribución por Unidad de Negocio -->
+                        <div class="card">
+                            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                                <div class="card-title">
+                                    <i data-lucide="pie-chart" class="icon-primary"></i>
+                                    <span>Distribución por Unidad de Negocio</span>
+                                </div>
+                                <span class="badge" style="background: var(--bg-hover); color: var(--text-muted); font-size: 0.75rem;">T49 vs T39</span>
+                            </div>
+                            <div class="card-body" style="height: 280px; position: relative; display: flex; align-items: center; justify-content: center;">
+                                <canvas id="chart-unit-distribution"></canvas>
+                            </div>
                         </div>
                     </div>
 
@@ -1398,6 +1371,55 @@
             </div>
             <div class="modal-footer text-right">
                 <button type="button" class="btn btn-secondary" id="btn-close-view-plastic">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Gestión de Catálogos de Mano de Obra -->
+    <div id="modal-manage-catalogs" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 650px;">
+            <div class="modal-header">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <i data-lucide="database" class="icon-primary"></i>
+                    <h3 style="margin: 0; font-size: 1.1rem;">Catálogos Activos de Mano de Obra</h3>
+                </div>
+                <button type="button" class="btn-close" id="btn-close-manage-catalogs">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 1.5rem;">
+                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.25rem;">
+                    Los catálogos activos definen los códigos RMS válidos de mano de obra para filtrar la sábana de ventas. Se actualizan automáticamente cuando modificas los archivos Excel de referencia en tu carpeta local.
+                </p>
+
+                <div class="grid-2" style="margin-bottom: 1.5rem;">
+                    <div style="padding: 1rem; background: var(--bg-hover); border-radius: 8px; border: 1px solid var(--border-color);">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                            <span class="badge" style="background: rgba(14, 165, 233, 0.15); color: var(--color-primary); border: 1px solid var(--color-primary);">T49</span>
+                            <strong style="font-size: 0.95rem;">Taller Maestro</strong>
+                        </div>
+                        <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Ruta local: <code>COD MAESTROS\COD MAESTROS.xlsx</code></div>
+                        <div style="font-weight: 700; color: var(--color-primary); font-size: 1.1rem;" id="modal-maestros-count">307 códigos activos</div>
+                    </div>
+
+                    <div style="padding: 1rem; background: var(--bg-hover); border-radius: 8px; border: 1px solid var(--border-color);">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                            <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: var(--color-success); border: 1px solid var(--color-success);">T39</span>
+                            <strong style="font-size: 0.95rem;">Centro de Servicios</strong>
+                        </div>
+                        <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Ruta local: <code>COD CENTRO DE SERVICIOS\COD CS.xlsx</code></div>
+                        <div style="font-weight: 700; color: var(--color-success); font-size: 1.1rem;" id="modal-cs-count">493 códigos activos</div>
+                    </div>
+                </div>
+
+                <div style="background: var(--bg-hover); padding: 1rem; border-radius: 8px; border: 1px dashed var(--border-color); text-align: center;">
+                    <i data-lucide="refresh-cw" style="width: 20px; height: 20px; color: var(--color-primary); margin-bottom: 0.35rem;"></i>
+                    <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.25rem;">Sincronización Automática al Agregar/Eliminar Códigos</div>
+                    <div style="font-size: 0.78rem; color: var(--text-muted);">
+                        Si agregas o eliminas filas en los archivos de referencia, el agente <code>ejecutar_costeo.bat</code> tomará los cambios de inmediato al procesar el mes.
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer text-right">
+                <button type="button" class="btn btn-secondary" id="btn-done-manage-catalogs">Cerrar</button>
             </div>
         </div>
     </div>
