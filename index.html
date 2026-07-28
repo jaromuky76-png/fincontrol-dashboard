@@ -868,12 +868,20 @@
                         </div>
                     </div>
 
-                    <div style="background: var(--bg-hover); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.75rem 1.25rem; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
-                        <span style="font-size: 0.85rem; color: var(--text-muted);">
-                            <i data-lucide="file-check" style="width: 16px; height: 16px; vertical-align: middle; margin-right: 0.35rem; color: var(--color-success);"></i>
-                            Archivo analizado: <strong id="lbl-sales-filename" style="color: var(--text-main);">--</strong>
-                        </span>
-                        <span class="badge" style="background: var(--bg-card); border: 1px solid var(--border-color); font-size: 0.75rem;">Filtro: Columna Q (ProductID)</span>
+                    <div style="background: var(--bg-hover); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.75rem 1.25rem; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+                        <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                            <label for="select-accounting-period" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); display: flex; align-items: center; gap: 0.35rem;">
+                                <i data-lucide="calendar" style="width: 16px; height: 16px; color: var(--color-primary);"></i>
+                                <span>Periodo / Mes Analizado:</span>
+                            </label>
+                            <select id="select-accounting-period" class="form-control form-control-sm" style="min-width: 220px; font-weight: 700; color: var(--color-primary); background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; padding: 0.35rem 0.75rem;">
+                                <!-- Dynamically populated from COSTEO_HISTORY -->
+                            </select>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: var(--text-muted);">
+                            <i data-lucide="arrow-down-narrow-wide" style="width: 16px; height: 16px; color: var(--color-success);"></i>
+                            <span>Orden: <strong style="color: var(--color-success);">Mayor a Menor Facturación</strong></span>
+                        </div>
                     </div>
 
                     <!-- Two Reports Grid (T49 & T39) -->

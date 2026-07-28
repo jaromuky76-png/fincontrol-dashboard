@@ -1,7 +1,11 @@
 /**
  * FinControl - Accounting & Labor Costing Module (Modo Contable)
- * Automatically displays consolidated labor code movement (Código Identificado, Descripción y Facturaciones)
- * for Taller Maestro (T49) and Centro de Servicios (T39).
+ * 
+ * Features:
+ * 1. Multi-month and annual historical data aggregation (COSTEO_HISTORY).
+ * 2. Ranked from highest to lowest invoicing volume (De mayor a menor facturación).
+ * 3. Interactive Period Filter (Selección por Mes o Acumulado Anual).
+ * 4. Executive Decision-Making Highlights (Top Facturados vs Baja Facturación).
  */
 
 (function () {
@@ -10,15 +14,14 @@
     let maestrosCatalog = (typeof DEFAULT_MAESTROS_CATALOG !== 'undefined') ? { ...DEFAULT_MAESTROS_CATALOG } : {};
     let csCatalog = (typeof DEFAULT_CS_CATALOG !== 'undefined') ? { ...DEFAULT_CS_CATALOG } : {};
 
-    // Current Analysis Results State
+    // Current Active Display Results
+    let currentPeriodKey = 'ALL'; // 'ALL' or specific month tag e.g. 'Junio 2026'
     let currentResults = {
-        fileName: '',
-        monthTag: '',
-        processedAt: '',
+        periodLabel: '',
         totalSalesRows: 0,
         totalLaborRows: 0,
-        maestrosMatches: [], // Array of { code, desc, frequency }
-        csMatches: []        // Array of { code, desc, frequency }
+        maestrosMatches: [], // Sorted de mayor a menor: [{ code, desc, frequency }]
+        csMatches: []        // Sorted de mayor a menor: [{ code, desc, frequency }]
     };
 
     // DOM Elements Cache
@@ -28,7 +31,7 @@
         initAccountingElements();
         initAccountingEvents();
         updateCatalogBadges();
-        autoLoadCosteoData();
+        autoLoadCosteoHistory();
     });
 
     function initAccountingElements() {
@@ -36,6 +39,9 @@
             // Catalogs UI
             badgeMaestrosCount: document.getElementById('badge-maestros-count'),
             badgeCsCount: document.getElementById('badge-cs-count'),
+
+            // Period Selector
+            selectPeriod: document.getElementById('select-accounting-period'),
 
             // Upload & Controls
             dropZoneSales: document.getElementById('drop-excel-sales'),
@@ -55,7 +61,6 @@
             kpiMaestrosCodes: document.getElementById('kpi-maestros-codes'),
             kpiCsCodes: document.getElementById('kpi-cs-codes'),
             kpiTotalOccurrences: document.getElementById('kpi-total-occurrences'),
-            lblSalesFilename: document.getElementById('lbl-sales-filename'),
 
             // Maestros Report (T49)
             searchMaestros: document.getElementById('search-maestros'),
@@ -84,23 +89,121 @@
         }
     }
 
-    function autoLoadCosteoData() {
-        if (typeof COSTEO_DATA !== 'undefined') {
-            currentResults = {
-                fileName: COSTEO_DATA.fileName || 'Consolidado de Ventas',
-                monthTag: COSTEO_DATA.monthTag || '',
-                processedAt: COSTEO_DATA.processedAt || '',
-                totalSalesRows: COSTEO_DATA.totalSalesRows || 0,
-                totalLaborRows: COSTEO_DATA.totalLaborRows || 0,
-                maestrosMatches: COSTEO_DATA.maestrosMatches || [],
-                csMatches: COSTEO_DATA.csMatches || []
-            };
-            renderAccountingResults();
+    /**
+     * Load & Populate Multi-Month History
+     */
+    function autoLoadCosteoHistory() {
+        if (typeof COSTEO_HISTORY === 'undefined' || Object.keys(COSTEO_HISTORY).length === 0) {
+            if (typeof COSTEO_DATA !== 'undefined' && COSTEO_DATA.maestrosMatches) {
+                // Fallback single payload
+                window.COSTEO_HISTORY = {
+                    [COSTEO_DATA.monthTag || 'Actual']: COSTEO_DATA
+                };
+            } else {
+                return;
+            }
         }
+
+        populatePeriodSelector();
+        switchPeriod('ALL');
+    }
+
+    function populatePeriodSelector() {
+        if (!elements.selectPeriod) return;
+
+        const months = Object.keys(COSTEO_HISTORY);
+        elements.selectPeriod.innerHTML = '';
+
+        if (months.length === 0) return;
+
+        // Option 1: All Periods (Annual Cumulative)
+        const optAll = document.createElement('option');
+        optAll.value = 'ALL';
+        optAll.textContent = `📊 Acumulado Anual / Todos (${months.length} ${months.length === 1 ? 'mes' : 'meses'})`;
+        elements.selectPeriod.appendChild(optAll);
+
+        // Individual Months (most recent first)
+        months.sort((a, b) => b.localeCompare(a)).forEach(mTag => {
+            const opt = document.createElement('option');
+            opt.value = mTag;
+            opt.textContent = `📅 Mes: ${mTag}`;
+            elements.selectPeriod.appendChild(opt);
+        });
+
+        // Set default to Most Recent Month or ALL if multiple
+        currentPeriodKey = months.length > 1 ? 'ALL' : months[0];
+        elements.selectPeriod.value = currentPeriodKey;
+    }
+
+    function switchPeriod(periodKey) {
+        currentPeriodKey = periodKey;
+
+        if (periodKey === 'ALL') {
+            // Aggregate all stored months
+            const maestrosAgg = {};
+            const csAgg = {};
+            let grandSales = 0;
+            let grandLabor = 0;
+
+            Object.values(COSTEO_HISTORY).forEach(monthData => {
+                grandSales += (monthData.totalSalesRows || 0);
+                grandLabor += (monthData.totalLaborRows || 0);
+
+                (monthData.maestrosMatches || []).forEach(item => {
+                    if (!maestrosAgg[item.code]) {
+                        maestrosAgg[item.code] = { code: item.code, desc: item.desc, frequency: 0 };
+                    }
+                    maestrosAgg[item.code].frequency += item.frequency;
+                });
+
+                (monthData.csMatches || []).forEach(item => {
+                    if (!csAgg[item.code]) {
+                        csAgg[item.code] = { code: item.code, desc: item.desc, frequency: 0 };
+                    }
+                    csAgg[item.code].frequency += item.frequency;
+                });
+            });
+
+            // Sort DE MAYOR A MENOR (Highest frequency first)
+            const mSorted = Object.values(maestrosAgg).sort((a, b) => b.frequency - a.frequency);
+            const csSorted = Object.values(csAgg).sort((a, b) => b.frequency - a.frequency);
+
+            currentResults = {
+                periodLabel: 'Acumulado Anual (Todos los Meses)',
+                totalSalesRows: grandSales,
+                totalLaborRows: grandLabor,
+                maestrosMatches: mSorted,
+                csMatches: csSorted
+            };
+
+        } else if (COSTEO_HISTORY[periodKey]) {
+            const mData = COSTEO_HISTORY[periodKey];
+
+            // Sort DE MAYOR A MENOR
+            const mSorted = [...(mData.maestrosMatches || [])].sort((a, b) => b.frequency - a.frequency);
+            const csSorted = [...(mData.csMatches || [])].sort((a, b) => b.frequency - a.frequency);
+
+            currentResults = {
+                periodLabel: `Mes de ${mData.monthTag}`,
+                totalSalesRows: mData.totalSalesRows || 0,
+                totalLaborRows: mData.totalLaborRows || 0,
+                maestrosMatches: mSorted,
+                csMatches: csSorted
+            };
+        }
+
+        renderAccountingResults();
     }
 
     function initAccountingEvents() {
         if (!elements.inputSalesFile || !elements.dropZoneSales) return;
+
+        // Period Selector change event
+        if (elements.selectPeriod) {
+            elements.selectPeriod.addEventListener('change', (e) => {
+                switchPeriod(e.target.value);
+            });
+        }
 
         // Click on dropzone triggers file picker
         elements.dropZoneSales.addEventListener('click', (e) => {
@@ -192,7 +295,7 @@
     }
 
     function handleSalesFileSelection(file) {
-        if (!file.name.match(/\.(xlsx|xls|csv|js|json)$/i)) {
+        if (!file.name.match(/\.(xlsx|xls|csv)$/i)) {
             showToast('Formato no válido. Por favor sube un archivo Excel (.xlsx)', 'error');
             elements.salesFileInfo.textContent = 'Archivo no válido';
             elements.btnProcessAccounting.disabled = true;
@@ -202,7 +305,7 @@
         const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
         elements.salesFileInfo.textContent = `${file.name} (${sizeMb} MB)`;
         elements.btnProcessAccounting.disabled = false;
-        showToast(`Archivo "${file.name}" seleccionado`, 'info');
+        showToast(`Archivo "${file.name}" cargado.`, 'info');
         return true;
     }
 
@@ -213,13 +316,6 @@
         elements.panelProgress.classList.add('hidden');
         elements.panelResults.classList.add('hidden');
         elements.btnClearAccounting.classList.add('hidden');
-        currentResults = {
-            fileName: '',
-            totalSalesRows: 0,
-            totalLaborRows: 0,
-            maestrosMatches: [],
-            csMatches: []
-        };
         showToast('Vista de costeo reiniciada', 'info');
     }
 
@@ -230,13 +326,13 @@
     }
 
     /**
-     * Process File directly in Browser if needed (e.g. pre-processed Excel or JS/JSON payload)
+     * Browser direct File Processor
      */
     async function processSalesExcelFile(file) {
         if (!file) return;
 
         elements.btnProcessAccounting.disabled = true;
-        updateProgress(20, 'Leyendo datos del reporte...');
+        updateProgress(20, 'Leyendo datos del archivo Excel...');
 
         setTimeout(() => {
             const reader = new FileReader();
@@ -262,7 +358,8 @@
                                 mDict[c].frequency++;
                             }
                         });
-                        mMatches = Object.values(mDict).sort((a, b) => a.desc.localeCompare(b.desc));
+                        // Sort DE MAYOR A MENOR
+                        mMatches = Object.values(mDict).sort((a, b) => b.frequency - a.frequency);
                     }
 
                     if (sheetCS) {
@@ -276,24 +373,34 @@
                                 csDict[c].frequency++;
                             }
                         });
-                        csMatches = Object.values(csDict).sort((a, b) => a.desc.localeCompare(b.desc));
+                        // Sort DE MAYOR A MENOR
+                        csMatches = Object.values(csDict).sort((a, b) => b.frequency - a.frequency);
                     }
 
                     const totalLabor = mMatches.reduce((a, b) => a + b.frequency, 0) + csMatches.reduce((a, b) => a + b.frequency, 0);
+                    const monthTag = file.name.replace(/Consolidado de ventas/i, '').replace(/\.xlsx$/i, '').trim() || 'Nuevo Mes';
 
-                    currentResults = {
+                    const monthData = {
                         fileName: file.name,
+                        monthTag: monthTag,
+                        processedAt: new Date().toISOString(),
                         totalSalesRows: totalLabor,
                         totalLaborRows: totalLabor,
                         maestrosMatches: mMatches,
                         csMatches: csMatches
                     };
 
+                    if (typeof COSTEO_HISTORY === 'undefined') window.COSTEO_HISTORY = {};
+                    COSTEO_HISTORY[monthTag] = monthData;
+
+                    populatePeriodSelector();
+                    elements.selectPeriod.value = monthTag;
+                    switchPeriod(monthTag);
+
                     updateProgress(100, 'Procesamiento completado.');
 
                     setTimeout(() => {
                         elements.panelProgress.classList.add('hidden');
-                        renderAccountingResults();
                     }, 300);
 
                 } catch (err) {
@@ -308,7 +415,7 @@
     }
 
     /**
-     * Render KPIs and Consolidated Code Tables (2 Columns: Código Identificado & Descripción)
+     * Render KPIs and Consolidated Tables (Sorted DE MAYOR A MENOR)
      */
     function renderAccountingResults() {
         elements.panelResults.classList.remove('hidden');
@@ -320,17 +427,16 @@
         elements.kpiMaestrosCodes.textContent = currentResults.maestrosMatches.length.toLocaleString();
         elements.kpiCsCodes.textContent = currentResults.csMatches.length.toLocaleString();
         elements.kpiTotalOccurrences.textContent = currentResults.totalLaborRows.toLocaleString();
-        elements.lblSalesFilename.textContent = currentResults.fileName;
 
-        // Render Consolidated Tables
+        // Render Tables (De Mayor a Menor)
         renderMaestrosTable();
         renderCsTable();
 
-        showToast(`Consolidado cargado: ${currentResults.maestrosMatches.length} códigos en Maestros y ${currentResults.csMatches.length} en Centro de Servicios`, 'success');
+        showToast(`Periodo "${currentResults.periodLabel}": ${currentResults.maestrosMatches.length} códigos en Maestros y ${currentResults.csMatches.length} en Centro de Servicios`, 'success');
     }
 
     /**
-     * Render Maestros T49 Consolidated Report Table (Exactly 2 columns + Frequency badge)
+     * Render Maestros T49 Table (De Mayor a Menor Facturación with Rank Badges)
      */
     function renderMaestrosTable() {
         const tbody = elements.tableMaestrosBody;
@@ -360,16 +466,24 @@
             return;
         }
 
-        filtered.forEach(item => {
+        filtered.forEach((item, index) => {
             const tr = document.createElement('tr');
+            
+            // Rank highlight badge for top 3
+            let rankBadge = '';
+            if (index === 0) rankBadge = '<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid #ef4444; margin-right: 0.5rem; font-weight: 700;">#1 🔥</span>';
+            else if (index === 1) rankBadge = '<span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid #f59e0b; margin-right: 0.5rem; font-weight: 700;">#2 ⭐️</span>';
+            else if (index === 2) rankBadge = '<span class="badge" style="background: rgba(14, 165, 233, 0.2); color: #0ea5e9; border: 1px solid #0ea5e9; margin-right: 0.5rem; font-weight: 700;">#3 ⚡️</span>';
+            else rankBadge = `<span class="badge" style="background: var(--bg-hover); color: var(--text-muted); margin-right: 0.5rem; font-size: 0.75rem;">#${index + 1}</span>`;
+
             tr.innerHTML = `
                 <td style="font-weight: 600; font-family: monospace; color: var(--color-primary); white-space: nowrap;">
-                    ${escapeHtml(item.code)}
+                    ${rankBadge}${escapeHtml(item.code)}
                 </td>
                 <td>
                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
-                        <span>${escapeHtml(item.desc)}</span>
-                        <span class="badge-freq" title="${item.frequency} facturaciones en el mes">${item.frequency} facturaciones</span>
+                        <span style="font-weight: ${index < 3 ? '600' : 'normal'};">${escapeHtml(item.desc)}</span>
+                        <span class="badge-freq" style="font-weight: 700; ${index === 0 ? 'background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid #ef4444;' : ''}" title="${item.frequency} facturaciones en el periodo">${item.frequency} facturaciones</span>
                     </div>
                 </td>
             `;
@@ -380,7 +494,7 @@
     }
 
     /**
-     * Render Centro de Servicios T39 Consolidated Report Table (Exactly 2 columns + Frequency badge)
+     * Render Centro de Servicios T39 Table (De Mayor a Menor Facturación with Rank Badges)
      */
     function renderCsTable() {
         const tbody = elements.tableCsBody;
@@ -410,16 +524,24 @@
             return;
         }
 
-        filtered.forEach(item => {
+        filtered.forEach((item, index) => {
             const tr = document.createElement('tr');
+
+            // Rank highlight badge for top 3
+            let rankBadge = '';
+            if (index === 0) rankBadge = '<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid #ef4444; margin-right: 0.5rem; font-weight: 700;">#1 🔥</span>';
+            else if (index === 1) rankBadge = '<span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid #f59e0b; margin-right: 0.5rem; font-weight: 700;">#2 ⭐️</span>';
+            else if (index === 2) rankBadge = '<span class="badge" style="background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid #10b981; margin-right: 0.5rem; font-weight: 700;">#3 ⚡️</span>';
+            else rankBadge = `<span class="badge" style="background: var(--bg-hover); color: var(--text-muted); margin-right: 0.5rem; font-size: 0.75rem;">#${index + 1}</span>`;
+
             tr.innerHTML = `
                 <td style="font-weight: 600; font-family: monospace; color: var(--color-success); white-space: nowrap;">
-                    ${escapeHtml(item.code)}
+                    ${rankBadge}${escapeHtml(item.code)}
                 </td>
                 <td>
                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
-                        <span>${escapeHtml(item.desc)}</span>
-                        <span class="badge-freq badge-cs" title="${item.frequency} facturaciones en el mes">${item.frequency} facturaciones</span>
+                        <span style="font-weight: ${index < 3 ? '600' : 'normal'};">${escapeHtml(item.desc)}</span>
+                        <span class="badge-freq badge-cs" style="font-weight: 700; ${index === 0 ? 'background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid #ef4444;' : ''}" title="${item.frequency} facturaciones en el periodo">${item.frequency} facturaciones</span>
                     </div>
                 </td>
             `;
@@ -430,7 +552,7 @@
     }
 
     /**
-     * Export consolidated codes to Excel (.xlsx)
+     * Export consolidated codes to Excel (.xlsx) sorted DE MAYOR A MENOR
      */
     function exportToExcel(filenamePrefix, dataArray, sheetTitle) {
         if (!dataArray || dataArray.length === 0) {
@@ -439,20 +561,21 @@
         }
 
         try {
-            const exportData = dataArray.map(item => ({
+            const exportData = dataArray.map((item, idx) => ({
+                'Ranking': idx + 1,
                 'Código Identificado': item.code,
                 'Descripción de la Actividad': item.desc,
                 'Facturaciones (Frecuencia)': item.frequency
             }));
 
             const ws = XLSX.utils.json_to_sheet(exportData);
-            ws['!cols'] = [{ wch: 22 }, { wch: 65 }, { wch: 25 }];
+            ws['!cols'] = [{ wch: 10 }, { wch: 22 }, { wch: 65 }, { wch: 25 }];
 
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, 'Mano de Obra');
 
-            const monthTag = currentResults.fileName.replace(/\.xlsx$/i, '').trim();
-            const fullFilename = `Consolidado_${filenamePrefix}_${monthTag || 'Costeo'}.xlsx`;
+            const periodTag = currentResults.periodLabel.replace(/[^a-zA-Z0-9_-]/g, '_');
+            const fullFilename = `Consolidado_${filenamePrefix}_${periodTag}.xlsx`;
 
             XLSX.writeFile(wb, fullFilename);
             showToast(`Reporte descargado: ${fullFilename}`, 'success');
@@ -463,7 +586,7 @@
     }
 
     /**
-     * Export consolidated codes to PDF
+     * Export consolidated codes to PDF sorted DE MAYOR A MENOR
      */
     function exportToPDF(filenamePrefix, dataArray, documentTitle) {
         if (!dataArray || dataArray.length === 0) {
@@ -486,14 +609,14 @@
 
             doc.setFontSize(9);
             doc.setTextColor(100);
-            doc.text(`Archivo Sábana: ${currentResults.fileName || 'Consolidado de Ventas'}`, 14, 25);
-            doc.text(`Total códigos de mano de obra distintos: ${dataArray.length}`, 14, 30);
+            doc.text(`Periodo: ${currentResults.periodLabel}`, 14, 25);
+            doc.text(`Orden: De Mayor a Menor Facturación | Total Códigos: ${dataArray.length}`, 14, 30);
 
-            const tableRows = dataArray.map(item => [item.code, item.desc]);
+            const tableRows = dataArray.map((item, idx) => [`#${idx + 1}`, item.code, item.desc, `${item.frequency}`]);
 
             doc.autoTable({
                 startY: 35,
-                head: [['Código Identificado', 'Descripción de la Actividad']],
+                head: [['Rank', 'Código Identificado', 'Descripción de la Actividad', 'Facturaciones']],
                 body: tableRows,
                 theme: 'striped',
                 headStyles: {
@@ -507,13 +630,15 @@
                     cellPadding: 3
                 },
                 columnStyles: {
-                    0: { cellWidth: 45, fontStyle: 'bold' },
-                    1: { cellWidth: 'auto' }
+                    0: { cellWidth: 15, fontStyle: 'bold' },
+                    1: { cellWidth: 35, fontStyle: 'bold' },
+                    2: { cellWidth: 'auto' },
+                    3: { cellWidth: 30, fontStyle: 'bold', halign: 'right' }
                 }
             });
 
-            const monthTag = currentResults.fileName.replace(/\.xlsx$/i, '').trim();
-            const fullFilename = `Consolidado_${filenamePrefix}_${monthTag || 'Costeo'}.pdf`;
+            const periodTag = currentResults.periodLabel.replace(/[^a-zA-Z0-9_-]/g, '_');
+            const fullFilename = `Consolidado_${filenamePrefix}_${periodTag}.pdf`;
 
             doc.save(fullFilename);
             showToast(`PDF descargado: ${fullFilename}`, 'success');
@@ -524,7 +649,7 @@
     }
 
     /**
-     * Copy table content to Clipboard (Tab delimited: Código \t Descripción)
+     * Copy table content to Clipboard (Tab delimited: Code \t Desc \t Freq)
      */
     function copyTableToClipboard(dataArray, label) {
         if (!dataArray || dataArray.length === 0) {
@@ -532,14 +657,14 @@
             return;
         }
 
-        const lines = [`Código Identificado\tDescripción`];
-        dataArray.forEach(item => {
-            lines.push(`${item.code}\t${item.desc}`);
+        const lines = [`Rank\tCódigo Identificado\tDescripción\tFacturaciones`];
+        dataArray.forEach((item, idx) => {
+            lines.push(`#${idx + 1}\t${item.code}\t${item.desc}\t${item.frequency}`);
         });
 
         const textToCopy = lines.join('\n');
         navigator.clipboard.writeText(textToCopy).then(() => {
-            showToast(`Consolidado ${label} copiado al portapapeles (2 columnas)`, 'success');
+            showToast(`Consolidado ${label} copiado al portapapeles (Ordenado mayor a menor)`, 'success');
         }).catch(err => {
             console.error('Clipboard error:', err);
             showToast('No se pudo copiar al portapapeles', 'error');

@@ -60,6 +60,7 @@ if not excel_files:
     sys.exit(1)
 
 selected_file_path = None
+filename_base = None
 
 if len(excel_files) == 1:
     selected_file_path = excel_files[0][0]
@@ -177,11 +178,7 @@ try:
             if code_str in maestros_catalog:
                 total_labor_occurrences += 1
                 desc = maestros_catalog[code_str]
-                
-                # Unconsolidated record for local Excel
                 maestros_unconsolidated.append({'row': row_num, 'code': code_str, 'desc': desc})
-                
-                # Consolidated aggregator for Web Dashboard
                 if code_str not in maestros_grouped:
                     maestros_grouped[code_str] = {'code': code_str, 'desc': desc, 'frequency': 0}
                 maestros_grouped[code_str]['frequency'] += 1
@@ -190,11 +187,7 @@ try:
             if code_str in cs_catalog:
                 total_labor_occurrences += 1
                 desc = cs_catalog[code_str]
-                
-                # Unconsolidated record for local Excel
                 cs_unconsolidated.append({'row': row_num, 'code': code_str, 'desc': desc})
-
-                # Consolidated aggregator for Web Dashboard
                 if code_str not in cs_grouped:
                     cs_grouped[code_str] = {'code': code_str, 'desc': desc, 'frequency': 0}
                 cs_grouped[code_str]['frequency'] += 1
@@ -261,35 +254,51 @@ try:
     out_wb.close()
     print(f"\n -> Reporte Excel FILA POR FILA generado: {os.path.abspath(output_excel)}")
 
-    # 5. Export Consolidated Data Payload for Web Dashboard (datos_costeo.js)
+    # 5. Maintain Multi-Month Historical Database in datos_costeo.js
     month_clean = os.path.splitext(filename_base)[0].replace("Consolidado de ventas", "").strip()
-    
-    # Sort consolidated entries by description
-    maestros_web = sorted(list(maestros_grouped.values()), key=lambda x: x['desc'])
-    cs_web = sorted(list(cs_grouped.values()), key=lambda x: x['desc'])
+    if not month_clean: month_clean = "Actual"
 
-    costeo_payload = {
+    # Sort consolidated entries DE MAYOR A MENOR (Highest frequency first)
+    maestros_sorted_desc = sorted(list(maestros_grouped.values()), key=lambda x: x['frequency'], reverse=True)
+    cs_sorted_desc = sorted(list(cs_grouped.values()), key=lambda x: x['frequency'], reverse=True)
+
+    month_record = {
         "fileName": filename_base,
-        "monthTag": month_clean or "Actual",
+        "monthTag": month_clean,
         "processedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
         "totalSalesRows": total_sales_rows,
         "totalLaborRows": total_labor_occurrences,
-        "isConsolidated": True,
-        "maestrosMatches": maestros_web,
-        "csMatches": cs_web
+        "maestrosMatches": maestros_sorted_desc,
+        "csMatches": cs_sorted_desc
     }
 
-    js_content = f"// Datos consolidados procesados automáticamente para la Web\nvar COSTEO_DATA = {json.dumps(costeo_payload, ensure_ascii=False, indent=2)};\n"
+    # Load existing history if datos_costeo.js exists
+    costeo_history = {}
+    if os.path.exists("datos_costeo.js"):
+        try:
+            with open("datos_costeo.js", "r", encoding="utf-8") as f:
+                c_content = f.read()
+                m = re.search(r'var\s+COSTEO_HISTORY\s*=\s*(\{[\s\S]*?\});', c_content)
+                if m:
+                    costeo_history = json.loads(m.group(1))
+        except Exception as ex:
+            print(" -> Nota: Inicializando nueva base de historial.")
+
+    # Add or update current month
+    costeo_history[month_clean] = month_record
+
+    # Export updated COSTEO_HISTORY to datos_costeo.js
+    js_content = f"// Base de datos histórica acumulada de costeo de mano de obra\nvar COSTEO_HISTORY = {json.dumps(costeo_history, ensure_ascii=False, indent=2)};\n"
     with open("datos_costeo.js", "w", encoding="utf-8") as f:
         f.write(js_content)
 
-    print(" -> Datos CONSOLIDADOS sincronizados para la Web Dashboard (datos_costeo.js)")
+    print(f" -> Historial acumulado actualizado ({len(costeo_history)} meses almacenados en datos_costeo.js)")
 
     # 6. Auto Push to GitHub Pages
     print("\n4. Publicando actualización automática en el Dashboard Web (GitHub Pages)...")
     try:
         subprocess.run(["git", "add", "datos_costeo.js"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run(["git", "commit", "-m", f"Auto-sync: Consolidado de mano de obra para {filename_base}"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["git", "commit", "-m", f"Auto-sync: Historial de costeo actualizado con {month_clean}"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(["git", "push", "origin", "main"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         print(" -> ¡Publicado con éxito en GitHub Pages!")
     except Exception as ge:
