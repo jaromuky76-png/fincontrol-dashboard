@@ -746,202 +746,317 @@
             </section>
 
             <!-- View 4: Modo Contable (Costeo Mano de Obra) -->
+            <!-- ═══════════════════════════════════════════════════════════════════
+                 VIEW: MODO CONTABLE v2.0 — Dashboard Financiero Post Ventas
+                 ═══════════════════════════════════════════════════════════════════ -->
             <section id="view-accounting" class="content-view hidden">
-                <!-- Executive Header Bar & Controls -->
-                <div class="card" style="margin-bottom: 1.5rem; background: linear-gradient(135deg, rgba(14, 165, 233, 0.05), rgba(16, 185, 129, 0.05)); border: 1px solid var(--border-color);">
-                    <div class="card-body" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; padding: 1.25rem 1.5rem;">
-                        <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
-                            <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                <i data-lucide="calculator" class="icon-primary" style="width: 24px; height: 24px;"></i>
-                                <div>
-                                    <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700;">Modo Contable - Costeo de Mano de Obra</h3>
-                                    <span style="font-size: 0.78rem; color: var(--text-muted);">Sincronización automática de facturación y análisis ejecutivo de movimiento</span>
-                                </div>
+
+                <!-- ── Header Bar ──────────────────────────────────────────────── -->
+                <div class="card" style="margin-bottom:1.25rem;background:linear-gradient(135deg,rgba(14,165,233,0.06),rgba(16,185,129,0.04));border:1px solid var(--border-color);">
+                    <div class="card-body" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;padding:1.1rem 1.5rem;">
+                        <div style="display:flex;align-items:center;gap:0.75rem;">
+                            <i data-lucide="calculator" class="icon-primary" style="width:22px;height:22px;"></i>
+                            <div>
+                                <h3 style="margin:0;font-size:1.05rem;font-weight:700;">Modo Contable — Costos Post Ventas</h3>
+                                <span style="font-size:0.75rem;color:var(--text-muted);">MAESTROS &amp; Centro de Servicios · Interno y Externo</span>
                             </div>
-                            <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: var(--color-success); border: 1px solid var(--color-success); display: flex; align-items: center; gap: 0.35rem;">
-                                <span style="width: 7px; height: 7px; border-radius: 50%; background: var(--color-success); display: inline-block;"></span>
-                                Agente Automatizado Activo
-                            </span>
+                            <span id="acc-period-badge" class="badge" style="background:rgba(14,165,233,0.15);color:var(--color-primary);border:1px solid var(--color-primary);font-size:0.8rem;font-weight:700;">—</span>
                         </div>
 
-                        <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
-                            <!-- Period Selector -->
-                            <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                <label for="select-accounting-period" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); margin: 0; white-space: nowrap;">
-                                    <i data-lucide="calendar" style="width: 15px; height: 15px; vertical-align: middle; color: var(--color-primary);"></i> Periodo:
-                                </label>
-                                <select id="select-accounting-period" class="form-control form-control-sm" style="min-width: 220px; font-weight: 700; color: var(--color-primary); background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; padding: 0.4rem 0.75rem;">
-                                    <!-- Options populated dynamically from COSTEO_HISTORY -->
-                                </select>
-                            </div>
-
-                            <!-- Manage Catalogs Button -->
-                            <button id="btn-manage-catalogs" class="btn btn-secondary btn-sm" type="button" style="display: flex; align-items: center; gap: 0.35rem;">
-                                <i data-lucide="database" style="width: 14px; height: 14px;"></i>
-                                <span>Catálogos Activos</span>
+                        <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+                            <!-- Mes Selector -->
+                            <select id="acc-select-mes" class="form-control form-control-sm" style="font-weight:700;color:var(--color-primary);background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;padding:0.35rem 0.6rem;">
+                                <option>ENERO</option><option>FEBRERO</option><option>MARZO</option><option>ABRIL</option>
+                                <option>MAYO</option><option selected>JUNIO</option><option>JULIO</option><option>AGOSTO</option>
+                                <option>SEPTIEMBRE</option><option>OCTUBRE</option><option>NOVIEMBRE</option><option>DICIEMBRE</option>
+                            </select>
+                            <!-- Año Selector -->
+                            <select id="acc-select-anio" class="form-control form-control-sm" style="font-weight:700;color:var(--color-primary);background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;padding:0.35rem 0.6rem;">
+                                <option>2025</option><option selected>2026</option><option>2027</option>
+                            </select>
+                            <!-- Generate Button -->
+                            <button id="acc-btn-generar" class="btn btn-primary btn-sm" style="display:flex;align-items:center;gap:0.4rem;">
+                                <i data-lucide="play-circle" style="width:15px;height:15px;"></i>
+                                Generar Reporte
                             </button>
                         </div>
                     </div>
                 </div>
 
-                <!-- Results & Reports Area -->
-                <div id="panel-accounting-results" style="margin-top: 1rem;">
-                    <!-- KPI Summary Cards -->
-                    <div class="grid-4" style="margin-bottom: 1.5rem;">
-                        <div class="stat-card">
-                            <div class="stat-icon bg-primary-light color-primary">
-                                <i data-lucide="check-circle-2"></i>
+                <!-- ── Generate Report Overlay ─────────────────────────────────── -->
+                <div id="acc-gen-overlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(8px);z-index:9999;display:flex;align-items:center;justify-content:center;">
+                    <div class="card" style="max-width:560px;width:90%;">
+                        <div class="card-header" style="display:flex;justify-content:space-between;">
+                            <div class="card-title"><i data-lucide="terminal" class="icon-primary"></i> Ejecutar Orquestador</div>
+                            <button onclick="document.getElementById('acc-gen-overlay').classList.add('hidden')" class="btn-close">&times;</button>
+                        </div>
+                        <div class="card-body">
+                            <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1rem;">Copia y ejecuta el siguiente comando en tu terminal para generar los reportes Excel y actualizar la vista:</p>
+                            <div style="background:var(--bg-primary);border:1px solid var(--border-color);border-radius:8px;padding:0.85rem 1rem;font-family:var(--font-mono);font-size:0.85rem;color:var(--color-primary);display:flex;align-items:center;justify-content:space-between;gap:1rem;">
+                                <code id="acc-gen-command" style="word-break:break-all;">py generar_reporte_contable_orquestador.py JUNIO 2026</code>
+                                <button onclick="navigator.clipboard.writeText(document.getElementById('acc-gen-command').textContent)" title="Copiar" style="background:none;border:none;cursor:pointer;color:var(--color-primary);flex-shrink:0;">
+                                    <i data-lucide="copy" style="width:16px;height:16px;"></i>
+                                </button>
                             </div>
-                            <div class="stat-content">
-                                <span class="stat-value" id="kpi-total-identified">0</span>
-                                <span class="stat-label">Códigos Distintos Identificados</span>
+                            <p style="margin-top:0.85rem;font-size:0.78rem;color:var(--text-muted);">Después de ejecutar el script, el dashboard se actualizará automáticamente en ~10 segundos.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ── Resumen KPIs ────────────────────────────────────────────── -->
+                <div class="grid-4" style="margin-bottom:1.25rem;">
+                    <div class="stat-card">
+                        <div class="stat-icon bg-primary-light color-primary"><i data-lucide="dollar-sign"></i></div>
+                        <div class="stat-content">
+                            <span class="stat-value" id="acc-kpi-total-usd" style="font-size:1.3rem;">$0.00</span>
+                            <span class="stat-label">Total General USD</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon" style="background:rgba(14,165,233,0.15);color:var(--color-primary);"><i data-lucide="wrench"></i></div>
+                        <div class="stat-content">
+                            <span class="stat-value" id="acc-kpi-maestros-total" style="font-size:1.1rem;">$0.00</span>
+                            <span class="stat-label">MAESTROS Total USD</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon" style="background:rgba(16,185,129,0.15);color:var(--color-success);"><i data-lucide="settings"></i></div>
+                        <div class="stat-content">
+                            <span class="stat-value" id="acc-kpi-cs-total" style="font-size:1.1rem;">$0.00</span>
+                            <span class="stat-label">CS Total USD</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon" style="background:rgba(251,191,36,0.15);color:var(--color-warning);"><i data-lucide="layers"></i></div>
+                        <div class="stat-content">
+                            <span class="stat-value" id="acc-kpi-total-regs">0</span>
+                            <span class="stat-label">Total Registros</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ── Sub-Tab Navigation ─────────────────────────────────────── -->
+                <div class="card" style="margin-bottom:1.25rem;">
+                    <div class="card-body" style="padding:0.5rem 1rem;">
+                        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                            <button id="acc-tab-resumen"      class="acc-tab-btn active btn btn-sm" style="display:flex;align-items:center;gap:0.35rem;">
+                                <i data-lucide="layout-dashboard" style="width:14px;height:14px;"></i> Resumen
+                            </button>
+                            <button id="acc-tab-maestros-int" class="acc-tab-btn btn btn-sm btn-secondary" style="display:flex;align-items:center;gap:0.35rem;">
+                                <i data-lucide="wrench" style="width:14px;height:14px;"></i>
+                                MAESTROS Interno
+                                <span id="acc-kpi-maestros-int" class="badge" style="background:rgba(14,165,233,0.15);color:var(--color-primary);font-size:0.7rem;">0 OTs</span>
+                            </button>
+                            <button id="acc-tab-maestros-ext" class="acc-tab-btn btn btn-sm btn-secondary" style="display:flex;align-items:center;gap:0.35rem;">
+                                <i data-lucide="receipt" style="width:14px;height:14px;"></i>
+                                MAESTROS Externo
+                                <span id="acc-kpi-maestros-ext" class="badge" style="background:rgba(14,165,233,0.15);color:var(--color-primary);font-size:0.7rem;">0 facturas</span>
+                            </button>
+                            <button id="acc-tab-cs-int"       class="acc-tab-btn btn btn-sm btn-secondary" style="display:flex;align-items:center;gap:0.35rem;">
+                                <i data-lucide="settings" style="width:14px;height:14px;color:var(--color-success);"></i>
+                                CS Interno
+                                <span id="acc-kpi-cs-int" class="badge" style="background:rgba(16,185,129,0.15);color:var(--color-success);font-size:0.7rem;">0 OTs</span>
+                            </button>
+                            <button id="acc-tab-cs-ext"       class="acc-tab-btn btn btn-sm btn-secondary" style="display:flex;align-items:center;gap:0.35rem;">
+                                <i data-lucide="file-text" style="width:14px;height:14px;color:var(--color-success);"></i>
+                                CS Externo
+                                <span id="acc-kpi-cs-ext" class="badge" style="background:rgba(16,185,129,0.15);color:var(--color-success);font-size:0.7rem;">0 facturas</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ═══════════════════════════════════════════════════════════════
+                     PANEL: RESUMEN
+                     ═══════════════════════════════════════════════════════════════ -->
+                <div id="acc-panel-resumen" class="acc-panel">
+                    <div class="grid-2" style="margin-bottom:1.5rem;">
+                        <div class="card">
+                            <div class="card-header">
+                                <div class="card-title"><i data-lucide="pie-chart" class="icon-primary"></i> Distribución General USD</div>
+                            </div>
+                            <div class="card-body" style="height:280px;position:relative;">
+                                <canvas id="acc-chart-resumen-dist"></canvas>
                             </div>
                         </div>
-                        <div class="stat-card">
-                            <div class="stat-icon" style="background: rgba(14, 165, 233, 0.15); color: var(--color-primary);">
-                                <i data-lucide="wrench"></i>
+                        <div class="card">
+                            <div class="card-header">
+                                <div class="card-title"><i data-lucide="bar-chart-3" class="icon-primary"></i> Comparativo por Segmento</div>
                             </div>
-                            <div class="stat-content">
-                                <span class="stat-value" id="kpi-maestros-codes">0</span>
-                                <span class="stat-label">Taller Maestro (T49)</span>
-                            </div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-icon" style="background: rgba(16, 185, 129, 0.15); color: var(--color-success);">
-                                <i data-lucide="settings"></i>
-                            </div>
-                            <div class="stat-content">
-                                <span class="stat-value" id="kpi-cs-codes">0</span>
-                                <span class="stat-label">Centro de Servicios (T39)</span>
-                            </div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-icon" style="background: rgba(245, 158, 11, 0.15); color: var(--color-warning);">
-                                <i data-lucide="layers"></i>
-                            </div>
-                            <div class="stat-content">
-                                <span class="stat-value" id="kpi-total-occurrences">0</span>
-                                <span class="stat-label">Facturaciones de MO en Periodo</span>
+                            <div class="card-body" style="height:280px;position:relative;">
+                                <canvas id="acc-chart-resumen-bar"></canvas>
                             </div>
                         </div>
                     </div>
+                </div>
 
-                    <!-- Interactive Charts Row -->
-                    <div class="grid-2" style="margin-bottom: 1.5rem;">
-                        <!-- Chart 1: Top Actividades Más Facturadas -->
+                <!-- ═══════════════════════════════════════════════════════════════
+                     PANEL: MAESTROS INTERNO
+                     ═══════════════════════════════════════════════════════════════ -->
+                <div id="acc-panel-maestros-int" class="acc-panel hidden">
+                    <div class="grid-2" style="margin-bottom:1.5rem;">
                         <div class="card">
-                            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
-                                <div class="card-title">
-                                    <i data-lucide="bar-chart-3" class="icon-primary"></i>
-                                    <span>Top Actividades Más Facturadas</span>
+                            <div class="card-header"><div class="card-title"><i data-lucide="pie-chart" class="icon-primary"></i> Distribución por CECO (USD)</div></div>
+                            <div class="card-body" style="height:240px;position:relative;"><canvas id="acc-chart-ceco-maestros-int"></canvas></div>
+                        </div>
+                        <div class="card">
+                            <div class="card-header"><div class="card-title"><i data-lucide="bar-chart-3" class="icon-primary"></i> Top Actividades por Costo USD</div></div>
+                            <div class="card-body" style="height:240px;position:relative;"><canvas id="acc-chart-top-maestros-int"></canvas></div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header" style="flex-wrap:wrap;gap:0.75rem;">
+                            <div><div class="card-title"><i data-lucide="wrench" class="icon-primary"></i> MAESTROS — Servicios Internos (Reclasificación CECO)</div><span class="card-subtitle" id="acc-count-maestros-int">0 registros</span></div>
+                            <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+                                <div style="position:relative;">
+                                    <input id="acc-search-maestros-int" class="form-control form-control-sm" placeholder="Buscar RMS, CECO, OT..." style="padding-left:2rem;min-width:200px;">
+                                    <i data-lucide="search" style="position:absolute;left:0.6rem;top:50%;transform:translateY(-50%);width:13px;height:13px;color:var(--text-muted);"></i>
                                 </div>
-                                <span class="badge" style="background: var(--bg-hover); color: var(--text-muted); font-size: 0.75rem;">De mayor a menor</span>
-                            </div>
-                            <div class="card-body" style="height: 280px; position: relative;">
-                                <canvas id="chart-top-activities"></canvas>
+                                <button class="btn btn-secondary btn-sm" id="acc-btn-export-maestros-int"><i data-lucide="file-spreadsheet"></i> Excel</button>
+                                <button class="btn btn-secondary btn-sm" id="acc-btn-pdf-maestros-int"><i data-lucide="file-text"></i> PDF</button>
                             </div>
                         </div>
-
-                        <!-- Chart 2: Distribución por Unidad de Negocio -->
-                        <div class="card">
-                            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
-                                <div class="card-title">
-                                    <i data-lucide="pie-chart" class="icon-primary"></i>
-                                    <span>Distribución por Unidad de Negocio</span>
-                                </div>
-                                <span class="badge" style="background: var(--bg-hover); color: var(--text-muted); font-size: 0.75rem;">T49 vs T39</span>
-                            </div>
-                            <div class="card-body" style="height: 280px; position: relative; display: flex; align-items: center; justify-content: center;">
-                                <canvas id="chart-unit-distribution"></canvas>
+                        <div class="card-body" style="padding:0;">
+                            <div class="table-responsive">
+                                <table class="table" style="margin:0;">
+                                    <thead><tr>
+                                        <th style="width:35px;">#</th>
+                                        <th style="width:130px;">Código RMS</th>
+                                        <th>Descripción</th>
+                                        <th style="width:120px;">CECO</th>
+                                        <th style="width:100px;">OT</th>
+                                        <th style="width:70px;text-align:right;">Horas</th>
+                                        <th style="width:120px;text-align:right;">Costo USD</th>
+                                        <th style="width:130px;text-align:right;">Costo C$</th>
+                                    </tr></thead>
+                                    <tbody id="acc-tbody-maestros-int"></tbody>
+                                </table>
                             </div>
                         </div>
                     </div>
+                </div>
 
-                    <!-- Two Reports Grid (T49 & T39) -->
-                    <div style="display: flex; flex-direction: column; gap: 1.5rem;">
-                        <!-- Report 1: Taller Maestro (T49) -->
-                        <div class="card">
-                            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
-                                <div>
-                                    <div class="card-title">
-                                        <i data-lucide="wrench" class="icon-primary"></i>
-                                        <span>Reporte Mano de Obra - Taller Maestro (T49)</span>
-                                    </div>
-                                    <span class="card-subtitle" id="count-maestros-table">0 códigos identificados</span>
+                <!-- ═══════════════════════════════════════════════════════════════
+                     PANEL: MAESTROS EXTERNO
+                     ═══════════════════════════════════════════════════════════════ -->
+                <div id="acc-panel-maestros-ext" class="acc-panel hidden">
+                    <div class="card" style="margin-bottom:1.5rem;">
+                        <div class="card-header"><div class="card-title"><i data-lucide="bar-chart-3" class="icon-primary"></i> Top Servicios Facturados — MAESTROS Externos (USD)</div></div>
+                        <div class="card-body" style="height:240px;position:relative;"><canvas id="acc-chart-top-maestros-ext"></canvas></div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header" style="flex-wrap:wrap;gap:0.75rem;">
+                            <div><div class="card-title"><i data-lucide="receipt" class="icon-primary"></i> MAESTROS — Servicios Facturados (Clientes Externos)</div><span class="card-subtitle" id="acc-count-maestros-ext">0 registros</span></div>
+                            <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+                                <div style="position:relative;">
+                                    <input id="acc-search-maestros-ext" class="form-control form-control-sm" placeholder="Buscar RMS, ticket, factura..." style="padding-left:2rem;min-width:200px;">
+                                    <i data-lucide="search" style="position:absolute;left:0.6rem;top:50%;transform:translateY(-50%);width:13px;height:13px;color:var(--text-muted);"></i>
                                 </div>
-                                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-                                    <div class="search-box" style="position: relative; min-width: 200px;">
-                                        <input type="text" id="search-maestros" class="form-control form-control-sm" placeholder="Buscar código o descripción..." style="padding-left: 2rem; font-size: 0.8rem;">
-                                        <i data-lucide="search" style="position: absolute; left: 0.6rem; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: var(--text-muted);"></i>
-                                    </div>
-                                    <button class="btn btn-secondary btn-sm" id="btn-export-maestros-excel" title="Exportar a Excel">
-                                        <i data-lucide="file-spreadsheet"></i> Excel
-                                    </button>
-                                    <button class="btn btn-secondary btn-sm" id="btn-export-maestros-pdf" title="Exportar a PDF">
-                                        <i data-lucide="file-text"></i> PDF
-                                    </button>
-                                    <button class="btn btn-secondary btn-sm" id="btn-copy-maestros" title="Copiar Tabla">
-                                        <i data-lucide="copy"></i> Copiar
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="card-body" style="padding: 0;">
-                                <div class="table-responsive">
-                                    <table class="table" style="margin-bottom: 0;">
-                                        <thead>
-                                            <tr>
-                                                <th style="width: 220px;">Código Identificado</th>
-                                                <th>Descripción de la Actividad</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="table-maestros-body">
-                                            <!-- Dynamic Rows -->
-                                        </tbody>
-                                    </table>
-                                </div>
+                                <button class="btn btn-secondary btn-sm" id="acc-btn-export-maestros-ext"><i data-lucide="file-spreadsheet"></i> Excel</button>
+                                <button class="btn btn-secondary btn-sm" id="acc-btn-pdf-maestros-ext"><i data-lucide="file-text"></i> PDF</button>
                             </div>
                         </div>
-
-                        <!-- Report 2: Centro de Servicios (T39) -->
-                        <div class="card">
-                            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
-                                <div>
-                                    <div class="card-title">
-                                        <i data-lucide="settings" style="color: var(--color-success);"></i>
-                                        <span>Reporte Mano de Obra - Centro de Servicios (T39)</span>
-                                    </div>
-                                    <span class="card-subtitle" id="count-cs-table">0 códigos identificados</span>
-                                </div>
-                                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-                                    <div class="search-box" style="position: relative; min-width: 200px;">
-                                        <input type="text" id="search-cs" class="form-control form-control-sm" placeholder="Buscar código o descripción..." style="padding-left: 2rem; font-size: 0.8rem;">
-                                        <i data-lucide="search" style="position: absolute; left: 0.6rem; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: var(--text-muted);"></i>
-                                    </div>
-                                    <button class="btn btn-secondary btn-sm" id="btn-export-cs-excel" title="Exportar a Excel">
-                                        <i data-lucide="file-spreadsheet"></i> Excel
-                                    </button>
-                                    <button class="btn btn-secondary btn-sm" id="btn-export-cs-pdf" title="Exportar a PDF">
-                                        <i data-lucide="file-text"></i> PDF
-                                    </button>
-                                    <button class="btn btn-secondary btn-sm" id="btn-copy-cs" title="Copiar Tabla">
-                                        <i data-lucide="copy"></i> Copiar
-                                    </button>
-                                </div>
+                        <div class="card-body" style="padding:0;">
+                            <div class="table-responsive">
+                                <table class="table" style="margin:0;">
+                                    <thead><tr>
+                                        <th style="width:35px;">#</th>
+                                        <th style="width:130px;">Código RMS</th>
+                                        <th>Descripción</th>
+                                        <th style="width:110px;">Ticket</th>
+                                        <th>Factura</th>
+                                        <th style="width:120px;text-align:right;">Venta USD</th>
+                                        <th style="width:130px;text-align:right;">Venta C$</th>
+                                        <th style="width:40px;"></th>
+                                    </tr></thead>
+                                    <tbody id="acc-tbody-maestros-ext"></tbody>
+                                </table>
                             </div>
-                            <div class="card-body" style="padding: 0;">
-                                <div class="table-responsive">
-                                    <table class="table" style="margin-bottom: 0;">
-                                        <thead>
-                                            <tr>
-                                                <th style="width: 220px;">Código Identificado</th>
-                                                <th>Descripción de la Actividad</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="table-cs-body">
-                                            <!-- Dynamic Rows -->
-                                        </tbody>
-                                    </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ═══════════════════════════════════════════════════════════════
+                     PANEL: CS INTERNO
+                     ═══════════════════════════════════════════════════════════════ -->
+                <div id="acc-panel-cs-int" class="acc-panel hidden">
+                    <div class="grid-2" style="margin-bottom:1.5rem;">
+                        <div class="card">
+                            <div class="card-header"><div class="card-title" style="color:var(--color-success);"><i data-lucide="pie-chart" style="color:var(--color-success);"></i> Distribución por CECO (USD)</div></div>
+                            <div class="card-body" style="height:240px;position:relative;"><canvas id="acc-chart-ceco-cs-int"></canvas></div>
+                        </div>
+                        <div class="card">
+                            <div class="card-header"><div class="card-title" style="color:var(--color-success);"><i data-lucide="bar-chart-3" style="color:var(--color-success);"></i> Top Actividades por Costo USD</div></div>
+                            <div class="card-body" style="height:240px;position:relative;"><canvas id="acc-chart-top-cs-int"></canvas></div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header" style="flex-wrap:wrap;gap:0.75rem;">
+                            <div><div class="card-title"><i data-lucide="settings" style="color:var(--color-success);"></i> CS — Servicios Internos (Reclasificación CECO)</div><span class="card-subtitle" id="acc-count-cs-int">0 registros</span></div>
+                            <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+                                <div style="position:relative;">
+                                    <input id="acc-search-cs-int" class="form-control form-control-sm" placeholder="Buscar RMS, CECO, OT..." style="padding-left:2rem;min-width:200px;">
+                                    <i data-lucide="search" style="position:absolute;left:0.6rem;top:50%;transform:translateY(-50%);width:13px;height:13px;color:var(--text-muted);"></i>
                                 </div>
+                                <button class="btn btn-secondary btn-sm" id="acc-btn-export-cs-int"><i data-lucide="file-spreadsheet"></i> Excel</button>
+                                <button class="btn btn-secondary btn-sm" id="acc-btn-pdf-cs-int"><i data-lucide="file-text"></i> PDF</button>
+                            </div>
+                        </div>
+                        <div class="card-body" style="padding:0;">
+                            <div class="table-responsive">
+                                <table class="table" style="margin:0;">
+                                    <thead><tr>
+                                        <th style="width:35px;">#</th>
+                                        <th style="width:130px;">Código RMS</th>
+                                        <th>Descripción</th>
+                                        <th style="width:120px;">CECO</th>
+                                        <th style="width:100px;">OT</th>
+                                        <th style="width:70px;text-align:right;">Horas</th>
+                                        <th style="width:120px;text-align:right;">Costo USD</th>
+                                        <th style="width:130px;text-align:right;">Costo C$</th>
+                                    </tr></thead>
+                                    <tbody id="acc-tbody-cs-int"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ═══════════════════════════════════════════════════════════════
+                     PANEL: CS EXTERNO
+                     ═══════════════════════════════════════════════════════════════ -->
+                <div id="acc-panel-cs-ext" class="acc-panel hidden">
+                    <div class="card" style="margin-bottom:1.5rem;">
+                        <div class="card-header"><div class="card-title" style="color:var(--color-success);"><i data-lucide="bar-chart-3" style="color:var(--color-success);"></i> Top Servicios Facturados — CS Externos (USD)</div></div>
+                        <div class="card-body" style="height:240px;position:relative;"><canvas id="acc-chart-top-cs-ext"></canvas></div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header" style="flex-wrap:wrap;gap:0.75rem;">
+                            <div><div class="card-title"><i data-lucide="file-text" style="color:var(--color-success);"></i> CS — Servicios Facturados (Clientes Externos)</div><span class="card-subtitle" id="acc-count-cs-ext">0 registros</span></div>
+                            <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+                                <div style="position:relative;">
+                                    <input id="acc-search-cs-ext" class="form-control form-control-sm" placeholder="Buscar RMS, ticket, factura..." style="padding-left:2rem;min-width:200px;">
+                                    <i data-lucide="search" style="position:absolute;left:0.6rem;top:50%;transform:translateY(-50%);width:13px;height:13px;color:var(--text-muted);"></i>
+                                </div>
+                                <button class="btn btn-secondary btn-sm" id="acc-btn-export-cs-ext"><i data-lucide="file-spreadsheet"></i> Excel</button>
+                                <button class="btn btn-secondary btn-sm" id="acc-btn-pdf-cs-ext"><i data-lucide="file-text"></i> PDF</button>
+                            </div>
+                        </div>
+                        <div class="card-body" style="padding:0;">
+                            <div class="table-responsive">
+                                <table class="table" style="margin:0;">
+                                    <thead><tr>
+                                        <th style="width:35px;">#</th>
+                                        <th style="width:130px;">Código RMS</th>
+                                        <th>Descripción</th>
+                                        <th style="width:110px;">Ticket</th>
+                                        <th>Factura</th>
+                                        <th style="width:120px;text-align:right;">Venta USD</th>
+                                        <th style="width:130px;text-align:right;">Venta C$</th>
+                                        <th style="width:40px;"></th>
+                                    </tr></thead>
+                                    <tbody id="acc-tbody-cs-ext"></tbody>
+                                </table>
                             </div>
                         </div>
                     </div>
@@ -1451,7 +1566,8 @@
     <!-- Main scripts -->
     <script src="master_catalogs.js?v=1.0"></script>
     <script src="datos_costeo.js?v=1.0"></script>
-    <script src="accounting.js?v=1.0"></script>
+    <script src="datos_reporte_contable.js?v=1.0" onerror="console.log('datos_reporte_contable.js aún no generado');"></script>
+    <script src="accounting.js?v=2.0"></script>
     <script src="app.js?v=2.0"></script>
     <script src="reconciliation.js?v=2.0"></script>
     <script src="availability.js?v=2.0"></script>
