@@ -54,6 +54,16 @@
                 }, 50);
             });
         }
+
+        // Re-render charts on Theme Toggle (Dark/Light mode switch)
+        const themeBtn = document.getElementById('theme-toggle');
+        if (themeBtn) {
+            themeBtn.addEventListener('click', () => {
+                setTimeout(() => {
+                    if (data) renderChartsForTab(activeTab);
+                }, 100);
+            });
+        }
     });
 
     function tryLoadData() {
@@ -213,7 +223,21 @@
         renderResumenCharts(mi, me, ci, ce);
     }
 
+    // Dynamic chart text and grid color helpers for Dark/Light mode
+    function getChartTextColor(alpha = 0.85) {
+        const isLight = document.body.classList.contains('light-mode');
+        return isLight ? `rgba(15, 23, 42, ${alpha})` : `rgba(255, 255, 255, ${alpha})`;
+    }
+    function getChartGridColor() {
+        const isLight = document.body.classList.contains('light-mode');
+        return isLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.05)';
+    }
+
     function renderResumenCharts(mi, me, ci, ce) {
+        const textColor = getChartTextColor();
+        const textMuted = getChartTextColor(0.7);
+        const gridColor = getChartGridColor();
+
         // Doughnut: Distribución por unidad de negocio y tipo
         const cvs = document.getElementById('acc-chart-resumen-dist');
         if (cvs && typeof Chart !== 'undefined') {
@@ -235,7 +259,7 @@
                 options: {
                     responsive: true, maintainAspectRatio: false, cutout: '62%',
                     plugins: {
-                        legend: { position: 'bottom', labels: { color: 'rgba(255,255,255,0.85)', font: { size: 11, weight: '600' }, padding: 16 } },
+                        legend: { position: 'bottom', labels: { color: textColor, font: { size: 11, weight: '600' }, padding: 16 } },
                         tooltip: { callbacks: { label: (ctx) => ` ${ctx.label}: ${fmtUSD(ctx.parsed)}` } }
                     }
                 }
@@ -264,8 +288,8 @@
                         tooltip: { callbacks: { label: (ctx) => ` USD ${fmtUSD(ctx.parsed.y)}` } }
                     },
                     scales: {
-                        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: 'rgba(255,255,255,0.7)', font: { size: 11, weight: '600' } } },
-                        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: 'rgba(255,255,255,0.6)', font: { size: 10 }, callback: (v) => `$${(v/1000).toFixed(0)}k` } }
+                        x: { grid: { color: gridColor }, ticks: { color: textColor, font: { size: 11, weight: '600' } } },
+                        y: { grid: { color: gridColor }, ticks: { color: textMuted, font: { size: 10 }, callback: (v) => `$${(v/1000).toFixed(0)}k` } }
                     }
                 }
             });
@@ -380,6 +404,8 @@
         const entries = Object.entries(breakdown).sort((a, b) => b[1].totalUSD - a[1].totalUSD);
         if (entries.length === 0) return;
 
+        const textColor = getChartTextColor();
+
         charts[`ceco-${tabKey}`] = new Chart(cvs, {
             type: 'doughnut',
             data: {
@@ -394,7 +420,7 @@
             options: {
                 responsive: true, maintainAspectRatio: false, cutout: '60%',
                 plugins: {
-                    legend: { position: 'right', labels: { color: 'rgba(255,255,255,0.8)', font: { size: 10, weight: '600' }, boxWidth: 12 } },
+                    legend: { position: 'right', labels: { color: textColor, font: { size: 10, weight: '600' }, boxWidth: 12 } },
                     tooltip: { callbacks: { label: (ctx) => ` ${ctx.label}: ${fmtUSD(ctx.parsed)}` } }
                 }
             }
@@ -417,6 +443,10 @@
         const top8 = Object.entries(grouped).sort((a, b) => b[1] - a[1]).slice(0, 8);
         if (top8.length === 0) return;
 
+        const textColor = getChartTextColor();
+        const textMuted = getChartTextColor(0.7);
+        const gridColor = getChartGridColor();
+
         charts[`top-${tabKey}`] = new Chart(cvs, {
             type: 'bar',
             data: {
@@ -435,8 +465,8 @@
                     tooltip: { callbacks: { label: (ctx) => ` USD ${fmtUSD(ctx.parsed.x)}` } }
                 },
                 scales: {
-                    x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: 'rgba(255,255,255,0.6)', font: { size: 10 }, callback: (v) => `$${(v/1000).toFixed(0)}k` } },
-                    y: { grid: { display: false }, ticks: { color: 'rgba(255,255,255,0.85)', font: { size: 10, weight: '600' } } }
+                    x: { grid: { color: gridColor }, ticks: { color: textMuted, font: { size: 10 }, callback: (v) => `$${(v/1000).toFixed(0)}k` } },
+                    y: { grid: { display: false }, ticks: { color: textColor, font: { size: 10, weight: '600' } } }
                 }
             }
         });
@@ -456,6 +486,10 @@
         });
         const top8 = Object.entries(grouped).sort((a, b) => b[1] - a[1]).slice(0, 8);
         if (top8.length === 0) return;
+
+        const textColor = getChartTextColor();
+        const textMuted = getChartTextColor(0.7);
+        const gridColor = getChartGridColor();
 
         charts[`top-${tabKey}`] = new Chart(cvs, {
             type: 'bar',
