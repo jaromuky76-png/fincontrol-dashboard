@@ -785,20 +785,31 @@
 
                 <!-- ── Generate Report Overlay ─────────────────────────────────── -->
                 <div id="acc-gen-overlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(8px);z-index:9999;display:flex;align-items:center;justify-content:center;">
-                    <div class="card" style="max-width:560px;width:90%;">
-                        <div class="card-header" style="display:flex;justify-content:space-between;">
-                            <div class="card-title"><i data-lucide="terminal" class="icon-primary"></i> Ejecutar Orquestador</div>
+                    <div class="card" style="max-width:580px;width:90%;">
+                        <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+                            <div class="card-title"><i data-lucide="play-circle" class="icon-primary"></i> Generar Reportes Contables</div>
                             <button onclick="document.getElementById('acc-gen-overlay').classList.add('hidden')" class="btn-close">&times;</button>
                         </div>
                         <div class="card-body">
-                            <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1rem;">Copia y ejecuta el siguiente comando en tu terminal para generar los reportes Excel y actualizar la vista:</p>
-                            <div style="background:var(--bg-primary);border:1px solid var(--border-color);border-radius:8px;padding:0.85rem 1rem;font-family:var(--font-mono);font-size:0.85rem;color:var(--color-primary);display:flex;align-items:center;justify-content:space-between;gap:1rem;">
-                                <code id="acc-gen-command" style="word-break:break-all;">py generar_reporte_contable_orquestador.py JUNIO 2026</code>
-                                <button onclick="navigator.clipboard.writeText(document.getElementById('acc-gen-command').textContent)" title="Copiar" style="background:none;border:none;cursor:pointer;color:var(--color-primary);flex-shrink:0;">
-                                    <i data-lucide="copy" style="width:16px;height:16px;"></i>
-                                </button>
+                            <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1rem;">Por seguridad del navegador, los scripts de Python se ejecutan desde tu computadora. Tienes 2 formas muy sencillas de hacerlo:</p>
+                            
+                            <div style="background:rgba(14,165,233,0.08);border:1px solid var(--border-color);border-radius:8px;padding:0.85rem 1rem;margin-bottom:1rem;">
+                                <strong style="color:var(--color-primary);font-size:0.88rem;">Opción 1 (Más fácil): Doble Clic</strong>
+                                <p style="margin:0.35rem 0 0;font-size:0.82rem;color:var(--text-secondary);">Haz doble clic en el archivo <code>ejecutar_reporte_contable.bat</code> que está en la carpeta de tu proyecto. Te pedirá escribir el mes (ej. JULIO) y ¡listo!</p>
                             </div>
-                            <p style="margin-top:0.85rem;font-size:0.78rem;color:var(--text-muted);">Después de ejecutar el script, el dashboard se actualizará automáticamente en ~10 segundos.</p>
+
+                            <div style="background:var(--bg-primary);border:1px solid var(--border-color);border-radius:8px;padding:0.85rem 1rem;">
+                                <strong style="color:var(--text-primary);font-size:0.88rem;">Opción 2: Ejecutar en Terminal</strong>
+                                <p style="margin:0.35rem 0 0.5rem;font-size:0.82rem;color:var(--text-secondary);">Copia y pega este comando en PowerShell / CMD:</p>
+                                <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;background:var(--bg-card);padding:0.5rem 0.75rem;border-radius:6px;">
+                                    <code id="acc-gen-command" style="word-break:break-all;font-size:0.83rem;color:var(--color-primary);">py generar_reporte_contable_orquestador.py JUNIO 2026</code>
+                                    <button onclick="navigator.clipboard.writeText(document.getElementById('acc-gen-command').textContent)" title="Copiar" style="background:none;border:none;cursor:pointer;color:var(--color-primary);flex-shrink:0;">
+                                        <i data-lucide="copy" style="width:16px;height:16px;"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <p style="margin-top:1rem;font-size:0.78rem;color:var(--text-muted);text-align:center;">Al terminar, la página en tu navegador se actualizará sola en ~10 segundos.</p>
                         </div>
                     </div>
                 </div>
