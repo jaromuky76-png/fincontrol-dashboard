@@ -327,15 +327,8 @@ function handleSupportFilesSelection(fileList) {
     if (!fileList || fileList.length === 0) return;
     
     const filesArray = Array.from(fileList);
-    if (!ReconState.supportFiles) ReconState.supportFiles = [];
-    
-    // Accumulate files without duplicates
-    filesArray.forEach(file => {
-        const duplicate = ReconState.supportFiles.some(f => f.name === file.name && f.size === file.size);
-        if (!duplicate) {
-            ReconState.supportFiles.push(file);
-        }
-    });
+    // Overwrite previous support files selection on new upload
+    ReconState.supportFiles = filesArray;
     
     const totalCount = ReconState.supportFiles.length;
     if (totalCount === 1) {
@@ -344,7 +337,7 @@ function handleSupportFilesSelection(fileList) {
         reconElements.zipFileInfo.style.color = 'var(--color-success)';
         ReconState.zipFile = file;
     } else {
-        reconElements.zipFileInfo.textContent = `${totalCount} archivos de soporte cargados`;
+        reconElements.zipFileInfo.textContent = `${totalCount} archivo(s) de soporte cargado(s)`;
         reconElements.zipFileInfo.style.color = 'var(--color-success)';
         ReconState.zipFile = ReconState.supportFiles[0];
     }
@@ -355,7 +348,7 @@ function handleSupportFilesSelection(fileList) {
         btnClearSupport.classList.remove('hidden');
     }
     
-    window.showToast(`${filesArray.length} archivo(s) de soporte cargado(s) (Total: ${totalCount})`, 'success');
+    window.showToast(`${totalCount} archivo(s) de soporte cargado(s)`, 'success');
     checkProcessButton();
 
     // Re-hydration logic for historical loads (if a ZIP file is present)
@@ -497,7 +490,11 @@ async function processFiles() {
                     const zip = await JSZip.loadAsync(file);
                     const zipEntries = [];
                     zip.forEach((relativePath, zipEntry) => {
-                        if (!zipEntry.dir && /\.(png|jpe?g|webp|pdf)$/i.test(zipEntry.name)) {
+                        const isHidden = zipEntry.name.startsWith('.') || 
+                                         zipEntry.name.includes('/.') || 
+                                         zipEntry.name.includes('__MACOSX') || 
+                                         zipEntry.name.toLowerCase().includes('thumbs.db');
+                        if (!zipEntry.dir && !isHidden && /\.(png|jpe?g|webp|pdf)$/i.test(zipEntry.name)) {
                             zipEntries.push(zipEntry);
                         }
                     });
