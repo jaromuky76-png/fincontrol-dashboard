@@ -2035,6 +2035,18 @@ function runMatchingAlgorithm() {
             tx.retentionsValid = true;
         }
     });
+
+    // Fallback date: Any matched invoice with missing date inherits the transaction date
+    ReconState.transactions.forEach(tx => {
+        if (tx.matched && tx.invoices) {
+            tx.invoices.forEach(inv => {
+                if (!inv.extractedDateStr || inv.extractedDateStr === 'No identificada') {
+                    inv.extractedDateStr = tx.dateStr;
+                    inv.extractedDate = tx.date;
+                }
+            });
+        }
+    });
 }
 
 // --- UI UPDATING & RENDERING ---
@@ -2241,7 +2253,9 @@ function renderReconciliationUI() {
             } else {
                 if (tx.invoices && tx.invoices.length > 0) {
                     invoiceNames = tx.invoices.map(inv => {
-                        const invNo = inv.invoiceRef ? `(N°. ${inv.invoiceRef})` : '(Sin N°.)';
+                        const invNo = inv.invoiceRef ? 
+                            `<span style="color:#38bdf8; font-weight:600; font-family:monospace;">(N°. ${inv.invoiceRef})</span>` : 
+                            `<button type="button" class="btn-quick-edit-invno" data-id="${tx.id}" data-name="${escapeHtml(inv.name)}" style="font-size:0.65rem; padding:1px 5px; border:1px dashed var(--border-color); background:rgba(255,255,255,0.06); color:var(--text-muted); border-radius:4px; cursor:pointer; display:inline-flex; align-items:center; gap:2px;" title="Haz clic para ingresar o editar el N° de factura"><i data-lucide="edit-2" style="width:10px; height:10px;"></i> Sin N° (Ingresar)</button>`;
                         let rucText = '';
                         if (inv.docType === 'invoice') {
                             if (inv.providerRuc) {
@@ -2253,7 +2267,9 @@ function renderReconciliationUI() {
                         return `<div style="margin-bottom:0.25rem;">${inv.name} <small class="text-muted">${invNo}</small>${rucText}</div>`;
                     }).join('');
                 } else if (tx.invoice) {
-                    const invNo = tx.invoice.invoiceRef ? `(N°. ${tx.invoice.invoiceRef})` : '(Sin N°.)';
+                    const invNo = tx.invoice.invoiceRef ? 
+                        `<span style="color:#38bdf8; font-weight:600; font-family:monospace;">(N°. ${tx.invoice.invoiceRef})</span>` : 
+                        `<button type="button" class="btn-quick-edit-invno" data-id="${tx.id}" data-name="${escapeHtml(tx.invoice.name)}" style="font-size:0.65rem; padding:1px 5px; border:1px dashed var(--border-color); background:rgba(255,255,255,0.06); color:var(--text-muted); border-radius:4px; cursor:pointer; display:inline-flex; align-items:center; gap:2px;" title="Haz clic para ingresar o editar el N° de factura"><i data-lucide="edit-2" style="width:10px; height:10px;"></i> Sin N° (Ingresar)</button>`;
                     let rucText = '';
                     if (tx.invoice.docType === 'invoice') {
                         if (tx.invoice.providerRuc) {
@@ -2266,7 +2282,7 @@ function renderReconciliationUI() {
                 } else {
                     invoiceNames = '---';
                 }
-                invoiceDates = tx.invoices ? tx.invoices.map(i => i.extractedDateStr || 'No ident.').join(', ') : (tx.invoice ? (tx.invoice.extractedDateStr || 'No identificada') : 'No identificada');
+                invoiceDates = tx.invoices ? tx.invoices.map(i => i.extractedDateStr || tx.dateStr || 'No ident.').join(', ') : (tx.invoice ? (tx.invoice.extractedDateStr || tx.dateStr || 'No identificada') : 'No identificada');
 
                 let invoiceButtonsHTML = '';
                 if (tx.invoices && tx.invoices.length > 0) {
@@ -2782,6 +2798,27 @@ function bindTableActionButtons() {
         });
     });
 
+    // Quick edit Invoice Number button from table
+    document.querySelectorAll('.btn-quick-edit-invno').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const name = e.currentTarget.dataset.name;
+            const txId = e.currentTarget.dataset.id;
+            const inv = ReconState.invoices.find(i => i.name === name);
+            const tx = ReconState.transactions.find(t => t.id === txId);
+            if (inv) {
+                openViewInvoiceModal(inv, tx);
+                setTimeout(() => {
+                    const invNoInput = document.getElementById('input-view-invoice-number');
+                    if (invNoInput) {
+                        invNoInput.focus();
+                        invNoInput.select();
+                    }
+                }, 200);
+            }
+        });
+    });
+
     // 4. Edit statement transaction
     document.querySelectorAll('.btn-edit-tx-action').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -3084,7 +3121,7 @@ function initModalListeners() {
         });
     }
 
-    // Live editing for Provider RUC and Invoice Number
+    // Live editing for Provider RUC, Invoice Number and Date
     const inputRuc = document.getElementById('input-view-invoice-ruc');
     if (inputRuc) {
         inputRuc.addEventListener('input', () => {
@@ -3104,6 +3141,17 @@ function initModalListeners() {
             const invoice = ReconState.activeInvoiceToLink;
             if (invoice) {
                 invoice.invoiceRef = inputInvNo.value.trim() || null;
+                renderReconciliationUI();
+            }
+        });
+    }
+
+    const inputDate = document.getElementById('input-view-invoice-date');
+    if (inputDate) {
+        inputDate.addEventListener('input', () => {
+            const invoice = ReconState.activeInvoiceToLink;
+            if (invoice) {
+                invoice.extractedDateStr = inputDate.value.trim();
                 renderReconciliationUI();
             }
         });
@@ -3746,6 +3794,17 @@ function openViewInvoiceModal(invoice, tx = null) {
         }
     }
 
+    // Fallback date from transaction if not present
+    if (tx && (!invoice.extractedDateStr || invoice.extractedDateStr === 'No identificada')) {
+        invoice.extractedDateStr = tx.dateStr;
+        invoice.extractedDate = tx.date;
+    }
+
+    const inputDate = document.getElementById('input-view-invoice-date');
+    if (inputDate) {
+        inputDate.value = invoice.extractedDateStr || (tx ? tx.dateStr : '');
+    }
+
     // Populate RUC and Invoice Number fields for standard invoices
     const rowRuc = document.getElementById('row-invoice-ruc');
     const rowInvNo = document.getElementById('row-invoice-number');
@@ -4043,8 +4102,12 @@ function handleInvoiceTypeChange() {
 }
 
 
+function openModal(modalElement) {
+    if (modalElement) modalElement.classList.add('active');
+}
+
 function closeModal(modalElement) {
-    modalElement.classList.remove('active');
+    if (modalElement) modalElement.classList.remove('active');
 }
 
 // --- TABS CONTROLS ---
@@ -5604,14 +5667,13 @@ function getPurchasingPendingItems() {
  */
 function openPurchasingReportModal() {
     ReconState.purchasingItems = getPurchasingPendingItems();
-    if (ReconState.purchasingItems.length === 0) {
-        window.showToast('¡Todas las facturas ya tienen Orden de Compra asociada o son combustibles con placa!', 'info');
-        return;
-    }
     const modal = document.getElementById('modal-purchasing-report');
     if (modal) {
         renderPurchasingReportUI();
         openModal(modal);
+        if (ReconState.purchasingItems.length === 0) {
+            window.showToast('Nota: No se detectaron facturas comerciales pendientes de OC', 'info');
+        }
     }
 }
 
