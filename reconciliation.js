@@ -1024,13 +1024,14 @@ function classifyAndExtractDocument(text, fileName) {
     }
     
     // --- Purchase Order (Orden de Compra / OC) Heuristics ---
-    const hasOrdenCompra = /orden\s+(?:de\s+)?compra/i.test(textNorm) || /purchase\s+order/i.test(textNorm) || /\boc\b/i.test(textNorm) || /\bo\s*[\.\/]\s*c\b/i.test(textNorm);
-    const hasPedido = /n[o°\.]?\s*pedido/i.test(textNorm) || /pedido\s+(?:de\s+)?compra/i.test(textNorm) || /pedido\s+no/i.test(textNorm);
+    const hasOrdenCompra = /orden\s+(?:de\s+)?compra/i.test(textNorm) || /purchase\s+order/i.test(textNorm) || /\bo\s*[\.\/]\s*c\s*[:#\d]/i.test(textNorm) || /\borden\s+no\b/i.test(textNorm);
+    const hasPedido = /n[o°\.]?\s*pedido/i.test(textNorm) || /pedido\s+(?:de\s+)?compra/i.test(textNorm);
     
     if (hasOrdenCompra) purchaseOrderScore += 25;
     if (hasPedido) purchaseOrderScore += 12;
     
-    if (fileNorm.includes("orden") || fileNorm.includes("compra") || fileNorm.includes("oc") || fileNorm.includes("po")) {
+    // Strict filename check for purchase order (avoid matching "doc", "soporte", "compra", "pos")
+    if (/(?:^|[^a-z0-9])(?:orden[-_ ]?de[-_ ]?compra|purchase[-_ ]?order|o[-_.]?c)(?:[^a-z0-9]|$)/i.test(fileName) || /\borden\b/i.test(fileNorm)) {
         purchaseOrderScore += 20;
     }
 
@@ -1058,14 +1059,14 @@ function classifyAndExtractDocument(text, fileName) {
     if (hasReciboCaja) invoiceScore += 10;
     
     // Filename indicators
-    if (fileNorm.includes("factura") || fileNorm.includes("invoice") || fileNorm.includes("compra") || fileNorm.includes("recibo")) {
+    if (fileNorm.includes("factura") || fileNorm.includes("invoice") || fileNorm.includes("compra") || fileNorm.includes("recibo") || fileNorm.includes("ticket") || fileNorm.includes("voucher")) {
         invoiceScore += 20;
     }
     
     // --- Decision Logic ---
     let docType = 'invoice';
-    if (purchaseOrderScore > invoiceScore && purchaseOrderScore > retentionScore && purchaseOrderScore >= 8) {
-        docType = 'purchase_order';
+    if (purchaseOrderScore > invoiceScore && purchaseOrderScore > retentionScore && purchaseOrderScore >= 15) {
+        docType = 'orden_compra';
     } else if (retentionScore > invoiceScore && retentionScore >= 8) {
         const isMunicipal = hasRetencionMunicipal || textNorm.includes("municipal") || textNorm.includes("alcaldia") || textNorm.includes("alma") || textNorm.includes("imi") || fileNorm.includes("municipal");
         const isExemption = hasExemptionHeader || textNorm.includes("exencion") || textNorm.includes("exento") || fileNorm.includes("exencion");
@@ -1143,7 +1144,7 @@ function classifyAndExtractDocument(text, fileName) {
         
         // Check for SINSA RUC: J0310000001812
         hasSinsaRuc = /J\s*[-–]?\s*0310000001812/i.test(textNorm.replace(/\s+/g, ''));
-    } else if (docType === 'purchase_order') {
+    } else if (docType === 'orden_compra') {
         const details = extractInvoiceDetails(text, fileName);
         amount = details.amount;
         subtotal = details.subtotal;
@@ -1841,7 +1842,7 @@ function renderReconciliationUI() {
     const reimbursementTx = ReconState.transactions.filter(t => t.isReimbursement && t.type === 'charge');
     const matchedTx = ReconState.transactions.filter(t => t.matched && !t.isReimbursement && t.type === 'charge').length;
     const missingTx = ReconState.transactions.filter(t => !t.matched && t.type === 'charge').length;
-    const orphanInvoices = ReconState.invoices.filter(i => !i.matched).length;
+    const orphanInvoices = ReconState.invoices.filter(i => !i.matched && (i.docType === 'invoice' || !i.docType)).length;
 
     // Sum reimbursement amounts by currency
     const reimbursementsNIO = reimbursementTx.filter(t => t.currency === 'NIO').reduce((acc, t) => acc + t.amount, 0);
@@ -2121,8 +2122,8 @@ function renderReconciliationUI() {
     const tbodyOrphans = document.querySelector('#table-orphans tbody');
     tbodyOrphans.innerHTML = '';
     
-    // Filter to ONLY actual invoice documents
-    const orphansList = ReconState.invoices.filter(i => !i.matched && i.docType === 'invoice');
+    // Filter to actual unassigned invoice documents
+    const orphansList = ReconState.invoices.filter(i => !i.matched && (i.docType === 'invoice' || !i.docType));
     if (orphansList.length === 0) {
         tbodyOrphans.innerHTML = `<tr><td colspan="5" class="text-center text-muted" style="padding: 2rem;">No hay facturas sueltas o sin relación.</td></tr>`;
     } else {
@@ -2148,10 +2149,10 @@ function renderReconciliationUI() {
                 <td>${inv.extractedDateStr || 'No identificada'}</td>
                 <td class="text-right font-medium">${inv.extractedAmount ? window.formatCurrency(inv.extractedAmount, orphanCurrency) : 'N/A'}</td>
                 <td class="text-muted" style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                    ${escapeHtml(inv.text.substring(0, 100))}...
+                    ${escapeHtml((inv.text || '').substring(0, 100))}...
                 </td>
                 <td class="text-center">
-                    <button class="btn btn-secondary btn-sm btn-view-orphan-action" data-idx="${idx}">
+                    <button class="btn btn-secondary btn-sm btn-view-orphan-action" data-name="${escapeHtml(inv.name)}">
                         <i data-lucide="eye"></i>Inspeccionar
                     </button>
                 </td>
@@ -2477,9 +2478,8 @@ function bindTableActionButtons() {
     // 3. View orphan invoice details
     document.querySelectorAll('.btn-view-orphan-action').forEach(btn => {
         btn.addEventListener('click', (e) => {
-            const idx = parseInt(e.currentTarget.dataset.idx, 10);
-            const orphans = ReconState.invoices.filter(i => !i.matched);
-            const inv = orphans[idx];
+            const name = e.currentTarget.dataset.name;
+            const inv = ReconState.invoices.find(i => i.name === name);
             if (inv) {
                 openViewInvoiceModal(inv);
             }
@@ -2663,6 +2663,50 @@ function initModalListeners() {
     reconElements.btnLinkInvoiceManually.addEventListener('click', () => {
         linkInvoiceManuallyToTx();
     });
+
+    const btnAssignOrphan = document.getElementById('btn-assign-selected-orphan');
+    if (btnAssignOrphan) {
+        btnAssignOrphan.addEventListener('click', () => {
+            const selectOrphan = document.getElementById('select-orphan-invoice-to-assign');
+            const targetTx = ReconState.singleInvoiceTargetTx;
+            if (!selectOrphan || !targetTx) return;
+            
+            const selectedName = selectOrphan.value;
+            const invoice = ReconState.invoices.find(i => i.name === selectedName);
+            if (!invoice) {
+                window.showToast('No se encontró la factura seleccionada', 'error');
+                return;
+            }
+            
+            if (!targetTx.invoices) targetTx.invoices = [];
+            targetTx.invoices.push(invoice);
+            targetTx.matched = true;
+            targetTx.isManual = true;
+            targetTx.isReimbursement = false;
+            if (targetTx.reimbursementDoc) {
+                targetTx.reimbursementDoc.matched = false;
+                targetTx.reimbursementDoc.isManual = false;
+                const docIdx = ReconState.invoices.findIndex(i => i.name === targetTx.reimbursementDoc.name);
+                if (docIdx !== -1) {
+                    ReconState.invoices.splice(docIdx, 1);
+                }
+                targetTx.reimbursementDoc = null;
+            }
+            invoice.matched = true;
+            invoice.isManual = true;
+            invoice.currency = targetTx.currency;
+            if (!invoice.extractedAmount) invoice.extractedAmount = targetTx.amount;
+            if (!invoice.extractedDateStr) {
+                invoice.extractedDateStr = targetTx.dateStr;
+                invoice.extractedDate = targetTx.date;
+            }
+            
+            window.showToast(`Factura "${invoice.name}" asignada exitosamente`, 'success');
+            closeModal(reconElements.modalUpload);
+            runMatchingAlgorithm();
+            renderReconciliationUI();
+        });
+    }
 
     const unlinkBtn = document.getElementById('btn-unlink-invoice');
     if (unlinkBtn) {
@@ -2885,6 +2929,30 @@ function openUploadModalForTx(txOrGroup, isReimbursement = false, isRetention = 
     reconElements.singleInvoiceFileInfo.style.color = '';
     reconElements.btnProcessSingleInvoice.setAttribute('disabled', 'true');
     reconElements.singleInvoiceProgress.classList.add('hidden');
+    
+    // Configure orphan invoice picker if unassigned invoices are available
+    const containerPickOrphan = document.getElementById('container-pick-orphan-invoice');
+    const selectOrphan = document.getElementById('select-orphan-invoice-to-assign');
+    if (containerPickOrphan && selectOrphan) {
+        if (!isReimbursement && !isRetention && !isPurchaseOrder) {
+            const unassignedInvoices = ReconState.invoices.filter(i => !i.matched && (i.docType === 'invoice' || !i.docType));
+            if (unassignedInvoices.length > 0) {
+                selectOrphan.innerHTML = '';
+                unassignedInvoices.forEach(inv => {
+                    const opt = document.createElement('option');
+                    opt.value = inv.name;
+                    const amtStr = inv.extractedAmount ? window.formatCurrency(inv.extractedAmount, inv.currency || 'NIO') : 'Monto N/A';
+                    opt.textContent = `${inv.name} | ${inv.extractedDateStr || 'Sin fecha'} | ${amtStr}`;
+                    selectOrphan.appendChild(opt);
+                });
+                containerPickOrphan.classList.remove('hidden');
+            } else {
+                containerPickOrphan.classList.add('hidden');
+            }
+        } else {
+            containerPickOrphan.classList.add('hidden');
+        }
+    }
     
     reconElements.modalUpload.classList.add('active');
 }
@@ -3208,7 +3276,9 @@ function openViewInvoiceModal(invoice, tx = null) {
         reconElements.viewInvoiceLinkContainer.classList.remove('hidden');
         if (unlinkBtn) unlinkBtn.classList.add('hidden');
         
-        const targetList = ReconState.transactions.filter(t => t.type === 'charge');
+        const targetList = ReconState.transactions
+            .filter(t => t.type === 'charge')
+            .sort((a, b) => (a.matched === b.matched ? 0 : a.matched ? 1 : -1));
         reconElements.selectUnresolvedTxForLinking.innerHTML = '';
         
         if (targetList.length === 0) {
@@ -3220,7 +3290,8 @@ function openViewInvoiceModal(invoice, tx = null) {
                 const opt = document.createElement('option');
                 opt.value = t.id;
                 const formattedAmt = t.currency === 'NIO' ? window.formatCurrency(t.amount, 'NIO') : window.formatCurrency(t.amount, 'USD');
-                opt.textContent = `${t.dateStr} | ${t.description.substring(0, 30)} | ${formattedAmt}`;
+                const statusPrefix = t.matched ? '(Ya vinculada) ' : '(Falta respaldo) ';
+                opt.textContent = `${statusPrefix}${t.dateStr} | ${t.description.substring(0, 30)} | ${formattedAmt}`;
                 reconElements.selectUnresolvedTxForLinking.appendChild(opt);
             });
         }
@@ -3323,6 +3394,10 @@ function linkInvoiceManuallyToTx() {
             tx.exemptionDoc = invoice;
             invoice.matched = true;
             invoice.isManual = true;
+        } else if (invoice.docType === 'orden_compra') {
+            tx.purchaseOrderDoc = invoice;
+            invoice.matched = true;
+            invoice.isManual = true;
         }
         
         window.showToast('Documento asociado manualmente con éxito', 'success');
@@ -3353,6 +3428,8 @@ function unlinkInvoiceManually() {
         } else if (invoice.docType === 'exencion') {
             tx.isExempt = false;
             tx.exemptionDoc = null;
+        } else if (invoice.docType === 'orden_compra') {
+            tx.purchaseOrderDoc = null;
         }
         
         window.showToast('Documento desvinculado', 'info');

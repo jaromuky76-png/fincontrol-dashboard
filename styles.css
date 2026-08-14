@@ -287,6 +287,15 @@ h1, h2, h3, h4, h5, h6 {
 body.light-mode .sun-icon { display: block; }
 body.light-mode .moon-icon { display: none; }
 
+/* Content View Display Logic */
+.content-view {
+    display: block;
+}
+
+.content-view.hidden {
+    display: none !important;
+}
+
 /* Main Content Layout */
 .main-content {
     margin-left: calc(var(--sidebar-width) + 3rem);
@@ -508,7 +517,7 @@ body.light-mode #view-title {
     background-color: rgba(0, 0, 0, 0.05);
 }
 
-.drop-zone:hover, .drop-zone.dragover {
+.drop-zone:hover, .drop-zone.dragover, .drop-zone.drag-over {
     border-color: var(--color-primary);
     background-color: var(--color-primary-light);
 }

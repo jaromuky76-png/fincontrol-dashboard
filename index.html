@@ -45,7 +45,7 @@
             </div>
             
             <nav class="sidebar-menu">
-                <a href="#reconciliation" class="menu-item active" id="menu-reconciliation">
+                <a href="#reconciliation" class="menu-item" id="menu-reconciliation">
                     <i data-lucide="shield-check"></i>
                     <span>Rendición de Cuentas</span>
                 </a>
@@ -53,7 +53,7 @@
                     <i data-lucide="credit-card"></i>
                     <span>Disponibilidad Tarjetas</span>
                 </a>
-                <a href="#accounting" class="menu-item" id="menu-accounting">
+                <a href="#accounting" class="menu-item active" id="menu-accounting">
                     <i data-lucide="calculator"></i>
                     <span>Modo Contable</span>
                 </a>
@@ -92,7 +92,7 @@
             <div id="toast-container" class="toast-container"></div>
 
             <!-- View 1: Rendición de Cuentas -->
-            <section id="view-reconciliation" class="content-view active">
+            <section id="view-reconciliation" class="content-view hidden">
                 <!-- File Upload Cards -->
                 <div class="grid-2">
                     <div class="card upload-card" id="card-statement">
@@ -550,7 +550,7 @@
             </section>
 
             <!-- View 3: Configuración -->
-            <section id="view-settings" class="content-view">
+            <section id="view-settings" class="content-view hidden">
                 <div class="grid-2">
                     <!-- Configuración Disponibilidad -->
                     <div class="card">
@@ -746,42 +746,363 @@
             </section>
 
             <!-- View 4: Modo Contable (Costeo Mano de Obra) -->
-            <!-- ═══════════════════════════════════════════════════════════════════
+            <!-- ═══════════════════════════════════════════════════════════════
                  VIEW: MODO CONTABLE v2.0 — Dashboard Financiero Post Ventas
-                 ═══════════════════════════════════════════════════════════════════ -->
-            <section id="view-accounting" class="content-view hidden">
-
-                <!-- ── Header Bar ──────────────────────────────────────────────── -->
-                <div class="card" style="margin-bottom:1.25rem;background:linear-gradient(135deg,rgba(14,165,233,0.06),rgba(16,185,129,0.04));border:1px solid var(--border-color);">
-                    <div class="card-body" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;padding:1.1rem 1.5rem;">
-                        <div style="display:flex;align-items:center;gap:0.75rem;">
-                            <i data-lucide="calculator" class="icon-primary" style="width:22px;height:22px;"></i>
-                            <div>
-                                <h3 style="margin:0;font-size:1.05rem;font-weight:700;">Modo Contable — Costos Post Ventas</h3>
-                                <span style="font-size:0.75rem;color:var(--text-muted);">MAESTROS &amp; Centro de Servicios · Interno y Externo</span>
+                 ═══════════════════════════════════════════════════════════════ -->
+            <section id="view-accounting" class="content-view active">
+                <!-- ═══════════════════════════════════════════════════════════════
+                     PANEL PRINCIPAL: GENERACIÓN DE REPORTE CONTABLE
+                     ═══════════════════════════════════════════════════════════════ -->
+                <div class="card" style="margin-bottom: 1.75rem; border-left: 4px solid var(--color-primary);">
+                    <div class="card-header justify-between" style="flex-wrap: wrap; gap: 1rem;">
+                        <div>
+                            <div class="card-title">
+                                <i data-lucide="file-spreadsheets" class="icon-primary"></i>
+                                <span>Generador Oficial de Reporte Contable (CS / Maestros)</span>
                             </div>
-                            <span id="acc-period-badge" class="badge" style="background:rgba(14,165,233,0.15);color:var(--color-primary);border:1px solid var(--color-primary);font-size:0.8rem;font-weight:700;">—</span>
+                            <span class="card-subtitle" style="margin-left: 2rem;">Selecciona el mes, sube tus sábanas de origen de OT y Ventas, ajusta las líneas misceláneas y genera el reporte.</span>
+                        </div>
+                    </div>
+
+                    <div class="card-body">
+                        <form id="form-generar-reporte-contable" style="display: flex; flex-direction: column; gap: 1.25rem;">
+                            <div class="grid-3" style="gap: 1rem;">
+                                <div class="form-group" style="margin-bottom:0;">
+                                    <label for="acc-select-mes"><strong>Mes a Procesar:</strong></label>
+                                    <select id="acc-select-mes" class="form-control" style="font-weight:600; color:var(--color-primary);">
+                                        <option value="" selected disabled>-- SELECCIONE EL MES A PROCESAR --</option>
+                                        <option value="ENERO">ENERO 2026</option>
+                                        <option value="FEBRERO">FEBRERO 2026</option>
+                                        <option value="MARZO">MARZO 2026</option>
+                                        <option value="ABRIL">ABRIL 2026</option>
+                                        <option value="MAYO">MAYO 2026</option>
+                                        <option value="JUNIO">JUNIO 2026</option>
+                                        <option value="JULIO">JULIO 2026</option>
+                                        <option value="AGOSTO">AGOSTO 2026</option>
+                                        <option value="SEPTIEMBRE">SEPTIEMBRE 2026</option>
+                                        <option value="OCTUBRE">OCTUBRE 2026</option>
+                                        <option value="NOVIEMBRE">NOVIEMBRE 2026</option>
+                                        <option value="DICIEMBRE">DICIEMBRE 2026</option>
+                                    </select>
+                                </div>
+                                <div class="form-group" style="margin-bottom:0;">
+                                    <label for="acc-input-tc"><strong>Tipo de Cambio (TC):</strong></label>
+                                    <input type="number" step="0.0001" id="acc-input-tc" class="form-control" value="36.6200" style="font-weight:600;">
+                                </div>
+                                <div class="form-group" style="margin-bottom:0;">
+                                    <label for="acc-select-unidad"><strong>Unidad de Negocio:</strong></label>
+                                    <select id="acc-select-unidad" class="form-control">
+                                        <option value="CS" selected>Centro de Servicios (CS / T39)</option>
+                                        <option value="MAESTROS">Maestros Taller</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Dual Dropzones Nativas con Overlay 100% Garantizadas -->
+                            <div class="grid-2" style="gap: 1rem;">
+                                <div class="drop-zone" id="drop-acc-ot" style="position: relative; padding: 1.25rem; text-align: center; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 120px; overflow: hidden;">
+                                    <input type="file" id="input-acc-ot" accept=".xlsx,.xls" onchange="if(this.files &amp;&amp; this.files[0]) document.getElementById('info-acc-ot').innerHTML = '<strong style=\'color:var(--color-success);\'>✓ ' + this.files[0].name + '</strong> (' + (this.files[0].size/1024).toFixed(1) + ' KB)';" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 10;">
+                                    <i data-lucide="file-up" class="drop-icon" style="width: 32px; height: 32px; color: var(--color-primary); pointer-events: none; z-index: 1;"></i>
+                                    <p class="drop-text" style="font-size: 0.85rem; margin-top:0.25rem; pointer-events: none; z-index: 1;"><strong>1. Estado de OT del Mes</strong></p>
+                                    <span class="file-info text-muted" id="info-acc-ot" style="font-size:0.75rem; display:block; pointer-events: none; z-index: 1;">Ningún archivo seleccionado. Haz clic o arrastra el archivo Excel.</span>
+                                </div>
+                                <div class="drop-zone" id="drop-acc-ventas" style="position: relative; padding: 1.25rem; text-align: center; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 120px; overflow: hidden;">
+                                    <input type="file" id="input-acc-ventas" accept=".xls,.xlsx" onchange="if(this.files &amp;&amp; this.files[0]) document.getElementById('info-acc-ventas').innerHTML = '<strong style=\'color:var(--color-success);\'>✓ ' + this.files[0].name + '</strong> (' + (this.files[0].size/1024).toFixed(1) + ' KB)';" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 10;">
+                                    <i data-lucide="file-up" class="drop-icon" style="width: 32px; height: 32px; color: var(--color-primary); pointer-events: none; z-index: 1;"></i>
+                                    <p class="drop-text" style="font-size: 0.85rem; margin-top:0.25rem; pointer-events: none; z-index: 1;"><strong>2. Archivo de Ventas</strong></p>
+                                    <span class="file-info text-muted" id="info-acc-ventas" style="font-size:0.75rem; display:block; pointer-events: none; z-index: 1;">Ningún archivo seleccionado. Haz clic o arrastra el archivo Excel.</span>
+                                </div>
+                            </div>
+
+                            <!-- Barra de Progreso de Procesamiento -->
+                            <div id="container-acc-progress" class="hidden" style="margin-top:0.5rem; background:rgba(0,0,0,0.2); padding:0.85rem 1rem; border-radius:8px; border:1px solid var(--border-color);">
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem; font-size:0.83rem;">
+                                    <span id="acc-progress-status-text" style="font-weight:600; color:var(--color-primary);">Procesando sábanas de origen y cruzando OTs...</span>
+                                    <span id="acc-progress-percent" style="font-weight:700; color:var(--color-primary);">0%</span>
+                                </div>
+                                <div style="width:100%; height:8px; background:var(--bg-primary); border-radius:4px; overflow:hidden;">
+                                    <div id="acc-progress-bar-fill" style="width:0%; height:100%; background:linear-gradient(90deg, #00f2fe, #38bdf8); transition:width 0.2s ease;"></div>
+                                </div>
+                            </div>
+
+                            <!-- Barra de Acciones y Limpieza -->
+                            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem; background:rgba(255,255,255,0.03); padding:0.75rem 1rem; border-radius:8px; border:1px solid var(--border-color);">
+                                <div style="font-size:0.85rem; color:var(--text-muted); display:flex; align-items:center; gap:0.5rem;" id="status-scan-info">
+                                    <i data-lucide="info" class="color-primary" style="width:18px; height:18px;"></i>
+                                    <span>Paso 1: Sube archivos y haz clic en <strong>Procesar</strong> para extraer las OTs Misceláneas.</span>
+                                </div>
+                                <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">
+                                    <button type="button" class="btn btn-secondary" id="btn-limpiar-formulario-acc" title="Limpia la vista para iniciar un nuevo procesamiento sin borrar el histórico acumulado">
+                                        <i data-lucide="rotate-ccw"></i>
+                                        <span>Limpiar Formulario</span>
+                                    </button>
+                                    <button type="button" class="btn btn-primary" id="btn-procesar-archivos-acc" style="font-weight:700; padding:0.6rem 1.25rem;">
+                                        <i data-lucide="cpu"></i>
+                                        <span>Procesar Archivos</span>
+                                    </button>
+                                    <button type="button" class="btn btn-info" id="btn-previsualizar-reporte" disabled style="font-weight:700; padding:0.6rem 1.25rem; opacity:0.6; cursor:not-allowed;">
+                                        <i data-lucide="eye"></i>
+                                        <span>Previsualizar Reporte</span>
+                                    </button>
+                                    <button type="button" class="btn btn-success" id="btn-descargar-reporte-oficial" disabled style="font-weight:700; padding:0.6rem 1.25rem; opacity:0.6; cursor:not-allowed;">
+                                        <i data-lucide="download"></i>
+                                        <span>Descargar Reporte (.xlsx)</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- ═══════════════════════════════════════════════════════════════
+                     MODAL DE PREVISUALIZACIÓN Y VISOR DE EXCEL INTERACTIVO
+                     ═══════════════════════════════════════════════════════════════ -->
+                <div id="modal-preview-reporte" class="hidden" style="position:fixed; inset:0; background:rgba(0,0,0,0.85); backdrop-filter:blur(8px); z-index:9999; display:flex; align-items:center; justify-content:center; padding:1rem;">
+                    <div class="card" style="width:98%; max-width:1350px; height:92vh; display:flex; flex-direction:column; border:1px solid var(--color-info); background:var(--bg-dark);">
+                        <!-- Header del Modal -->
+                        <div class="card-header justify-between" style="background:rgba(14,165,233,0.12); padding:0.85rem 1.25rem; flex-shrink:0;">
+                            <div class="card-title" style="color:var(--color-info); display:flex; align-items:center; gap:0.75rem;">
+                                <i data-lucide="file-spreadsheet" style="width:22px; height:22px;"></i>
+                                <div>
+                                    <span style="font-size:1.1rem; font-weight:700;">Visor de Libro Excel Contable — <span id="preview-mes-title">JULIO 2026</span></span>
+                                    <div style="font-size:0.75rem; color:var(--text-muted); font-weight:400;">Previsualización interactiva exacta de las pestañas antes de exportar a Excel</div>
+                                </div>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:0.75rem;">
+                                <div class="search-box" style="position:relative; width:260px;">
+                                    <input type="text" id="input-search-excel-preview" class="form-control form-control-sm" placeholder="🔍 Buscar OT o palabra clave..." style="padding-left:2.2rem; font-size:0.82rem; border-radius:20px; background:var(--bg-card);">
+                                    <i data-lucide="search" style="position:absolute; left:0.75rem; top:50%; transform:translateY(-50%); width:14px; height:14px; color:var(--text-muted);"></i>
+                                </div>
+                                <button type="button" id="btn-cerrar-modal-preview" class="btn btn-secondary btn-sm" style="padding:0.4rem 0.8rem; font-weight:600;">&times; Cerrar</button>
+                            </div>
                         </div>
 
-                        <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
-                            <!-- Mes Selector -->
-                            <select id="acc-select-mes" class="form-control form-control-sm" style="font-weight:700;color:var(--color-primary);background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;padding:0.35rem 0.6rem;">
-                                <option>ENERO</option><option>FEBRERO</option><option>MARZO</option><option>ABRIL</option>
-                                <option>MAYO</option><option selected>JUNIO</option><option>JULIO</option><option>AGOSTO</option>
-                                <option>SEPTIEMBRE</option><option>OCTUBRE</option><option>NOVIEMBRE</option><option>DICIEMBRE</option>
-                            </select>
-                            <!-- Año Selector -->
-                            <select id="acc-select-anio" class="form-control form-control-sm" style="font-weight:700;color:var(--color-primary);background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;padding:0.35rem 0.6rem;">
-                                <option>2025</option><option selected>2026</option><option>2027</option>
-                            </select>
-                            <!-- Generate Button -->
-                            <button id="acc-btn-generar" class="btn btn-primary btn-sm" style="display:flex;align-items:center;gap:0.4rem;">
-                                <i data-lucide="play-circle" style="width:15px;height:15px;"></i>
-                                Generar Reporte
+                        <!-- Sub-Barra de KPIs Globales -->
+                        <div style="background:rgba(15,23,42,0.8); padding:0.65rem 1.25rem; border-bottom:1px solid var(--border-color); display:flex; gap:1.5rem; flex-wrap:wrap; align-items:center; justify-content:space-between; flex-shrink:0;">
+                            <div style="display:flex; gap:1.5rem; align-items:center;">
+                                <div>
+                                    <span style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Total Costo NIO</span>
+                                    <div id="prev-kpi-total-nio" style="font-size:1.05rem; font-weight:700; color:var(--color-success);">C$ 0.00</div>
+                                </div>
+                                <div style="height:24px; width:1px; background:var(--border-color);"></div>
+                                <div>
+                                    <span style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Total Costo USD</span>
+                                    <div id="prev-kpi-total-usd" style="font-size:1.05rem; font-weight:700; color:var(--color-success);">$ 0.00</div>
+                                </div>
+                                <div style="height:24px; width:1px; background:var(--border-color);"></div>
+                                <div>
+                                    <span style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">OTs Taller (Interno/Ext)</span>
+                                    <div id="prev-kpi-ots-taller" style="font-size:1.05rem; font-weight:700; color:var(--color-primary);">0</div>
+                                </div>
+                                <div style="height:24px; width:1px; background:var(--border-color);"></div>
+                                <div>
+                                    <span style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">OTs Misceláneas</span>
+                                    <div id="prev-kpi-ots-misc" style="font-size:1.05rem; font-weight:700; color:var(--color-warning);">0</div>
+                                </div>
+                            </div>
+                            <span id="txt-preview-tab-count" class="badge" style="background:rgba(14,165,233,0.15); color:var(--color-info); border:1px solid var(--color-info); font-size:0.75rem; padding:0.35rem 0.65rem;">
+                                Pestaña Activa: <strong id="lbl-active-sheet-name">Servicios Taller - Interno</strong>
+                            </span>
+                        </div>
+
+                        <!-- Selector de Pestañas Navegables Estilo Excel -->
+                        <div style="background:#0f172a; padding:0.4rem 1rem 0 1rem; border-bottom:1px solid var(--border-color); display:flex; gap:0.35rem; overflow-x:auto; flex-shrink:0;">
+                            <button type="button" class="excel-tab-btn active" id="tab-excel-interno" data-sheet="interno" style="padding:0.5rem 1.1rem; border-radius:6px 6px 0 0; font-size:0.83rem; font-weight:600; cursor:pointer; border:1px solid var(--border-color); border-bottom:none; background:var(--bg-card); color:var(--color-primary); display:flex; align-items:center; gap:0.4rem;">
+                                📊 <span>Servicios Taller - Interno</span>
+                                <span class="badge" id="badge-count-interno" style="font-size:0.7rem; padding:0.15rem 0.4rem; background:rgba(14,165,233,0.2);">0</span>
                             </button>
+                            <button type="button" class="excel-tab-btn" id="tab-excel-clientes" data-sheet="clientes" style="padding:0.5rem 1.1rem; border-radius:6px 6px 0 0; font-size:0.83rem; font-weight:600; cursor:pointer; border:1px solid var(--border-color); border-bottom:none; background:rgba(30,41,59,0.5); color:var(--text-muted); display:flex; align-items:center; gap:0.4rem;">
+                                🏪 <span>Servicios Taller - Clientes (Externo)</span>
+                                <span class="badge" id="badge-count-clientes" style="font-size:0.7rem; padding:0.15rem 0.4rem; background:rgba(16,185,129,0.2);">0</span>
+                            </button>
+                            <button type="button" class="excel-tab-btn" id="tab-excel-miscelaneos" data-sheet="miscelaneos" style="padding:0.5rem 1.1rem; border-radius:6px 6px 0 0; font-size:0.83rem; font-weight:600; cursor:pointer; border:1px solid var(--border-color); border-bottom:none; background:rgba(30,41,59,0.5); color:var(--text-muted); display:flex; align-items:center; gap:0.4rem;">
+                                🛠️ <span>Matriz / Servicios Misceláneos</span>
+                                <span class="badge" id="badge-count-miscelaneos" style="font-size:0.7rem; padding:0.15rem 0.4rem; background:rgba(251,191,36,0.2);">0</span>
+                            </button>
+                        </div>
+
+                        <!-- Cuerpos de Pestañas (Contenido de Grids) -->
+                        <div class="card-body" style="overflow:auto; padding:0; flex:1; background:#090d16;">
+                            <!-- Grid Pestaña 1: Taller Interno -->
+                            <div id="panel-sheet-interno" class="sheet-panel" style="min-width:100%;">
+                                <div class="table-responsive" style="max-height:100%;">
+                                    <table class="table table-bordered table-striped" style="font-size:0.8rem; border-collapse:collapse; white-space:nowrap;">
+                                        <thead style="position:sticky; top:0; background:#1e293b; z-index:10; color:#f8fafc; font-size:0.78rem;">
+                                            <tr>
+                                                <th style="padding:0.6rem 0.75rem; min-width:90px;">N/O</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:100px;">No. OT</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:130px;">Código RMS</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:220px;">Descripción de la Actividad</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:180px;">Tienda / CECO</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:160px;">Tipo de Garantía</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:110px;" class="text-right">Venta C$</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:100px;" class="text-right">Venta $</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:90px;" class="text-right">Horas H.</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:110px;" class="text-right">Costo MO C$</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:110px;" class="text-right">Cargas Soc C$</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:120px;" class="text-right" style="color:var(--color-success);">Total Costo C$</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:110px;" class="text-right" style="color:var(--color-success);">Total Costo $</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="tbody-excel-interno">
+                                            <!-- Dynamic Rows for Interno -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- Grid Pestaña 2: Taller Clientes -->
+                            <div id="panel-sheet-clientes" class="sheet-panel hidden" style="min-width:100%;">
+                                <div class="table-responsive" style="max-height:100%;">
+                                    <table class="table table-bordered table-striped" style="font-size:0.8rem; border-collapse:collapse; white-space:nowrap;">
+                                        <thead style="position:sticky; top:0; background:#1e293b; z-index:10; color:#f8fafc; font-size:0.78rem;">
+                                            <tr>
+                                                <th style="padding:0.6rem 0.75rem; min-width:90px;">N/O</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:100px;">No. OT</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:130px;">Código RMS</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:220px;">Descripción Producto / Servicio</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:180px;">Tienda / CECO</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:110px;" class="text-right">JULIO C$</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:110px;" class="text-right">AGOSTO C$</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:110px;" class="text-right">SEPTIEMBRE C$</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:110px;" class="text-right">OCTUBRE C$</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:110px;" class="text-right">NOVIEMBRE C$</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:110px;" class="text-right">DICIEMBRE C$</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:120px;" class="text-right" style="color:var(--color-success);">Total Venta C$</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="tbody-excel-clientes">
+                                            <!-- Dynamic Rows for Clientes -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- Grid Pestaña 3: Misceláneos -->
+                            <div id="panel-sheet-miscelaneos" class="sheet-panel hidden" style="min-width:100%;">
+                                <div class="table-responsive" style="max-height:100%;">
+                                    <table class="table table-bordered table-striped" style="font-size:0.8rem; border-collapse:collapse; white-space:nowrap;">
+                                        <thead style="position:sticky; top:0; background:#1e293b; z-index:10; color:#f8fafc; font-size:0.78rem;">
+                                            <tr style="background:rgba(251,191,36,0.15);">
+                                                <th style="padding:0.6rem 0.75rem; min-width:90px;">No. OT</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:220px;">Descripción de Servicio</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:180px;">Tienda / CECO</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:110px;" class="text-right">PV USD ($)</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:110px;" class="text-right">PV NIO (C$)</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:90px;" class="text-right">Horas H.</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:90px;" class="text-right">Personas</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:110px;" class="text-right">Viáticos C$</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:110px;" class="text-right">Costo MO C$</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:110px;" class="text-right">Cargas Soc C$</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:120px;" class="text-right" style="color:var(--color-success);">Costo Total C$</th>
+                                                <th style="padding:0.6rem 0.75rem; min-width:110px;" class="text-right" style="color:var(--color-success);">Costo Total $</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="tbody-excel-miscelaneos">
+                                            <!-- Dynamic Rows for Miscelaneos -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
+
+                <!-- ═══════════════════════════════════════════════════════════════
+                     PANEL EDITABLE DIRECTO: SERVICIOS MISCELÁNEOS + CALCULADORA FLOTANTE STICKY
+                     ═══════════════════════════════════════════════════════════════ -->
+                <div class="card" id="card-panel-miscelaneos" style="margin-bottom: 1.75rem; border: 1px solid var(--color-warning);">
+                    <div class="card-header justify-between" style="background: rgba(251, 191, 36, 0.08); flex-wrap: wrap; gap: 0.75rem;">
+                        <div>
+                            <div class="card-title" style="color: var(--color-warning); display:flex; align-items:center; gap:0.75rem;">
+                                <i data-lucide="sliders" style="color: var(--color-warning);"></i>
+                                <span>Revisión y Ajuste Obligatorio de Servicios Misceláneos</span>
+                                <span id="cnt-total-miscelaneos" class="badge" style="background: rgba(251, 191, 36, 0.2); color: var(--color-warning); border: 1px solid var(--color-warning); font-size: 0.82rem; font-weight: 700; padding: 0.25rem 0.6rem;">
+                                    0 OTs Misceláneas
+                                </span>
+                            </div>
+                            <span class="card-subtitle" style="margin-left: 2rem;">Calculadora aritmética básica fijada a la izquierda (flotante). Edita las celdas ✏️ a la derecha.</span>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button type="button" class="btn btn-warning btn-sm" id="btn-grabar-miscelaneos">
+                                <i data-lucide="save"></i> Guardar Cambios en Misceláneos
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="card-body" style="padding: 1rem; display: flex; gap: 1.25rem; align-items: flex-start; flex-wrap: wrap;">
+                        <!-- LADO IZQUIERDO: CALCULADORA ARITMÉTICA BÁSICA (FLOTANTE / STICKY) -->
+                        <div style="width: 280px; flex-shrink: 0; position: sticky; top: 1rem; z-index: 10; background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 12px; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; box-shadow: 0 8px 25px rgba(0,0,0,0.5);">
+                            <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--color-primary);">
+                                    <i data-lucide="calculator" style="width: 18px; height: 18px;"></i>
+                                    <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700;">Calculadora Aritmética</h4>
+                                </div>
+                                <span class="badge" style="background: rgba(14,165,233,0.15); color: var(--color-info); font-size: 0.68rem;">Fija</span>
+                            </div>
+
+                            <!-- Pantalla Display -->
+                            <div style="background: #090d16; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.6rem 0.8rem; text-align: right;">
+                                <div id="widget-calc-expression" style="font-size: 0.72rem; color: var(--text-muted); min-height: 16px; font-family: monospace;"></div>
+                                <div id="widget-calc-display" style="font-size: 1.6rem; font-weight: 700; color: #f8fafc; font-family: monospace; word-break: break-all;">0</div>
+                            </div>
+
+                            <!-- Teclado de Operaciones Básicas -->
+                            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.45rem;">
+                                <button type="button" class="btn btn-secondary widget-btn" data-val="C" style="color:var(--color-danger); font-weight:700; font-size:0.95rem; padding:0.55rem 0;">C</button>
+                                <button type="button" class="btn btn-secondary widget-btn" data-val="DEL" style="color:var(--color-warning); font-weight:700; font-size:0.95rem; padding:0.55rem 0;">⌫</button>
+                                <button type="button" class="btn btn-secondary widget-btn" data-val="%" style="color:var(--color-info); font-size:0.95rem; padding:0.55rem 0;">%</button>
+                                <button type="button" class="btn btn-secondary widget-btn" data-val="/" style="color:var(--color-primary); font-weight:700; font-size:1.1rem; padding:0.55rem 0;">÷</button>
+
+                                <button type="button" class="btn btn-secondary widget-btn" data-val="7" style="font-size:1rem; padding:0.55rem 0;">7</button>
+                                <button type="button" class="btn btn-secondary widget-btn" data-val="8" style="font-size:1rem; padding:0.55rem 0;">8</button>
+                                <button type="button" class="btn btn-secondary widget-btn" data-val="9" style="font-size:1rem; padding:0.55rem 0;">9</button>
+                                <button type="button" class="btn btn-secondary widget-btn" data-val="*" style="color:var(--color-primary); font-weight:700; font-size:1.1rem; padding:0.55rem 0;">×</button>
+
+                                <button type="button" class="btn btn-secondary widget-btn" data-val="4" style="font-size:1rem; padding:0.55rem 0;">4</button>
+                                <button type="button" class="btn btn-secondary widget-btn" data-val="5" style="font-size:1rem; padding:0.55rem 0;">5</button>
+                                <button type="button" class="btn btn-secondary widget-btn" data-val="6" style="font-size:1rem; padding:0.55rem 0;">6</button>
+                                <button type="button" class="btn btn-secondary widget-btn" data-val="-" style="color:var(--color-primary); font-weight:700; font-size:1.1rem; padding:0.55rem 0;">-</button>
+
+                                <button type="button" class="btn btn-secondary widget-btn" data-val="1" style="font-size:1rem; padding:0.55rem 0;">1</button>
+                                <button type="button" class="btn btn-secondary widget-btn" data-val="2" style="font-size:1rem; padding:0.55rem 0;">2</button>
+                                <button type="button" class="btn btn-secondary widget-btn" data-val="3" style="font-size:1rem; padding:0.55rem 0;">3</button>
+                                <button type="button" class="btn btn-secondary widget-btn" data-val="+" style="color:var(--color-primary); font-weight:700; font-size:1.1rem; padding:0.55rem 0;">+</button>
+
+                                <button type="button" class="btn btn-secondary widget-btn" data-val="0" style="grid-column: span 2; font-size:1rem; padding:0.55rem 0;">0</button>
+                                <button type="button" class="btn btn-secondary widget-btn" data-val="." style="font-weight:700; font-size:1.1rem; padding:0.55rem 0;">.</button>
+                                <button type="button" class="btn btn-primary widget-btn" data-val="=" style="font-weight:700; font-size:1.2rem; padding:0.55rem 0;">=</button>
+                            </div>
+                        </div>
+
+                        <!-- LADO DERECHO: TABLA EDITABLE DE MISCELÁNEOS -->
+                        <div style="flex: 1; min-width: 500px; overflow-x: auto;">
+                            <div class="table-responsive">
+                                <table class="table" id="table-miscelaneos" style="margin:0;">
+                                    <thead>
+                                        <tr style="background: #1e293b; color: #ffffff; border-bottom: 2px solid var(--color-warning);">
+                                            <th style="width: 90px; color: #ffffff; font-weight: 700;">No. OT</th>
+                                            <th style="color: #ffffff; font-weight: 700;">Equipo / Servicio</th>
+                                            <th style="color: #ffffff; font-weight: 700;">Tienda / CECO</th>
+                                            <th style="width: 110px; text-align: right; color: #38bdf8; font-weight: 700;" title="Editar Monto USD">PV USD ($) ✏️</th>
+                                            <th style="width: 120px; text-align: right; color: #ffffff; font-weight: 700;">PV NIO (C$)</th>
+                                            <th style="width: 90px; text-align: right; color: #38bdf8; font-weight: 700;" title="Editar Horas">Horas H. ✏️</th>
+                                            <th style="width: 90px; text-align: right; color: #38bdf8; font-weight: 700;" title="Editar Cantidad de Personas">Personas ✏️</th>
+                                            <th style="width: 110px; text-align: right; color: #38bdf8; font-weight: 700;" title="Editar Viáticos C$">Viáticos C$ ✏️</th>
+                                            <th style="width: 120px; text-align: right; color: #4ade80; font-weight: 700;">Costo Total C$</th>
+                                            <th style="width: 110px; text-align: right; color: #4ade80; font-weight: 700;">Costo Total USD</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tbody-miscelaneos">
+                                        <!-- Populated dynamically via JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ── Header Bar ──────────────────────────────────────────────── -->
 
                 <!-- ── Generate Report Overlay ─────────────────────────────────── -->
                 <div id="acc-gen-overlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(8px);z-index:9999;display:flex;align-items:center;justify-content:center;">
@@ -1150,6 +1471,19 @@
                     <div class="progress-text-container">
                         <span id="single-invoice-progress-status">Procesando OCR...</span>
                         <span id="single-invoice-progress-percent">0%</span>
+                    </div>
+                </div>
+                <!-- Pick from existing unassigned invoices -->
+                <div id="container-pick-orphan-invoice" class="hidden" style="margin-top: 1.25rem; padding-top: 1.25rem; border-top: 1px dashed var(--border-color);">
+                    <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 0.4rem;">
+                        <i data-lucide="file-check" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-right: 0.25rem; color: var(--color-primary);"></i>
+                        O seleccionar de las facturas no asignadas ya cargadas:
+                    </label>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <select id="select-orphan-invoice-to-assign" class="form-control" style="font-size: 0.85rem; padding: 0.5rem 0.75rem; flex: 1;"></select>
+                        <button type="button" class="btn btn-primary btn-sm" id="btn-assign-selected-orphan" style="white-space: nowrap;">
+                            <i data-lucide="link"></i>Asignar
+                        </button>
                     </div>
                 </div>
                 <div class="modal-footer text-right" style="margin-top: 1.5rem;">
@@ -1574,10 +1908,130 @@
         </div>
     </div>
 
+    <!-- ═══════════════════════════════════════════════════════════════
+         MODAL / WIDGET: CALCULADORA CONTABLE
+         ═══════════════════════════════════════════════════════════════ -->
+    <div id="modal-calc-contable" class="modal" style="display: none; opacity: 0; pointer-events: none;">
+        <div class="modal-content" style="max-width: 440px; border: 1px solid var(--color-primary); box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+            <div class="modal-header" style="background: rgba(14, 165, 233, 0.12); padding: 0.85rem 1.25rem;">
+                <div style="display: flex; align-items: center; gap: 0.6rem; color: var(--color-primary);">
+                    <i data-lucide="calculator" style="width: 20px; height: 20px;"></i>
+                    <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700;">Calculadora Contable & MO</h3>
+                </div>
+                <button type="button" class="btn-close" id="btn-close-calc-modal">&times;</button>
+            </div>
+
+            <div class="modal-body" style="padding: 1.25rem;">
+                <!-- Pestañas de modo -->
+                <div style="display: flex; gap: 0.4rem; margin-bottom: 1rem; background: var(--bg-hover); padding: 0.25rem; border-radius: 8px;">
+                    <button type="button" id="calc-tab-standard" class="btn btn-sm btn-primary" style="flex:1; font-weight:600;">Estándar</button>
+                    <button type="button" id="calc-tab-mo" class="btn btn-sm btn-secondary" style="flex:1; font-weight:600;">Mano de Obra & MO</button>
+                </div>
+
+                <!-- MODO 1: Calculadora Estándar -->
+                <div id="calc-mode-standard">
+                    <!-- Pantalla Display -->
+                    <div style="background: #090d16; border: 1px solid var(--border-color); border-radius: 10px; padding: 0.75rem 1rem; text-align: right; margin-bottom: 1rem;">
+                        <div id="calc-expression" style="font-size: 0.75rem; color: var(--text-muted); min-height: 18px; font-family: monospace;"></div>
+                        <div id="calc-display" style="font-size: 1.8rem; font-weight: 700; color: #f8fafc; font-family: monospace; word-break: break-all;">0</div>
+                    </div>
+
+                    <!-- Teclado de Calculadora -->
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem;">
+                        <button type="button" class="btn btn-secondary calc-btn" data-val="C" style="color:var(--color-danger); font-weight:700;">C</button>
+                        <button type="button" class="btn btn-secondary calc-btn" data-val="DEL" style="color:var(--color-warning); font-weight:700;">⌫</button>
+                        <button type="button" class="btn btn-secondary calc-btn" data-val="%" style="color:var(--color-info);">%</button>
+                        <button type="button" class="btn btn-secondary calc-btn" data-val="/" style="color:var(--color-primary); font-weight:700;">÷</button>
+
+                        <button type="button" class="btn btn-secondary calc-btn" data-val="7">7</button>
+                        <button type="button" class="btn btn-secondary calc-btn" data-val="8">8</button>
+                        <button type="button" class="btn btn-secondary calc-btn" data-val="9">9</button>
+                        <button type="button" class="btn btn-secondary calc-btn" data-val="*" style="color:var(--color-primary); font-weight:700;">×</button>
+
+                        <button type="button" class="btn btn-secondary calc-btn" data-val="4">4</button>
+                        <button type="button" class="btn btn-secondary calc-btn" data-val="5">5</button>
+                        <button type="button" class="btn btn-secondary calc-btn" data-val="6">6</button>
+                        <button type="button" class="btn btn-secondary calc-btn" data-val="-" style="color:var(--color-primary); font-weight:700;">-</button>
+
+                        <button type="button" class="btn btn-secondary calc-btn" data-val="1">1</button>
+                        <button type="button" class="btn btn-secondary calc-btn" data-val="2">2</button>
+                        <button type="button" class="btn btn-secondary calc-btn" data-val="3">3</button>
+                        <button type="button" class="btn btn-secondary calc-btn" data-val="+" style="color:var(--color-primary); font-weight:700;">+</button>
+
+                        <button type="button" class="btn btn-secondary calc-btn" data-val="0" style="grid-column: span 2;">0</button>
+                        <button type="button" class="btn btn-secondary calc-btn" data-val=".">.</button>
+                        <button type="button" class="btn btn-primary calc-btn" data-val="=" style="font-weight:700; font-size:1.2rem;">=</button>
+                    </div>
+                </div>
+
+                <!-- MODO 2: Calculadora Especializada M/O (Costo Horas + Cargas Sociales + TC) -->
+                <div id="calc-mode-mo" class="hidden">
+                    <div style="background: rgba(14, 165, 233, 0.08); border: 1px solid rgba(14, 165, 233, 0.2); padding: 0.75rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.78rem; color: var(--text-muted);">
+                        Calcula automáticamente: <strong>Costo MO = Horas × Personas × Tarifa (80.2083) + Cargas Soc (28.0833%) + Viáticos</strong>
+                    </div>
+
+                    <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                        <div class="grid-2" style="gap: 0.75rem;">
+                            <div class="form-group" style="margin-bottom:0;">
+                                <label style="font-size:0.75rem; font-weight:600;">Horas Hombre (H):</label>
+                                <input type="number" step="0.5" id="calc-mo-horas" class="form-control form-control-sm" value="1.5">
+                            </div>
+                            <div class="form-group" style="margin-bottom:0;">
+                                <label style="font-size:0.75rem; font-weight:600;">Cant. Personas:</label>
+                                <input type="number" step="1" id="calc-mo-personas" class="form-control form-control-sm" value="1">
+                            </div>
+                        </div>
+
+                        <div class="grid-2" style="gap: 0.75rem;">
+                            <div class="form-group" style="margin-bottom:0;">
+                                <label style="font-size:0.75rem; font-weight:600;">Viáticos (C$):</label>
+                                <input type="number" step="10" id="calc-mo-viaticos" class="form-control form-control-sm" value="0">
+                            </div>
+                            <div class="form-group" style="margin-bottom:0;">
+                                <label style="font-size:0.75rem; font-weight:600;">T. Cambio (TC):</label>
+                                <input type="number" step="0.0001" id="calc-mo-tc" class="form-control form-control-sm" value="36.6200">
+                            </div>
+                        </div>
+
+                        <!-- Resultados Desglosados MO -->
+                        <div style="background: #090d16; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.85rem; margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.82rem;">
+                            <div style="display:flex; justify-content:space-between;">
+                                <span style="color:var(--text-muted);">Costo MO Directo (C$):</span>
+                                <strong id="calc-res-mo-directo">C$ 120.31</strong>
+                            </div>
+                            <div style="display:flex; justify-content:space-between;">
+                                <span style="color:var(--text-muted);">Cargas Sociales 28.08% (C$):</span>
+                                <strong id="calc-res-cargas">C$ 33.79</strong>
+                            </div>
+                            <div style="display:flex; justify-content:space-between;">
+                                <span style="color:var(--text-muted);">Viáticos Asignados (C$):</span>
+                                <strong id="calc-res-viaticos-val">C$ 0.00</strong>
+                            </div>
+                            <div style="height:1px; background:var(--border-color); margin:0.2rem 0;"></div>
+                            <div style="display:flex; justify-content:space-between; font-size:0.95rem; font-weight:700; color:var(--color-success);">
+                                <span>Costo Total NIO (C$):</span>
+                                <span id="calc-res-total-nio">C$ 154.10</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; font-size:0.95rem; font-weight:700; color:var(--color-success);">
+                                <span>Costo Total USD ($):</span>
+                                <span id="calc-res-total-usd">$ 4.21</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="modal-footer text-right" style="padding: 0.75rem 1.25rem;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-close-calc-bottom">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Main scripts -->
     <script src="master_catalogs.js?v=1.0"></script>
     <script src="datos_costeo.js?v=1.0"></script>
     <script src="datos_reporte_contable.js?v=1.0" onerror="console.log('datos_reporte_contable.js aún no generado');"></script>
+    <script src="datos_mayo_2026.js?v=1.0"></script>
     <script src="accounting.js?v=2.0"></script>
     <script src="app.js?v=2.0"></script>
     <script src="reconciliation.js?v=2.0"></script>
