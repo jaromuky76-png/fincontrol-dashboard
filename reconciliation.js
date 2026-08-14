@@ -623,6 +623,7 @@ async function processFiles() {
                             extractedDate: docDetails.date,
                             currency: docDetails.currency,
                             purchaseOrderRef: docDetails.purchaseOrderRef || null,
+                            providerRuc: docDetails.providerRuc || null,
                             hasSinsaRuc: docDetails.hasSinsaRuc || false,
                             matched: false,
                             lowQuality: isLowQuality,
@@ -669,6 +670,7 @@ async function processFiles() {
                         extractedDate: docDetails.date,
                         currency: docDetails.currency,
                         purchaseOrderRef: docDetails.purchaseOrderRef || null,
+                        providerRuc: docDetails.providerRuc || null,
                         hasSinsaRuc: docDetails.hasSinsaRuc || false,
                         matched: false,
                         lowQuality: isLowQuality,
@@ -1161,6 +1163,50 @@ function normalizeTextForClassification(str) {
               .trim();
 }
 
+/**
+ * Intelligent Nicaraguan RUC & Cédula Extractor
+ * Matches:
+ * 1. Explicit labels: "RUC: J0310000001812", "R.U.C. No. 001-200785-0012Y", "RUC # J0310000123456"
+ * 2. Persona Jurídica format: J followed by 13 digits (e.g. J0310000001812, J-0310-000001812)
+ * 3. Persona Natural format: Cédula (e.g. 001-200785-0012Y)
+ */
+function extractRUC(text, textNorm) {
+    if (!text) return null;
+    const cleanText = text.replace(/[\r\n]+/g, ' ');
+    
+    // 1. Direct label pattern: "RUC: J0310000001812", "R.U.C No. 001-200785-0012Y", "RUC: 0012007850012Y"
+    const labelMatch = cleanText.match(/(?:r\s*[\.\/]?\s*u\s*[\.\/]?\s*c|c[eé]dula|identificaci[o0]n|reg(?:istro)?\s*tributario)\s*[:#\.\s-]*([A-Za-z0-9\s\-–]{13,22})/i);
+    if (labelMatch) {
+        const candidate = labelMatch[1].replace(/[\s\-–\.]/g, '').toUpperCase();
+        if (/^[JG]\d{13}$/.test(candidate) || /^\d{13}[A-Z0-9]$/.test(candidate)) {
+            return candidate;
+        }
+        if (candidate.length >= 13 && candidate.length <= 15) {
+            return candidate;
+        }
+    }
+    
+    // 2. Persona Jurídica format (J + 13 digits)
+    const pjMatch = cleanText.match(/\b([JjGg]\s*[-–]?\s*\d{4}\s*[-–]?\s*\d{6}\s*[-–]?\s*\d{3,4})\b/);
+    if (pjMatch) {
+        const candidate = pjMatch[1].replace(/[\s\-–\.]/g, '').toUpperCase();
+        if (candidate.length >= 13 && candidate.length <= 15) {
+            return candidate;
+        }
+    }
+    
+    // 3. Persona Natural format (Cédula: 001-200785-0012Y)
+    const pnMatch = cleanText.match(/\b(\d{3}\s*[-–]?\s*\d{6}\s*[-–]?\s*\d{4}[A-Za-z0-9])\b/);
+    if (pnMatch) {
+        const candidate = pnMatch[1].replace(/[\s\-–\.]/g, '').toUpperCase();
+        if (candidate.length >= 13 && candidate.length <= 15) {
+            return candidate;
+        }
+    }
+    
+    return null;
+}
+
 function classifyAndExtractDocument(text, fileName) {
     const textLower = text.toLowerCase();
     const textNorm = normalizeTextForClassification(text);
@@ -1338,8 +1384,11 @@ function classifyAndExtractDocument(text, fileName) {
             invoiceRef = ownInvMatch[1];
         }
         
-        // Check for SINSA RUC: J0310000001812
-        hasSinsaRuc = /J\s*[-–]?\s*0310000001812/i.test(textNorm.replace(/\s+/g, ''));
+        // Extract Vendor RUC
+        const rucCandidate = extractRUC(text, textNorm);
+        if (rucCandidate) {
+            hasSinsaRuc = true;
+        }
     } else if (docType === 'orden_compra') {
         const details = extractInvoiceDetails(text, fileName);
         amount = details.amount;
@@ -1354,6 +1403,8 @@ function classifyAndExtractDocument(text, fileName) {
         }
     }
 
+    const providerRuc = extractRUC(text, textNorm);
+
     return {
         docType,
         invoiceRef,
@@ -1365,7 +1416,8 @@ function classifyAndExtractDocument(text, fileName) {
         dateStr,
         currency,
         purchaseOrderRef: purchaseOrderRef || null,
-        hasSinsaRuc: hasSinsaRuc || false
+        providerRuc: providerRuc || null,
+        hasSinsaRuc: !!providerRuc
     };
 }
 
@@ -2192,19 +2244,23 @@ function renderReconciliationUI() {
                         const invNo = inv.invoiceRef ? `(N°. ${inv.invoiceRef})` : '(Sin N°.)';
                         let rucText = '';
                         if (inv.docType === 'invoice') {
-                            rucText = inv.hasSinsaRuc ? 
-                                ' <span class="badge badge-success" style="font-size:0.6rem; padding:1px 3px; font-weight:600;">RUC OK</span>' : 
-                                ' <span class="badge badge-danger" style="font-size:0.6rem; padding:1px 3px; font-weight:600;" title="Falta RUC SINSA J0310000001812">Sin RUC</span>';
+                            if (inv.providerRuc) {
+                                rucText = ` <span class="badge badge-success" style="font-size:0.65rem; padding:2px 5px; font-weight:600; font-family:monospace;" title="RUC Proveedor detectado">RUC: ${inv.providerRuc}</span>`;
+                            } else {
+                                rucText = ` <button type="button" class="badge badge-danger btn-quick-edit-ruc" data-id="${tx.id}" data-name="${escapeHtml(inv.name)}" style="font-size:0.65rem; padding:2px 5px; font-weight:600; cursor:pointer; border:none; border-radius:4px; display:inline-flex; align-items:center; gap:2px;" title="Haz clic para ingresar o editar el RUC del proveedor"><i data-lucide="edit-3" style="width:10px; height:10px;"></i> Sin RUC (Ingresar)</button>`;
+                            }
                         }
-                        return `<div style="margin-bottom:0.15rem;">${inv.name} <small class="text-muted">${invNo}</small>${rucText}</div>`;
+                        return `<div style="margin-bottom:0.25rem;">${inv.name} <small class="text-muted">${invNo}</small>${rucText}</div>`;
                     }).join('');
                 } else if (tx.invoice) {
                     const invNo = tx.invoice.invoiceRef ? `(N°. ${tx.invoice.invoiceRef})` : '(Sin N°.)';
                     let rucText = '';
                     if (tx.invoice.docType === 'invoice') {
-                        rucText = tx.invoice.hasSinsaRuc ? 
-                            ' <span class="badge badge-success" style="font-size:0.6rem; padding:1px 3px; font-weight:600;">RUC OK</span>' : 
-                            ' <span class="badge badge-danger" style="font-size:0.6rem; padding:1px 3px; font-weight:600;" title="Falta RUC SINSA J0310000001812">Sin RUC</span>';
+                        if (tx.invoice.providerRuc) {
+                            rucText = ` <span class="badge badge-success" style="font-size:0.65rem; padding:2px 5px; font-weight:600; font-family:monospace;" title="RUC Proveedor detectado">RUC: ${tx.invoice.providerRuc}</span>`;
+                        } else {
+                            rucText = ` <button type="button" class="badge badge-danger btn-quick-edit-ruc" data-id="${tx.id}" data-name="${escapeHtml(tx.invoice.name)}" style="font-size:0.65rem; padding:2px 5px; font-weight:600; cursor:pointer; border:none; border-radius:4px; display:inline-flex; align-items:center; gap:2px;" title="Haz clic para ingresar o editar el RUC del proveedor"><i data-lucide="edit-3" style="width:10px; height:10px;"></i> Sin RUC (Ingresar)</button>`;
+                        }
                     }
                     invoiceNames = `<div>${tx.invoice.name} <small class="text-muted">${invNo}</small>${rucText}</div>`;
                 } else {
@@ -2705,6 +2761,27 @@ function bindTableActionButtons() {
         });
     });
 
+    // Quick edit RUC button from table
+    document.querySelectorAll('.btn-quick-edit-ruc').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const name = e.currentTarget.dataset.name;
+            const txId = e.currentTarget.dataset.id;
+            const inv = ReconState.invoices.find(i => i.name === name);
+            const tx = ReconState.transactions.find(t => t.id === txId);
+            if (inv) {
+                openViewInvoiceModal(inv, tx);
+                setTimeout(() => {
+                    const rucInput = document.getElementById('input-view-invoice-ruc');
+                    if (rucInput) {
+                        rucInput.focus();
+                        rucInput.select();
+                    }
+                }, 200);
+            }
+        });
+    });
+
     // 4. Edit statement transaction
     document.querySelectorAll('.btn-edit-tx-action').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -2970,6 +3047,31 @@ function initModalListeners() {
                 const withheldAmt = invoice.withheldAmount ? window.formatCurrency(invoice.withheldAmount, invCurrency) : 'No detectado';
                 const typeName = invoice.docType === 'retencion_ir' ? 'Retención IR' : 'Retención Municipal';
                 reconElements.viewInvoiceAmount.innerHTML = `<span style="font-size:0.85rem;">${typeName}<br/>Base: ${baseAmt}<br/>Retenido: ${withheldAmt}</span>`;
+                renderReconciliationUI();
+            }
+        });
+    }
+
+    // Live editing for Provider RUC and Invoice Number
+    const inputRuc = document.getElementById('input-view-invoice-ruc');
+    if (inputRuc) {
+        inputRuc.addEventListener('input', () => {
+            const invoice = ReconState.activeInvoiceToLink;
+            if (invoice) {
+                const val = inputRuc.value.trim().toUpperCase();
+                invoice.providerRuc = val || null;
+                invoice.hasSinsaRuc = !!val;
+                renderReconciliationUI();
+            }
+        });
+    }
+
+    const inputInvNo = document.getElementById('input-view-invoice-number');
+    if (inputInvNo) {
+        inputInvNo.addEventListener('input', () => {
+            const invoice = ReconState.activeInvoiceToLink;
+            if (invoice) {
+                invoice.invoiceRef = inputInvNo.value.trim() || null;
                 renderReconciliationUI();
             }
         });
@@ -3431,6 +3533,7 @@ async function processSingleInvoiceUpload() {
             confidence: confidence,
             currency: targetTx.currency || docDetails.currency || 'NIO',
             purchaseOrderRef: docDetails.purchaseOrderRef || null,
+            providerRuc: docDetails.providerRuc || null,
             hasSinsaRuc: docDetails.hasSinsaRuc || false
         };
 
@@ -3609,6 +3712,22 @@ function openViewInvoiceModal(invoice, tx = null) {
         } else {
             reconElements.viewInvoiceAmount.textContent = invoice.extractedAmount ? window.formatCurrency(invoice.extractedAmount, invCurrency) : 'No detectado';
         }
+    }
+
+    // Populate RUC and Invoice Number fields for standard invoices
+    const rowRuc = document.getElementById('row-invoice-ruc');
+    const rowInvNo = document.getElementById('row-invoice-number');
+    const inputRuc = document.getElementById('input-view-invoice-ruc');
+    const inputInvNo = document.getElementById('input-view-invoice-number');
+
+    if (invoice.docType === 'invoice') {
+        if (rowRuc) rowRuc.classList.remove('hidden');
+        if (rowInvNo) rowInvNo.classList.remove('hidden');
+        if (inputRuc) inputRuc.value = invoice.providerRuc || '';
+        if (inputInvNo) inputInvNo.value = invoice.invoiceRef || '';
+    } else {
+        if (rowRuc) rowRuc.classList.add('hidden');
+        if (rowInvNo) rowInvNo.classList.add('hidden');
     }
     
     const unlinkBtn = document.getElementById('btn-unlink-invoice');
@@ -4223,6 +4342,7 @@ async function saveReconciliation() {
             confidence: doc.confidence,
             currency: doc.currency,
             purchaseOrderRef: doc.purchaseOrderRef || null,
+            providerRuc: doc.providerRuc || null,
             hasSinsaRuc: doc.hasSinsaRuc || false,
             base64: doc.base64 || null
         };
@@ -4464,6 +4584,7 @@ async function loadSavedReconciliation(id) {
             confidence: doc.confidence,
             currency: doc.currency || 'NIO',
             purchaseOrderRef: doc.purchaseOrderRef || null,
+            providerRuc: doc.providerRuc || null,
             hasSinsaRuc: doc.hasSinsaRuc || false
         };
     });
@@ -4759,8 +4880,12 @@ async function generatePdfReport() {
             if (invoices.length > 0) {
                 const parts = invoices.map(inv => {
                     let invText = `F.${inv.invoiceRef || '---'}`;
-                    if (inv.docType === 'invoice' && !inv.hasSinsaRuc) {
-                        invText += ' (⚠️ Sin RUC)';
+                    if (inv.docType === 'invoice') {
+                        if (inv.providerRuc) {
+                            invText += ` (RUC: ${inv.providerRuc})`;
+                        } else {
+                            invText += ' (⚠️ Sin RUC)';
+                        }
                     }
                     return invText;
                 });
