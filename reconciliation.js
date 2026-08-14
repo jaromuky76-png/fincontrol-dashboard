@@ -2999,6 +2999,8 @@ function initModalListeners() {
         });
     }
 
+    initPurchasingLightboxControls();
+
     // Handle manual transaction submit
     reconElements.formTx.addEventListener('submit', (e) => {
         e.preventDefault();
@@ -5787,8 +5789,8 @@ function renderPurchasingReportUI() {
         return `
             <div class="card" style="border: 1px solid var(--border-color); background: var(--bg-card); border-radius: 8px; padding: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.2);">
                 <!-- Card Header -->
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem; margin-bottom: 0.75rem;">
-                    <div style="flex: 1;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem; margin-bottom: 0.75rem; flex-wrap: wrap;">
+                    <div style="flex: 1; min-width: 260px;">
                         <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
                             <span class="badge badge-warning" style="font-size: 0.75rem; font-weight: 700;">#${idx + 1}</span>
                             <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--text-main);">${escapeHtml(item.vendorName)}</h4>
@@ -5801,10 +5803,16 @@ function renderPurchasingReportUI() {
                     </div>
                     
                     ${thumbnailSrc ? `
-                        <div style="cursor: pointer; position: relative; border-radius: 6px; overflow: hidden; border: 1px solid var(--border-color); width: 64px; height: 64px; flex-shrink: 0; background: #000;" class="purchasing-thumb-btn" data-inv-name="${escapeHtml(inv.name)}" title="Ver factura completa">
-                            <img src="${thumbnailSrc}" alt="Factura" style="width: 100%; height: 100%; object-fit: cover;">
-                            <div style="position: absolute; inset: 0; background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; color: white;">
+                        <div style="display: flex; align-items: center; gap: 0.65rem;">
+                            <button type="button" class="btn btn-secondary btn-sm btn-open-purchasing-lightbox" data-item-idx="${idx}" style="font-size: 0.78rem; padding: 6px 12px; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.35); color: #38bdf8; cursor: pointer; border-radius: 6px;" title="Ver e inspeccionar factura en pantalla completa con zoom">
                                 <i data-lucide="maximize-2" style="width: 14px; height: 14px;"></i>
+                                <span>Ver Factura Ampliada</span>
+                            </button>
+                            <div style="cursor: pointer; position: relative; border-radius: 6px; overflow: hidden; border: 1px solid var(--border-color); width: 68px; height: 68px; flex-shrink: 0; background: #000;" class="purchasing-thumb-btn" data-item-idx="${idx}" title="Haz clic para ampliar la factura">
+                                <img src="${thumbnailSrc}" alt="Factura" style="width: 100%; height: 100%; object-fit: cover;">
+                                <div style="position: absolute; inset: 0; background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; color: white;">
+                                    <i data-lucide="zoom-in" style="width: 16px; height: 16px;"></i>
+                                </div>
                             </div>
                         </div>
                     ` : ''}
@@ -5871,13 +5879,22 @@ function renderPurchasingReportUI() {
 function bindPurchasingReportListeners() {
     const list = ReconState.purchasingItems || [];
 
-    // Thumbnail click to view invoice modal
+    // Thumbnail click to open dedicated Purchasing Lightbox
     document.querySelectorAll('.purchasing-thumb-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
-            const invName = e.currentTarget.dataset.invName;
-            const inv = ReconState.invoices.find(i => i.name === invName);
-            if (inv) {
-                openViewInvoiceModal(inv);
+            const idx = parseInt(e.currentTarget.dataset.itemIdx, 10);
+            if (!isNaN(idx) && list[idx]) {
+                openPurchasingLightbox(list[idx]);
+            }
+        });
+    });
+
+    // "Ver Factura Ampliada" button
+    document.querySelectorAll('.btn-open-purchasing-lightbox').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const idx = parseInt(e.currentTarget.dataset.itemIdx, 10);
+            if (!isNaN(idx) && list[idx]) {
+                openPurchasingLightbox(list[idx]);
             }
         });
     });
@@ -6335,4 +6352,150 @@ function exportPurchasingCSV() {
     link.click();
     document.body.removeChild(link);
     window.showToast('Archivo CSV para Compras exportado con éxito', 'success');
+}
+
+// =========================================================================
+// --- PURCHASING LIGHTBOX & FULLSCREEN IMAGE VIEWER ---
+// =========================================================================
+
+let purchasingLightboxZoomState = {
+    scale: 1,
+    panX: 0,
+    panY: 0,
+    rotation: 0,
+    isDragging: false,
+    startX: 0,
+    startY: 0
+};
+
+function applyPurchasingLightboxZoom() {
+    const img = document.getElementById('purchasing-lightbox-img');
+    const badge = document.getElementById('purchasing-zoom-badge');
+    if (!img) return;
+    img.style.transform = `translate(${purchasingLightboxZoomState.panX}px, ${purchasingLightboxZoomState.panY}px) scale(${purchasingLightboxZoomState.scale}) rotate(${purchasingLightboxZoomState.rotation}deg)`;
+    if (badge) {
+        badge.textContent = `${Math.round(purchasingLightboxZoomState.scale * 100)}%`;
+    }
+}
+
+function resetPurchasingLightboxZoom() {
+    purchasingLightboxZoomState.scale = 1;
+    purchasingLightboxZoomState.panX = 0;
+    purchasingLightboxZoomState.panY = 0;
+    purchasingLightboxZoomState.rotation = 0;
+    purchasingLightboxZoomState.isDragging = false;
+    applyPurchasingLightboxZoom();
+}
+
+function openPurchasingLightbox(item) {
+    if (!item) return;
+    const inv = item.invoice;
+    const modal = document.getElementById('modal-purchasing-lightbox');
+    const titleEl = document.getElementById('purchasing-lightbox-title');
+    const subtitleEl = document.getElementById('purchasing-lightbox-subtitle');
+    const imgEl = document.getElementById('purchasing-lightbox-img');
+    const extLink = document.getElementById('btn-purchasing-open-external');
+
+    if (titleEl) {
+        titleEl.textContent = `${item.vendorName} - Factura N°. ${item.invoiceRef || 'Sin N°'}`;
+    }
+    if (subtitleEl) {
+        subtitleEl.textContent = `RUC: ${item.providerRuc || 'Sin RUC'} | Monto Total: ${window.formatCurrency(item.totalAmount, item.currency)} | Archivo: ${inv.name}`;
+    }
+
+    const imgSrc = inv.imageSrc || inv.base64 || '';
+    if (imgEl) {
+        imgEl.src = imgSrc;
+    }
+    if (extLink) {
+        if (imgSrc) {
+            extLink.href = imgSrc;
+            extLink.classList.remove('hidden');
+        } else {
+            extLink.classList.add('hidden');
+        }
+    }
+
+    resetPurchasingLightboxZoom();
+    if (modal) {
+        openModal(modal);
+        if (window.lucide) window.lucide.createIcons();
+    }
+}
+
+function initPurchasingLightboxControls() {
+    const viewport = document.getElementById('purchasing-lightbox-viewport');
+    const btnIn = document.getElementById('btn-purchasing-zoom-in');
+    const btnOut = document.getElementById('btn-purchasing-zoom-out');
+    const btnReset = document.getElementById('btn-purchasing-zoom-reset');
+    const btnRotate = document.getElementById('btn-purchasing-zoom-rotate');
+    const btnClose = document.getElementById('btn-close-purchasing-lightbox');
+    const btnCloseFooter = document.getElementById('btn-close-purchasing-lightbox-footer');
+    const modal = document.getElementById('modal-purchasing-lightbox');
+
+    if (btnClose && modal) {
+        btnClose.addEventListener('click', () => closeModal(modal));
+    }
+    if (btnCloseFooter && modal) {
+        btnCloseFooter.addEventListener('click', () => closeModal(modal));
+    }
+
+    if (btnIn) {
+        btnIn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            purchasingLightboxZoomState.scale = Math.min(purchasingLightboxZoomState.scale * 1.3, 6);
+            applyPurchasingLightboxZoom();
+        });
+    }
+    if (btnOut) {
+        btnOut.addEventListener('click', (e) => {
+            e.stopPropagation();
+            purchasingLightboxZoomState.scale = Math.max(purchasingLightboxZoomState.scale / 1.3, 0.4);
+            applyPurchasingLightboxZoom();
+        });
+    }
+    if (btnReset) {
+        btnReset.addEventListener('click', (e) => {
+            e.stopPropagation();
+            resetPurchasingLightboxZoom();
+        });
+    }
+    if (btnRotate) {
+        btnRotate.addEventListener('click', (e) => {
+            e.stopPropagation();
+            purchasingLightboxZoomState.rotation = (purchasingLightboxZoomState.rotation + 90) % 360;
+            applyPurchasingLightboxZoom();
+        });
+    }
+
+    if (viewport) {
+        viewport.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? 0.85 : 1.15;
+            purchasingLightboxZoomState.scale = Math.min(Math.max(purchasingLightboxZoomState.scale * delta, 0.4), 6);
+            applyPurchasingLightboxZoom();
+        }, { passive: false });
+
+        viewport.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            purchasingLightboxZoomState.isDragging = true;
+            purchasingLightboxZoomState.startX = e.clientX - purchasingLightboxZoomState.panX;
+            purchasingLightboxZoomState.startY = e.clientY - purchasingLightboxZoomState.panY;
+            viewport.style.cursor = 'grabbing';
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!purchasingLightboxZoomState.isDragging) return;
+            purchasingLightboxZoomState.panX = e.clientX - purchasingLightboxZoomState.startX;
+            purchasingLightboxZoomState.panY = e.clientY - purchasingLightboxZoomState.startY;
+            applyPurchasingLightboxZoom();
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (purchasingLightboxZoomState.isDragging) {
+                purchasingLightboxZoomState.isDragging = false;
+                if (viewport) viewport.style.cursor = 'grab';
+            }
+        });
+    }
 }

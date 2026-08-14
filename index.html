@@ -2122,6 +2122,49 @@
         </div>
     </div>
 
+    <!-- Modal: Purchasing Invoice Image Lightbox / Fullscreen Viewer -->
+    <div class="modal" id="modal-purchasing-lightbox" style="z-index: 2100;">
+        <div class="modal-content card" style="max-width: 1200px; width: 96vw; height: 92vh; display: flex; flex-direction: column; padding: 0; overflow: hidden; background: #0b0f19;">
+            <div class="card-header justify-between" style="border-bottom: 1px solid var(--border-color); padding: 0.75rem 1.25rem; background: #0f172a;">
+                <div>
+                    <h3 id="purchasing-lightbox-title" style="margin: 0; font-size: 1.05rem; font-weight: 700; color: #f8fafc;">Factura de Respaldo</h3>
+                    <p id="purchasing-lightbox-subtitle" style="margin: 0.15rem 0 0 0; font-size: 0.8rem; color: #94a3b8;">Detalles del comprobante</p>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <!-- Zoom toolbar -->
+                    <div style="display: flex; background: rgba(255,255,255,0.06); border-radius: 6px; padding: 2px 4px; gap: 2px; align-items: center; border: 1px solid var(--border-color);">
+                        <button type="button" id="btn-purchasing-zoom-out" title="Reducir" style="background:none; border:none; color:#f8fafc; padding:4px 6px; cursor:pointer; display:flex; align-items:center;">
+                            <i data-lucide="zoom-out" style="width:15px; height:15px;"></i>
+                        </button>
+                        <span id="purchasing-zoom-badge" style="font-size:0.75rem; font-family:monospace; min-width:40px; text-align:center; color:#38bdf8;">100%</span>
+                        <button type="button" id="btn-purchasing-zoom-in" title="Aumentar" style="background:none; border:none; color:#f8fafc; padding:4px 6px; cursor:pointer; display:flex; align-items:center;">
+                            <i data-lucide="zoom-in" style="width:15px; height:15px;"></i>
+                        </button>
+                        <button type="button" id="btn-purchasing-zoom-rotate" title="Girar 90°" style="background:none; border:none; color:#f8fafc; padding:4px 6px; cursor:pointer; display:flex; align-items:center;">
+                            <i data-lucide="rotate-cw" style="width:15px; height:15px;"></i>
+                        </button>
+                        <button type="button" id="btn-purchasing-zoom-reset" title="Restablecer" style="background:none; border:none; color:#f8fafc; padding:4px 6px; cursor:pointer; display:flex; align-items:center;">
+                            <i data-lucide="maximize-2" style="width:15px; height:15px;"></i>
+                        </button>
+                        <a id="btn-purchasing-open-external" href="#" target="_blank" title="Abrir en pestaña nueva" style="background:none; border:none; color:#38bdf8; padding:4px 6px; cursor:pointer; display:flex; align-items:center; text-decoration:none;">
+                            <i data-lucide="external-link" style="width:15px; height:15px;"></i>
+                        </a>
+                    </div>
+                    <button class="btn-close" id="btn-close-purchasing-lightbox" style="font-size: 1.5rem; line-height: 1; padding: 0 0.5rem; cursor: pointer;">&times;</button>
+                </div>
+            </div>
+            
+            <div id="purchasing-lightbox-viewport" style="flex: 1; display: flex; align-items: center; justify-content: center; cursor: grab; user-select: none; overflow: hidden; position: relative; background: #030712;">
+                <img id="purchasing-lightbox-img" src="" alt="Factura Ampliada" style="max-width: 95%; max-height: 95%; object-fit: contain; border-radius: 6px; box-shadow: 0 8px 30px rgba(0,0,0,0.7); transform-origin: center center; transition: transform 0.05s ease-out; pointer-events: none;">
+            </div>
+
+            <div class="modal-footer justify-between" style="border-top: 1px solid var(--border-color); padding: 0.65rem 1.25rem; background: #0f172a;">
+                <span style="font-size: 0.78rem; color: var(--text-muted);"><i data-lucide="mouse-pointer" style="width: 12px; height: 12px; display: inline-block; vertical-align: middle;"></i> Usa la rueda del ratón o arrastra para moverte por la factura en detalle.</span>
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-close-purchasing-lightbox-footer">Cerrar Visualizador</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Main scripts -->
     <script src="master_catalogs.js?v=1.0"></script>
     <script src="datos_costeo.js?v=1.0"></script>
