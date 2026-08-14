@@ -1310,11 +1310,18 @@ function classifyAndExtractDocument(text, fileName) {
     if (purchaseOrderScore > invoiceScore && purchaseOrderScore > retentionScore && purchaseOrderScore >= 25) {
         docType = 'orden_compra';
     } else if (retentionScore > invoiceScore && retentionScore >= 8) {
-        const isMunicipal = hasRetencionMunicipal || textNorm.includes("municipal") || textNorm.includes("alcaldia") || textNorm.includes("alma") || textNorm.includes("imi") || fileNorm.includes("municipal");
         const isExemption = hasExemptionHeader || textNorm.includes("exencion") || textNorm.includes("exento") || fileNorm.includes("exencion");
         
         if (isExemption && !hasConstancia) {
-            docType = 'exencion';
+            const mentionsDGI = /dgi|renta|impuesto\s+sobre|hacienda/i.test(textNorm) || fileNorm.includes("dgi");
+            const mentionsALMA = /alma|alcaldia|municipal|alcald[ií]a/i.test(textNorm) || fileNorm.includes("alma") || fileNorm.includes("municipal");
+            if (mentionsDGI && !mentionsALMA) {
+                docType = 'exencion_dgi';
+            } else if (mentionsALMA && !mentionsDGI) {
+                docType = 'exencion_alma';
+            } else {
+                docType = 'exencion';
+            }
         } else if (isMunicipal) {
             docType = 'retencion_municipal';
         } else {
@@ -1675,6 +1682,20 @@ function runMatchingAlgorithm() {
             tx.retentionMunicipalDoc = null;
         }
 
+        if (tx.exemptionDGIDoc && tx.exemptionDGIDoc.isManual) {
+            tx.hasExemptionDGI = true;
+        } else {
+            tx.hasExemptionDGI = false;
+            tx.exemptionDGIDoc = null;
+        }
+
+        if (tx.exemptionALMADoc && tx.exemptionALMADoc.isManual) {
+            tx.hasExemptionALMA = true;
+        } else {
+            tx.hasExemptionALMA = false;
+            tx.exemptionALMADoc = null;
+        }
+
         if (tx.exemptionDoc && tx.exemptionDoc.isManual) {
             tx.isExempt = true;
         } else {
@@ -1898,9 +1919,10 @@ function runMatchingAlgorithm() {
         if (isFuelStation) {
             tx.requiresRetentions = false;
             tx.retentionsValid = true;
+            return;
         }
 
-        const invoicesRequiringRet = (tx.currency === 'USD' || isFuelStation) ? [] : tx.invoices.filter(inv => {
+        const invoicesRequiringRet = (tx.currency === 'USD') ? [] : tx.invoices.filter(inv => {
             const baseAmount = tx.amount / (tx.invoices.length || 1);
             const estSubtotal = baseAmount / 1.15;
             return (tx.currency === 'NIO' && estSubtotal > thresholdNIO);
@@ -1909,18 +1931,6 @@ function runMatchingAlgorithm() {
         if (invoicesRequiringRet.length > 0) {
             tx.requiresRetentions = true;
 
-            // If already exempt (manually linked exemption doc), bypass all retention checks
-            if (tx.isExempt && tx.exemptionDoc) {
-                tx.exemptionDoc.matched = true;
-                tx.retentionsIRValid = true;
-                tx.retentionsMunicipalValid = true;
-                tx.retentionsValid = true;
-                // skip retention scanning for this transaction
-            } else {
-            
-            let allIRFound = true;
-            let allMunicipalFound = true;
-
             invoicesRequiringRet.forEach(inv => {
                 const baseAmount = tx.amount / (tx.invoices.length || 1);
                 const estSubtotal = baseAmount / 1.15;
@@ -1928,40 +1938,17 @@ function runMatchingAlgorithm() {
                 const expectedIRRate = 0.02;
                 const expectedMunicipalRate = 0.01;
 
-                // If exempt mid-loop (found via auto-match in a previous iteration), skip
-                if (tx.isExempt) return;
-
-                // Search for Exemption document
-                {
-                    const foundExemption = ReconState.invoices.find(doc => {
-                        if (doc.matched || doc.docType !== 'exencion') return false;
-                        const matchesInvoiceRef = invoiceRef && doc.invoiceRef && (invoiceRef === doc.invoiceRef);
-                        const matchesBase = doc.baseAmount && (Math.abs(doc.baseAmount - estSubtotal) < 15.0);
-                        return matchesInvoiceRef || matchesBase;
-                    });
-
-                    if (foundExemption) {
-                        foundExemption.matched = true;
-                        tx.isExempt = true;
-                        tx.exemptionDoc = foundExemption;
-                        allIRFound = true;
-                        allMunicipalFound = true;
-                        return; // Skip other checks for this invoice
-                    }
-                }
-
-                // Search for Retención IR document
-                if (tx.hasRetencionIR && tx.retentionIRDoc) {
+                // 1. Check IR / DGI requirement (IR Retention 2% or DGI Exemption)
+                if (tx.exemptionDGIDoc) {
+                    tx.exemptionDGIDoc.matched = true;
+                    tx.retentionsIRValid = true;
+                } else if (tx.hasRetencionIR && tx.retentionIRDoc) {
                     tx.retentionIRDoc.matched = true;
-                    if (!tx.retentionIRDoc.baseAmount) {
-                        tx.retentionIRDoc.baseAmount = estSubtotal;
-                    }
-                    if (!tx.retentionIRDoc.withheldAmount) {
-                        tx.retentionIRDoc.withheldAmount = tx.retentionIRDoc.baseAmount * expectedIRRate;
-                    }
+                    tx.retentionsIRValid = true;
                 } else {
+                    // Try auto-match IR doc
                     const foundIR = ReconState.invoices.find(doc => {
-                        if (doc.matched || doc.docType !== 'retencion_ir') return false;
+                        if (doc.matched || (doc.docType !== 'retencion_ir' && doc.docType !== 'exencion_dgi' && doc.docType !== 'exencion')) return false;
                         const matchesInvoiceRef = invoiceRef && doc.invoiceRef && (invoiceRef === doc.invoiceRef);
                         const matchesBase = doc.baseAmount && (Math.abs(doc.baseAmount - estSubtotal) < 15.0);
                         const matchesWithheld = doc.withheldAmount && (Math.abs(doc.withheldAmount - (expectedIRRate * estSubtotal)) < 5.0);
@@ -1970,32 +1957,31 @@ function runMatchingAlgorithm() {
 
                     if (foundIR) {
                         foundIR.matched = true;
-                        tx.hasRetencionIR = true;
-                        tx.retentionIRDoc = foundIR;
-                        if (!foundIR.baseAmount) {
-                            foundIR.baseAmount = estSubtotal;
+                        if (foundIR.docType === 'exencion_dgi' || foundIR.docType === 'exencion') {
+                            tx.exemptionDGIDoc = foundIR;
+                            tx.hasExemptionDGI = true;
+                        } else {
+                            tx.hasRetencionIR = true;
+                            tx.retentionIRDoc = foundIR;
                         }
-                        if (!foundIR.withheldAmount) {
-                            foundIR.withheldAmount = foundIR.baseAmount * expectedIRRate;
-                        }
+                        tx.retentionsIRValid = true;
                     } else {
-                        allIRFound = false;
+                        tx.retentionsIRValid = false;
                     }
                 }
 
-                // Search for Retención Municipal document (NIO local only)
+                // 2. Check ALMA / Municipal requirement (Municipal Retention 1% or ALMA Exemption)
                 if (tx.currency === 'NIO') {
-                    if (tx.hasRetencionMunicipal && tx.retentionMunicipalDoc) {
+                    if (tx.exemptionALMADoc) {
+                        tx.exemptionALMADoc.matched = true;
+                        tx.retentionsMunicipalValid = true;
+                    } else if (tx.hasRetencionMunicipal && tx.retentionMunicipalDoc) {
                         tx.retentionMunicipalDoc.matched = true;
-                        if (!tx.retentionMunicipalDoc.baseAmount) {
-                            tx.retentionMunicipalDoc.baseAmount = estSubtotal;
-                        }
-                        if (!tx.retentionMunicipalDoc.withheldAmount) {
-                            tx.retentionMunicipalDoc.withheldAmount = tx.retentionMunicipalDoc.baseAmount * expectedMunicipalRate;
-                        }
+                        tx.retentionsMunicipalValid = true;
                     } else {
+                        // Try auto-match Municipal doc
                         const foundMunicipal = ReconState.invoices.find(doc => {
-                            if (doc.matched || doc.docType !== 'retencion_municipal') return false;
+                            if (doc.matched || (doc.docType !== 'retencion_municipal' && doc.docType !== 'exencion_alma' && doc.docType !== 'exencion')) return false;
                             const matchesInvoiceRef = invoiceRef && doc.invoiceRef && (invoiceRef === doc.invoiceRef);
                             const matchesBase = doc.baseAmount && (Math.abs(doc.baseAmount - estSubtotal) < 15.0);
                             const matchesWithheld = doc.withheldAmount && (Math.abs(doc.withheldAmount - (expectedMunicipalRate * estSubtotal)) < 3.0);
@@ -2004,32 +1990,24 @@ function runMatchingAlgorithm() {
 
                         if (foundMunicipal) {
                             foundMunicipal.matched = true;
-                            tx.hasRetencionMunicipal = true;
-                            tx.retentionMunicipalDoc = foundMunicipal;
-                            if (!foundMunicipal.baseAmount) {
-                                foundMunicipal.baseAmount = estSubtotal;
+                            if (foundMunicipal.docType === 'exencion_alma' || foundMunicipal.docType === 'exencion') {
+                                tx.exemptionALMADoc = foundMunicipal;
+                                tx.hasExemptionALMA = true;
+                            } else {
+                                tx.hasRetencionMunicipal = true;
+                                tx.retentionMunicipalDoc = foundMunicipal;
                             }
-                            if (!foundMunicipal.withheldAmount) {
-                                foundMunicipal.withheldAmount = foundMunicipal.baseAmount * expectedMunicipalRate;
-                            }
+                            tx.retentionsMunicipalValid = true;
                         } else {
-                            allMunicipalFound = false;
+                            tx.retentionsMunicipalValid = false;
                         }
                     }
+                } else {
+                    tx.retentionsMunicipalValid = true;
                 }
             });
 
-            tx.retentionsIRValid = allIRFound;
-            tx.retentionsMunicipalValid = allMunicipalFound;
-
-            if (tx.isExempt) {
-                tx.retentionsValid = true;
-            } else if (tx.currency === 'USD') {
-                tx.retentionsValid = true; // USD doesn't require retentions, but fallback
-            } else {
-                tx.retentionsValid = tx.hasRetencionIR && allIRFound && tx.hasRetencionMunicipal && allMunicipalFound;
-            }
-            } // end else (not pre-exempt)
+            tx.retentionsValid = !!(tx.retentionsIRValid && tx.retentionsMunicipalValid);
         } else {
             tx.requiresRetentions = false;
             tx.retentionsValid = true;
@@ -2322,53 +2300,54 @@ function renderReconciliationUI() {
 
                 let retentionButtonsHTML = '';
                 if (tx.requiresRetentions) {
-                    if (tx.isExempt) {
+                    // 1. IR / DGI Component
+                    if (tx.exemptionDGIDoc) {
                         retentionButtonsHTML += `
-                            <button class="btn btn-success btn-sm btn-view-exemption-action" data-id="${tx.id}" title="Ver Exención de Impuestos" style="margin: 0.1rem;">
-                                <i data-lucide="shield-check"></i>Ver Exención
+                            <button class="btn btn-success btn-sm btn-view-doc-action" data-doc-name="${escapeHtml(tx.exemptionDGIDoc.name)}" data-tx-id="${tx.id}" title="Ver Exoneración DGI" style="margin: 0.1rem;">
+                                <i data-lucide="shield-check"></i>Exento DGI
+                            </button>
+                        `;
+                    } else if (tx.hasRetencionIR && tx.retentionIRDoc) {
+                        retentionButtonsHTML += `
+                            <button class="btn btn-success btn-sm btn-view-retention-ir-action" data-id="${tx.id}" title="Ver Retención IR 2%" style="margin: 0.1rem;">
+                                <i data-lucide="eye"></i>Ver IR 2%
                             </button>
                         `;
                     } else {
-                        // 1. IR Withholding
-                        if (tx.hasRetencionIR && tx.retentionsIRValid && tx.retentionIRDoc) {
-                            const irLabel = 'IR 2%';
+                        retentionButtonsHTML += `
+                            <button class="btn btn-warning btn-sm btn-upload-retention-ir-action" data-id="${tx.id}" title="Subir Retención IR 2%" style="margin: 0.1rem;">
+                                <i data-lucide="upload"></i>Subir IR 2%
+                            </button>
+                            <button class="btn btn-secondary btn-sm btn-upload-exemption-dgi-action" data-id="${tx.id}" title="Subir Exoneración DGI" style="margin: 0.1rem; border: 1px dashed var(--color-primary); color: var(--color-primary); background: transparent;">
+                                <i data-lucide="shield"></i>Exoneración DGI
+                            </button>
+                        `;
+                    }
+
+                    // 2. ALMA / Municipal Component (NIO only)
+                    if (tx.currency !== 'USD') {
+                        if (tx.exemptionALMADoc) {
                             retentionButtonsHTML += `
-                                <button class="btn btn-success btn-sm btn-view-retention-ir-action" data-id="${tx.id}" title="Ver Retención ${irLabel}" style="margin: 0.1rem;">
-                                    <i data-lucide="eye"></i>Ver ${irLabel}
+                                <button class="btn btn-success btn-sm btn-view-doc-action" data-doc-name="${escapeHtml(tx.exemptionALMADoc.name)}" data-tx-id="${tx.id}" title="Ver Exoneración ALMA" style="margin: 0.1rem;">
+                                    <i data-lucide="shield-check"></i>Exento ALMA
+                                </button>
+                            `;
+                        } else if (tx.hasRetencionMunicipal && tx.retentionMunicipalDoc) {
+                            retentionButtonsHTML += `
+                                <button class="btn btn-success btn-sm btn-view-retention-municipal-action" data-id="${tx.id}" title="Ver Retención ALMA 1%" style="margin: 0.1rem;">
+                                    <i data-lucide="eye"></i>Ver ALMA 1%
                                 </button>
                             `;
                         } else {
-                            const irLabel = 'IR 2%';
                             retentionButtonsHTML += `
-                                <button class="btn btn-warning btn-sm btn-upload-retention-ir-action" data-id="${tx.id}" title="Subir Retención ${irLabel}" style="margin: 0.1rem;">
-                                    <i data-lucide="upload"></i>Subir ${irLabel}
+                                <button class="btn btn-warning btn-sm btn-upload-retention-municipal-action" data-id="${tx.id}" title="Subir Retención ALMA 1%" style="margin: 0.1rem;">
+                                    <i data-lucide="upload"></i>Subir ALMA 1%
+                                </button>
+                                <button class="btn btn-secondary btn-sm btn-upload-exemption-alma-action" data-id="${tx.id}" title="Subir Exoneración ALMA" style="margin: 0.1rem; border: 1px dashed var(--color-primary); color: var(--color-primary); background: transparent;">
+                                    <i data-lucide="shield"></i>Exoneración ALMA
                                 </button>
                             `;
                         }
-
-                        // 2. Municipal Withholding (NIO only)
-                        if (tx.currency !== 'USD') {
-                            if (tx.hasRetencionMunicipal && tx.retentionsMunicipalValid && tx.retentionMunicipalDoc) {
-                                retentionButtonsHTML += `
-                                    <button class="btn btn-success btn-sm btn-view-retention-municipal-action" data-id="${tx.id}" title="Ver Retención ALMA 1%" style="margin: 0.1rem;">
-                                        <i data-lucide="eye"></i>Ver ALMA 1%
-                                    </button>
-                                `;
-                            } else {
-                                retentionButtonsHTML += `
-                                    <button class="btn btn-warning btn-sm btn-upload-retention-municipal-action" data-id="${tx.id}" title="Subir Retención ALMA 1%" style="margin: 0.1rem;">
-                                        <i data-lucide="upload"></i>Subir ALMA 1%
-                                    </button>
-                                `;
-                            }
-                        }
-
-                        // 3. Option to Upload Exemption
-                        retentionButtonsHTML += `
-                            <button class="btn btn-secondary btn-sm btn-upload-exemption-action" data-id="${tx.id}" title="Subir Constancia de Exención" style="margin: 0.1rem; border: 1px dashed var(--color-primary); color: var(--color-primary); background: transparent;">
-                                <i data-lucide="shield"></i>Subir Exención
-                            </button>
-                        `;
                     }
                 }
 
@@ -2696,6 +2675,38 @@ function bindTableActionButtons() {
             const tx = ReconState.transactions.find(t => t.id === txId);
             if (tx) {
                 openUploadModalForTx(tx, false, true, 'exencion');
+            }
+        });
+    });
+
+    document.querySelectorAll('.btn-upload-exemption-dgi-action').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const txId = e.currentTarget.dataset.id;
+            const tx = ReconState.transactions.find(t => t.id === txId);
+            if (tx) {
+                openUploadModalForTx(tx, false, true, 'exencion_dgi');
+            }
+        });
+    });
+
+    document.querySelectorAll('.btn-upload-exemption-alma-action').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const txId = e.currentTarget.dataset.id;
+            const tx = ReconState.transactions.find(t => t.id === txId);
+            if (tx) {
+                openUploadModalForTx(tx, false, true, 'exencion_alma');
+            }
+        });
+    });
+
+    document.querySelectorAll('.btn-view-doc-action').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const docName = e.currentTarget.dataset.docName;
+            const txId = e.currentTarget.dataset.txId;
+            const tx = ReconState.transactions.find(t => t.id === txId);
+            const doc = ReconState.invoices.find(i => i.name === docName);
+            if (doc) {
+                openViewInvoiceModal(doc, tx);
             }
         });
     });
@@ -5556,61 +5567,117 @@ async function generatePdfReport() {
  */
 function extractInvoiceLineItems(text, fallbackDesc, totalAmount, subtotalAmount) {
     const items = [];
-    if (!text) {
+    const defaultSubtotal = subtotalAmount || (totalAmount ? Math.round((totalAmount / 1.15) * 100) / 100 : 0);
+
+    if (!text || typeof text !== 'string' || text.trim().length === 0) {
         items.push({
             code: 'S/C',
             description: fallbackDesc || 'Compra de materiales / suministros',
             quantity: 1,
-            unitCost: subtotalAmount || (totalAmount ? Math.round((totalAmount / 1.15) * 100) / 100 : 0),
-            totalCost: subtotalAmount || (totalAmount ? Math.round((totalAmount / 1.15) * 100) / 100 : 0)
+            unitCost: defaultSubtotal,
+            totalCost: defaultSubtotal
         });
         return items;
     }
 
-    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    const ignoreRegex = /total|subtotal|sub-total|iva|impuesto|ruc|factura|cliente|direccion|fecha|cajero|vendedor|terminos|cambio|efectivo|tarjeta|pos|bac|banpro/i;
+    const rawLines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    
+    // 1. Identify start of table and end of table
+    let tableStartIdx = -1;
+    let tableEndIdx = rawLines.length;
 
-    for (const line of lines) {
-        if (ignoreRegex.test(line)) continue;
+    const tableHeaderRegex = /\b(?:CANTIDAD|CANT|CANT\.|QTY|UNIDADES|CODIGO|C[OÓ]DIGO|COD|ITEM|DESCRIPCI[OÓ]N|DESCRIPCION|PRODUCTO|DETALLE|PRECIO|P[\/\.]?\s*UNITARIO|COSTO|VALOR|V\.?\s*TOTAL)\b/i;
+    const tableFooterRegex = /^(?:SUB[-–\s]?TOTAL|15(?:\.00)?%\s*I\.?V\.?A|I\.?V\.?A\.?|RETENCI[OÓ]N|TOTAL\s+(?:C\$|\$|NETO|PAGAR)|SON:|FORMA\s+(?:DE\s+)?PAGO|OBSERVACIONES|GRACIAS\s+POR\s+SU\s+COMPRA|NO\s+SE\s+ACEPTAN|REVISE\s+SU\s+MERCADER|PAGO\s+RECIBIDO|ANTICIPO|SALDO|DESCUENTO\s*:|CONDICIONES\s*:)/i;
+
+    for (let i = 0; i < rawLines.length; i++) {
+        if (tableStartIdx === -1 && tableHeaderRegex.test(rawLines[i])) {
+            tableStartIdx = i;
+        } else if (tableStartIdx !== -1 && tableFooterRegex.test(rawLines[i])) {
+            tableEndIdx = i;
+            break;
+        }
+    }
+
+    const linesToProcess = (tableStartIdx !== -1)
+        ? rawLines.slice(tableStartIdx + 1, tableEndIdx)
+        : rawLines;
+
+    const headerNoiseRegex = /^(?:CLIENTE|RUC|CED|VENDEDOR|FECHA|CONDICIONES|ORDEN\s+COMPRA|SUCURSAL|TELEFONO|PBX|E-?MAIL|DIRECCION|ASFC|AUTORIZACION|COTIZACION|CONTRATO|TIPO\s+SERVICIO|FORMA\s+PAGO|ASESOR|PLAZO|VENCIMIENTO)/i;
+    const footerNoiseRegex = /(?:SUB[-–\s]?TOTAL|I\.?V\.?A|RETENCI[OÓ]N|TOTAL|DESCUENTO|PAGO\s+RECIBIDO|EQUIV|GRACIAS|REVISE|CANCELADO|ENTREGADO|RECIBIDO|FIRMA|EXENTOS|ESTATUS|PAGAREMOS|CONFORME)/i;
+
+    let pendingCode = '';
+    let pendingDesc = '';
+
+    for (let i = 0; i < linesToProcess.length; i++) {
+        const line = linesToProcess[i];
+        if (headerNoiseRegex.test(line) || footerNoiseRegex.test(line)) continue;
+        if (line.length < 3) continue;
 
         const tokens = line.split(/\s+/);
-        if (tokens.length >= 3) {
-            const numbers = [];
-            const words = [];
-            tokens.forEach(tok => {
-                const cleanTok = tok.replace(/,/g, '');
-                if (/^\d+(?:\.\d{2})?$/.test(cleanTok)) {
-                    numbers.push(parseFloat(cleanTok));
-                } else if (/[a-zA-Zñáéíóúü]/.test(tok)) {
+        const numbers = [];
+        const words = [];
+        let detectedCode = '';
+
+        tokens.forEach(tok => {
+            const clean = tok.replace(/,/g, '').replace(/^[Cc]\$/, '').replace(/^\$/, '');
+            if (/^\d+(?:\.\d{1,4})?$/.test(clean)) {
+                numbers.push(parseFloat(clean));
+            } else if (/^[A-Z0-9.\-]{3,15}$/.test(tok) && !/^(?:UNIDAD|UND|PCS|PZA|GAL|LTS|KG|SIN|CON|DEL|POR|PARA|SUR|NORTE|ESTE|OESTE)$/i.test(tok)) {
+                if (!detectedCode && words.length === 0) {
+                    detectedCode = tok;
+                } else {
                     words.push(tok);
                 }
-            });
+            } else if (/[a-zA-Zñáéíóúü]/.test(tok)) {
+                words.push(tok);
+            }
+        });
 
-            if (words.length >= 1 && numbers.length >= 1) {
-                const desc = words.join(' ');
-                let qty = 1;
-                let unitCost = numbers[0];
-                let totalCost = numbers[numbers.length - 1];
+        // Case A: Line has product description/code but no numbers
+        if (numbers.length === 0 && (words.length > 0 || detectedCode)) {
+            pendingCode = detectedCode || pendingCode || 'S/C';
+            pendingDesc = (pendingDesc ? pendingDesc + ' ' : '') + words.join(' ');
+            continue;
+        }
 
-                if (numbers.length >= 3) {
-                    qty = numbers[0];
-                    unitCost = numbers[1];
-                    totalCost = numbers[2];
-                } else if (numbers.length === 2) {
-                    unitCost = numbers[0];
-                    totalCost = numbers[1];
-                    qty = unitCost > 0 ? Math.round(totalCost / unitCost) || 1 : 1;
-                }
+        // Case B: Line has numbers and optionally description
+        if (numbers.length > 0) {
+            let desc = words.join(' ');
+            let code = detectedCode || pendingCode || 'S/C';
+            if (pendingDesc) {
+                desc = pendingDesc + (desc ? ' ' + desc : '');
+                pendingDesc = '';
+                pendingCode = '';
+            }
 
-                if (totalCost > 0 && (!totalAmount || totalCost <= totalAmount * 1.05)) {
-                    items.push({
-                        code: 'S/C',
-                        description: desc,
-                        quantity: qty,
-                        unitCost: unitCost,
-                        totalCost: totalCost
-                    });
-                }
+            let qty = 1;
+            let unitCost = 0;
+            let totalCost = 0;
+
+            if (numbers.length >= 3) {
+                qty = numbers[0];
+                unitCost = numbers[1];
+                totalCost = numbers[numbers.length - 1];
+            } else if (numbers.length === 2) {
+                unitCost = numbers[0];
+                totalCost = numbers[1];
+                qty = (unitCost > 0 && totalCost >= unitCost) ? Math.round(totalCost / unitCost) : 1;
+            } else if (numbers.length === 1) {
+                totalCost = numbers[0];
+                unitCost = totalCost;
+                qty = 1;
+            }
+
+            if (desc.length > 2 && totalCost > 0 && (!totalAmount || totalCost <= totalAmount * 1.05)) {
+                desc = desc.replace(/[\|\_\*\#\<\>]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+                
+                items.push({
+                    code: code,
+                    description: desc,
+                    quantity: qty,
+                    unitCost: unitCost,
+                    totalCost: totalCost
+                });
             }
         }
     }
@@ -5620,8 +5687,8 @@ function extractInvoiceLineItems(text, fallbackDesc, totalAmount, subtotalAmount
             code: 'S/C',
             description: fallbackDesc || 'Compra de materiales / suministros',
             quantity: 1,
-            unitCost: subtotalAmount || (totalAmount ? Math.round((totalAmount / 1.15) * 100) / 100 : 0),
-            totalCost: subtotalAmount || (totalAmount ? Math.round((totalAmount / 1.15) * 100) / 100 : 0)
+            unitCost: defaultSubtotal,
+            totalCost: defaultSubtotal
         });
     }
 
@@ -5643,7 +5710,11 @@ function getPurchasingPendingItems() {
         const isFuel = /\bPUMA\b|\bUNO\b|\bPETRONIC\b|\bGASOLINERA\b|\bESTACION\s+(?:DE\s+)?SERVICIO\b/i.test(tx.description) || !!tx.vehiclePlate;
         if (isFuel) return;
 
-        // Check if has Purchase Order
+        // Check if software license / subscription (no OC required)
+        const isSoftwareLicense = /\bGESTIOO\b|\bSOFTWARE\b|\bLICENCIA\b|\bMICROSOFT\b|\bGOOGLE\b|\bSUBSCRIPCI[OÓ]N\b|\bADOBE\b|\bZOOM\b|\bCHATGPT\b|\bOPENAI\b|\bCANVA\b|\bHOSTING\b|\bDOMINIO\b/i.test(tx.description);
+        if (isSoftwareLicense) return;
+
+        // Check if already has Purchase Order attached
         if (tx.purchaseOrderDoc) return;
 
         const invoices = tx.invoices || (tx.invoice ? [tx.invoice] : []);
@@ -6087,10 +6158,64 @@ function updatePurchasingSummaryTotals() {
     if (totalSpan) totalSpan.textContent = window.formatCurrency(sumTotal, 'NIO');
 }
 
+function syncPurchasingItemsFromDOM() {
+    if (!ReconState.purchasingItems) return;
+    const cards = document.querySelectorAll('#purchasing-invoices-list > .card');
+    if (!cards || cards.length === 0) return;
+
+    cards.forEach((card, cIdx) => {
+        const item = ReconState.purchasingItems[cIdx];
+        if (!item) return;
+
+        const rucInp = card.querySelector('.input-purchasing-ruc');
+        const invNoInp = card.querySelector('.input-purchasing-invno');
+        const subtotalInp = card.querySelector('.input-purchasing-subtotal');
+        const totalInp = card.querySelector('.input-purchasing-total');
+
+        if (rucInp) {
+            item.providerRuc = rucInp.value.trim().toUpperCase();
+            if (item.invoice) item.invoice.providerRuc = item.providerRuc || null;
+        }
+        if (invNoInp) {
+            item.invoiceRef = invNoInp.value.trim();
+            if (item.invoice) item.invoice.invoiceRef = item.invoiceRef || null;
+        }
+        if (subtotalInp) item.subtotalAmount = parseFloat(subtotalInp.value) || item.subtotalAmount;
+        if (totalInp) item.totalAmount = parseFloat(totalInp.value) || item.totalAmount;
+
+        const prodRows = card.querySelectorAll('tbody tr');
+        const updatedProds = [];
+        prodRows.forEach(tr => {
+            const codeInp = tr.querySelector('.input-prod-code');
+            const descInp = tr.querySelector('.input-prod-desc');
+            const qtyInp = tr.querySelector('.input-prod-qty');
+            const unitInp = tr.querySelector('.input-prod-unit');
+            const totalInp = tr.querySelector('.input-prod-total');
+
+            const qty = parseFloat(qtyInp ? qtyInp.value : 1) || 1;
+            const unit = parseFloat(unitInp ? unitInp.value : 0) || 0;
+            const tot = parseFloat(totalInp ? totalInp.value : 0) || (qty * unit);
+
+            updatedProds.push({
+                code: codeInp ? codeInp.value.trim() : 'S/C',
+                description: descInp ? descInp.value.trim() : item.vendorName,
+                quantity: qty,
+                unitCost: unit,
+                totalCost: tot
+            });
+        });
+
+        if (updatedProds.length > 0) {
+            item.items = updatedProds;
+        }
+    });
+}
+
 /**
  * Generate PDF Report for Purchasing (Solicitud de Órdenes de Compra)
  */
 async function generatePurchasingPDFReport() {
+    syncPurchasingItemsFromDOM();
     const list = ReconState.purchasingItems || getPurchasingPendingItems();
     if (list.length === 0) {
         window.showToast('No hay facturas pendientes de Orden de Compra', 'info');
@@ -6292,6 +6417,7 @@ async function generatePurchasingPDFReport() {
  * Export Purchasing Line Items to CSV/Excel
  */
 function exportPurchasingCSV() {
+    syncPurchasingItemsFromDOM();
     const list = ReconState.purchasingItems || getPurchasingPendingItems();
     if (list.length === 0) {
         window.showToast('No hay facturas pendientes de Orden de Compra', 'info');
