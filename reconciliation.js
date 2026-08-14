@@ -6155,58 +6155,74 @@ async function generatePurchasingPDFReport() {
         nextY = doc.lastAutoTable.finalY + 4;
     }
 
-    // Section 3: Anexo de Imágenes de Facturas de Respaldo
-    doc.addPage();
-    doc.setFillColor(15, 23, 42);
-    doc.rect(0, 0, 210, 16, 'F');
-    doc.setTextColor(255, 255, 255);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.text('3. ANEXO - COMPROBANTES DE FACTURAS PARA ÁREA DE COMPRAS', 15, 11);
-
-    let imgY = 22;
+    // Section 3: Anexo de Imágenes de Facturas de Respaldo (1 Factura por Página en Alta Resolución)
     for (let i = 0; i < list.length; i++) {
         const item = list[i];
         const inv = item.invoice;
 
-        if (imgY > 210) {
-            doc.addPage();
-            doc.setFillColor(15, 23, 42);
-            doc.rect(0, 0, 210, 16, 'F');
-            doc.setTextColor(255, 255, 255);
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(10);
-            doc.text('3. ANEXO - COMPROBANTES DE FACTURAS (CONTINUACIÓN)', 15, 11);
-            imgY = 22;
-        }
-
-        doc.setDrawColor(203, 213, 225);
-        doc.setFillColor(248, 250, 252);
-        doc.roundedRect(15, imgY, 180, 84, 2, 2, 'FD');
-
+        doc.addPage();
+        
+        // Header band
+        doc.setFillColor(15, 23, 42); // slate-900
+        doc.rect(0, 0, 210, 22, 'F');
+        
+        doc.setTextColor(255, 255, 255);
         doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9.5);
+        doc.text(`3. ANEXO DE FACTURA #${i + 1} DE ${list.length} - ${item.vendorName}`, 15, 9);
+        
+        doc.setFont('helvetica', 'normal');
         doc.setFontSize(8);
-        doc.setTextColor(30, 41, 59);
-        doc.text(`#${i + 1}: ${item.vendorName} - Factura: ${item.invoiceRef || '---'} (Monto: ${window.formatCurrency(item.totalAmount, item.currency)})`, 18, imgY + 5.5);
+        doc.setTextColor(245, 158, 11);
+        doc.text(`RUC: ${item.providerRuc || 'Sin RUC'} | Factura N°: ${item.invoiceRef || 'Sin N°'} | Fecha: ${item.dateStr} | Monto Total: ${window.formatCurrency(item.totalAmount, item.currency)} (Sin IVA: ${window.formatCurrency(item.subtotalAmount, item.currency)})`, 15, 16);
 
-        if (inv.imageSrc && !inv.imageSrc.startsWith('data:image/svg')) {
+        // Document Canvas / Image Container Box
+        const boxX = 15;
+        const boxY = 27;
+        const maxBoxW = 180;
+        const maxBoxH = 252;
+
+        doc.setDrawColor(226, 232, 240);
+        doc.setFillColor(248, 250, 252);
+        doc.roundedRect(boxX, boxY, maxBoxW, maxBoxH, 2, 2, 'FD');
+
+        let rawImgSrc = inv.imageSrc || inv.base64;
+        
+        if (rawImgSrc && !rawImgSrc.startsWith('data:image/svg')) {
             try {
-                let imgData = inv.imageSrc;
+                // Load image to calculate exact aspect ratio
+                const loadedImg = await loadImageElement(rawImgSrc);
+                const nw = loadedImg.naturalWidth || loadedImg.width || 800;
+                const nh = loadedImg.naturalHeight || loadedImg.height || 600;
+                const aspect = nw / nh;
+
+                let renderW = maxBoxW - 8;
+                let renderH = renderW / aspect;
+
+                if (renderH > maxBoxH - 8) {
+                    renderH = maxBoxH - 8;
+                    renderW = renderH * aspect;
+                }
+
+                // Center image inside the box
+                const posX = boxX + (maxBoxW - renderW) / 2;
+                const posY = boxY + (maxBoxH - renderH) / 2;
+
                 let format = 'JPEG';
-                if (imgData.startsWith('data:image/png')) format = 'PNG';
-                doc.addImage(imgData, format, 20, imgY + 8, 170, 72, undefined, 'FAST');
+                if (rawImgSrc.startsWith('data:image/png')) format = 'PNG';
+                
+                doc.addImage(rawImgSrc, format, posX, posY, renderW, renderH, undefined, 'FAST');
             } catch (err) {
-                doc.setFontSize(7.5);
+                console.error("Error adding image to PDF:", err);
+                doc.setFontSize(8.5);
                 doc.setTextColor(100, 116, 139);
-                doc.text(`[Imagen no disponible en memoria directa: ${inv.name}]`, 20, imgY + 25);
+                doc.text(`[Comprobante cargado: ${inv.name}]`, boxX + 15, boxY + 40);
             }
         } else {
-            doc.setFontSize(7.5);
+            doc.setFontSize(8.5);
             doc.setTextColor(100, 116, 139);
-            doc.text(`[Documento PDF o Comprobante: ${inv.name}]`, 20, imgY + 25);
+            doc.text(`[Documento PDF o Comprobante: ${inv.name}]`, boxX + 15, boxY + 40);
         }
-
-        imgY += 90;
     }
 
     doc.save(`Solicitud_Ordenes_Compra_Tarjeta_${cardDigits}_${new Date().toISOString().slice(0, 10)}.pdf`);
