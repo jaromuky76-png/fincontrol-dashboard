@@ -2443,7 +2443,7 @@ function renderReconciliationUI() {
                     ${escapeHtml((inv.text || '').substring(0, 100))}...
                 </td>
                 <td class="text-center">
-                    <button class="btn btn-secondary btn-sm btn-view-orphan-action" data-name="${escapeHtml(inv.name)}">
+                    <button class="btn btn-secondary btn-sm btn-view-orphan-action" data-orphan-idx="${idx}" data-name="${escapeHtml(inv.name)}">
                         <i data-lucide="eye"></i>Inspeccionar
                     </button>
                 </td>
@@ -2584,7 +2584,7 @@ function renderReconciliationUI() {
 
     // Bind dynamic actions
     bindTableActionButtons();
-    lucide.createIcons();
+    if (window.lucide) window.lucide.createIcons();
 }
 
 function bindTableActionButtons() {
@@ -2769,8 +2769,13 @@ function bindTableActionButtons() {
     // 3. View orphan invoice details
     document.querySelectorAll('.btn-view-orphan-action').forEach(btn => {
         btn.addEventListener('click', (e) => {
-            const name = e.currentTarget.dataset.name;
-            const inv = ReconState.invoices.find(i => i.name === name);
+            const btnEl = e.currentTarget;
+            const oIdx = parseInt(btnEl.dataset.orphanIdx, 10);
+            const orphansList = ReconState.invoices.filter(i => !i.matched);
+            let inv = (!isNaN(oIdx) && orphansList[oIdx]) ? orphansList[oIdx] : null;
+            if (!inv && btnEl.dataset.name) {
+                inv = ReconState.invoices.find(i => i.name === btnEl.dataset.name);
+            }
             if (inv) {
                 openViewInvoiceModal(inv);
             }
@@ -3888,10 +3893,12 @@ function openViewInvoiceModal(invoice, tx = null) {
     }
 
     // Escape text to prevent HTML insertion and preserve formatting
-    reconElements.viewInvoiceRawText.textContent = invoice.text || 'Sin texto extraído.';
+    if (reconElements.viewInvoiceRawText) {
+        reconElements.viewInvoiceRawText.textContent = invoice.text || 'Sin texto extraído.';
+    }
     
-    reconElements.modalView.classList.add('active');
-    lucide.createIcons();
+    openModal(reconElements.modalView);
+    if (window.lucide) window.lucide.createIcons();
 }
 
 function linkInvoiceManuallyToTx() {
@@ -4136,7 +4143,7 @@ function initTabControls() {
             document.getElementById(panelId).classList.add('active');
             
             // Recreate icons in tabs just in case
-            lucide.createIcons();
+            if (window.lucide) window.lucide.createIcons();
         });
     });
 
@@ -4190,7 +4197,7 @@ function switchReconTab(tabId) {
         }
     });
     
-    lucide.createIcons();
+    if (window.lucide) window.lucide.createIcons();
     
     // Smooth scroll down to the results section
     const resultsSec = document.getElementById('reconciliation-results');
@@ -4640,7 +4647,7 @@ async function renderSavedReconciliationsList() {
         });
     });
 
-    lucide.createIcons();
+    if (window.lucide) window.lucide.createIcons();
 }
 
 async function loadSavedReconciliation(id) {
