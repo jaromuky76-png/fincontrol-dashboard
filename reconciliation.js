@@ -2925,6 +2925,38 @@ function initModalListeners() {
     document.getElementById('btn-close-modal-view').addEventListener('click', () => closeModal(reconElements.modalView));
     document.getElementById('btn-close-view-invoice').addEventListener('click', () => closeModal(reconElements.modalView));
 
+    // Purchasing Report triggers
+    const btnPurchasing = document.getElementById('btn-purchasing-report');
+    if (btnPurchasing) {
+        btnPurchasing.addEventListener('click', () => {
+            openPurchasingReportModal();
+        });
+    }
+    const btnClosePurchasing = document.getElementById('btn-close-modal-purchasing');
+    if (btnClosePurchasing) {
+        btnClosePurchasing.addEventListener('click', () => {
+            closeModal(document.getElementById('modal-purchasing-report'));
+        });
+    }
+    const btnCancelPurchasing = document.getElementById('btn-cancel-purchasing-modal');
+    if (btnCancelPurchasing) {
+        btnCancelPurchasing.addEventListener('click', () => {
+            closeModal(document.getElementById('modal-purchasing-report'));
+        });
+    }
+    const btnPdfPurchasing = document.getElementById('btn-generate-purchasing-pdf');
+    if (btnPdfPurchasing) {
+        btnPdfPurchasing.addEventListener('click', () => {
+            generatePurchasingPDFReport();
+        });
+    }
+    const btnCsvPurchasing = document.getElementById('btn-export-purchasing-csv');
+    if (btnCsvPurchasing) {
+        btnCsvPurchasing.addEventListener('click', () => {
+            exportPurchasingCSV();
+        });
+    }
+
     // Handle manual transaction submit
     reconElements.formTx.addEventListener('submit', (e) => {
         e.preventDefault();
@@ -5429,4 +5461,758 @@ async function generatePdfReport() {
         console.error("Error generating PDF:", e);
         window.showToast('Error al generar el reporte PDF con anexos.', 'error');
     }
+}
+
+// =========================================================================
+// --- PURCHASING / PURCHASE ORDER REQUEST ENGINE (ÁREA DE COMPRAS) ---
+// =========================================================================
+
+/**
+ * Intelligent Line Items Extractor from OCR text
+ */
+function extractInvoiceLineItems(text, fallbackDesc, totalAmount, subtotalAmount) {
+    const items = [];
+    if (!text) {
+        items.push({
+            code: 'S/C',
+            description: fallbackDesc || 'Compra de materiales / suministros',
+            quantity: 1,
+            unitCost: subtotalAmount || (totalAmount ? Math.round((totalAmount / 1.15) * 100) / 100 : 0),
+            totalCost: subtotalAmount || (totalAmount ? Math.round((totalAmount / 1.15) * 100) / 100 : 0)
+        });
+        return items;
+    }
+
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    const ignoreRegex = /total|subtotal|sub-total|iva|impuesto|ruc|factura|cliente|direccion|fecha|cajero|vendedor|terminos|cambio|efectivo|tarjeta|pos|bac|banpro/i;
+
+    for (const line of lines) {
+        if (ignoreRegex.test(line)) continue;
+
+        const tokens = line.split(/\s+/);
+        if (tokens.length >= 3) {
+            const numbers = [];
+            const words = [];
+            tokens.forEach(tok => {
+                const cleanTok = tok.replace(/,/g, '');
+                if (/^\d+(?:\.\d{2})?$/.test(cleanTok)) {
+                    numbers.push(parseFloat(cleanTok));
+                } else if (/[a-zA-Zñáéíóúü]/.test(tok)) {
+                    words.push(tok);
+                }
+            });
+
+            if (words.length >= 1 && numbers.length >= 1) {
+                const desc = words.join(' ');
+                let qty = 1;
+                let unitCost = numbers[0];
+                let totalCost = numbers[numbers.length - 1];
+
+                if (numbers.length >= 3) {
+                    qty = numbers[0];
+                    unitCost = numbers[1];
+                    totalCost = numbers[2];
+                } else if (numbers.length === 2) {
+                    unitCost = numbers[0];
+                    totalCost = numbers[1];
+                    qty = unitCost > 0 ? Math.round(totalCost / unitCost) || 1 : 1;
+                }
+
+                if (totalCost > 0 && (!totalAmount || totalCost <= totalAmount * 1.05)) {
+                    items.push({
+                        code: 'S/C',
+                        description: desc,
+                        quantity: qty,
+                        unitCost: unitCost,
+                        totalCost: totalCost
+                    });
+                }
+            }
+        }
+    }
+
+    if (items.length === 0) {
+        items.push({
+            code: 'S/C',
+            description: fallbackDesc || 'Compra de materiales / suministros',
+            quantity: 1,
+            unitCost: subtotalAmount || (totalAmount ? Math.round((totalAmount / 1.15) * 100) / 100 : 0),
+            totalCost: subtotalAmount || (totalAmount ? Math.round((totalAmount / 1.15) * 100) / 100 : 0)
+        });
+    }
+
+    return items;
+}
+
+/**
+ * Filter all commercial purchase transactions requiring Purchase Orders
+ */
+function getPurchasingPendingItems() {
+    const list = [];
+    const processedDocNames = new Set();
+
+    ReconState.transactions.forEach(tx => {
+        if (!tx.matched) return;
+        if (tx.isReimbursement) return;
+
+        // Check if fuel / combustible
+        const isFuel = /\bPUMA\b|\bUNO\b|\bPETRONIC\b|\bGASOLINERA\b|\bESTACION\s+(?:DE\s+)?SERVICIO\b/i.test(tx.description) || !!tx.vehiclePlate;
+        if (isFuel) return;
+
+        // Check if has Purchase Order
+        if (tx.purchaseOrderDoc) return;
+
+        const invoices = tx.invoices || (tx.invoice ? [tx.invoice] : []);
+        const validInvoices = invoices.filter(inv => inv.docType === 'invoice');
+
+        if (validInvoices.length > 0) {
+            validInvoices.forEach(inv => {
+                if (processedDocNames.has(inv.name)) return;
+                processedDocNames.add(inv.name);
+
+                let vendorName = tx.description.replace(/,\s*MANAGUA.*$/i, '').trim();
+                if (vendorName.includes('ROMO') || vendorName.includes('ROBERTO MORALES')) {
+                    vendorName = 'FERRETERIA ROBERTO MORALES CUADRA S.A. (ROMO)';
+                } else if (vendorName.includes('SINSA')) {
+                    vendorName = 'SINSA (SERVICIOS INDUSTRIALES S.A.)';
+                }
+
+                const subtotal = inv.extractedSubtotal || (tx.amount / 1.15);
+                const items = extractInvoiceLineItems(inv.text, vendorName, tx.amount, subtotal);
+
+                list.push({
+                    tx: tx,
+                    invoice: inv,
+                    vendorName: vendorName,
+                    providerRuc: inv.providerRuc || '',
+                    invoiceRef: inv.invoiceRef || '',
+                    dateStr: tx.dateStr || inv.extractedDateStr || '',
+                    currency: tx.currency || 'NIO',
+                    totalAmount: tx.amount,
+                    subtotalAmount: Math.round(subtotal * 100) / 100,
+                    items: items
+                });
+            });
+        }
+    });
+
+    return list;
+}
+
+/**
+ * Open Purchasing Report Modal
+ */
+function openPurchasingReportModal() {
+    ReconState.purchasingItems = getPurchasingPendingItems();
+    if (ReconState.purchasingItems.length === 0) {
+        window.showToast('¡Todas las facturas ya tienen Orden de Compra asociada o son combustibles con placa!', 'info');
+        return;
+    }
+    const modal = document.getElementById('modal-purchasing-report');
+    if (modal) {
+        renderPurchasingReportUI();
+        openModal(modal);
+    }
+}
+
+/**
+ * Render Purchasing Report Cards and Item Lines in Modal
+ */
+function renderPurchasingReportUI() {
+    const list = ReconState.purchasingItems || [];
+    const container = document.getElementById('purchasing-invoices-list');
+    const countSpan = document.getElementById('purchasing-summary-count');
+    const subtotalSpan = document.getElementById('purchasing-summary-subtotal');
+    const totalSpan = document.getElementById('purchasing-summary-total');
+
+    if (!container) return;
+
+    let sumSubtotal = 0;
+    let sumTotal = 0;
+
+    list.forEach(item => {
+        sumSubtotal += (parseFloat(item.subtotalAmount) || 0);
+        sumTotal += (parseFloat(item.totalAmount) || 0);
+    });
+
+    if (countSpan) countSpan.textContent = list.length;
+    if (subtotalSpan) subtotalSpan.textContent = window.formatCurrency(sumSubtotal, 'NIO');
+    if (totalSpan) totalSpan.textContent = window.formatCurrency(sumTotal, 'NIO');
+
+    if (list.length === 0) {
+        container.innerHTML = `
+            <div style="text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
+                <i data-lucide="check-circle-2" style="width: 48px; height: 48px; color: var(--color-success); margin-bottom: 0.75rem;"></i>
+                <h4 style="color: var(--text-main); font-size: 1.1rem; margin-bottom: 0.25rem;">¡No hay facturas pendientes de Orden de Compra!</h4>
+                <p style="font-size: 0.85rem;">Todas las transacciones comerciales cuentan con su Orden de Compra vinculada o son gastos de combustible con placa.</p>
+            </div>
+        `;
+        if (window.lucide) window.lucide.createIcons();
+        return;
+    }
+
+    container.innerHTML = list.map((item, idx) => {
+        const inv = item.invoice;
+        const thumbnailSrc = inv.imageSrc && !inv.imageSrc.startsWith('data:image/svg') ? inv.imageSrc : '';
+
+        const productRowsHTML = item.items.map((prod, pIdx) => `
+            <tr data-item-idx="${idx}" data-prod-idx="${pIdx}">
+                <td style="padding: 0.4rem 0.5rem;">
+                    <input type="text" class="form-control form-control-sm input-prod-code" value="${escapeHtml(prod.code || 'S/C')}" style="font-size: 0.78rem; font-family: monospace; padding: 0.25rem 0.4rem;">
+                </td>
+                <td style="padding: 0.4rem 0.5rem;">
+                    <input type="text" class="form-control form-control-sm input-prod-desc" value="${escapeHtml(prod.description || '')}" placeholder="Descripción del producto o servicio" style="font-size: 0.78rem; padding: 0.25rem 0.4rem;">
+                </td>
+                <td style="padding: 0.4rem 0.5rem; width: 70px;">
+                    <input type="number" min="1" step="1" class="form-control form-control-sm input-prod-qty text-center" value="${prod.quantity || 1}" style="font-size: 0.78rem; padding: 0.25rem 0.4rem;">
+                </td>
+                <td style="padding: 0.4rem 0.5rem; width: 110px;">
+                    <input type="number" step="0.01" class="form-control form-control-sm input-prod-unit text-right" value="${(prod.unitCost || 0).toFixed(2)}" style="font-size: 0.78rem; padding: 0.25rem 0.4rem;">
+                </td>
+                <td style="padding: 0.4rem 0.5rem; width: 110px;">
+                    <input type="number" step="0.01" class="form-control form-control-sm input-prod-total text-right" value="${(prod.totalCost || 0).toFixed(2)}" style="font-size: 0.78rem; padding: 0.25rem 0.4rem;">
+                </td>
+                <td style="padding: 0.4rem 0.5rem; width: 40px; text-align: center;">
+                    <button type="button" class="btn-icon btn-remove-prod-row" data-item-idx="${idx}" data-prod-idx="${pIdx}" title="Eliminar línea" style="color: var(--color-danger); background: none; border: none; cursor: pointer; padding: 2px;">
+                        <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+
+        return `
+            <div class="card" style="border: 1px solid var(--border-color); background: var(--bg-card); border-radius: 8px; padding: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.2);">
+                <!-- Card Header -->
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem; margin-bottom: 0.75rem;">
+                    <div style="flex: 1;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                            <span class="badge badge-warning" style="font-size: 0.75rem; font-weight: 700;">#${idx + 1}</span>
+                            <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--text-main);">${escapeHtml(item.vendorName)}</h4>
+                        </div>
+                        <div style="font-size: 0.78rem; color: var(--text-muted); display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.35rem;">
+                            <span><strong>Fecha:</strong> ${item.dateStr}</span>
+                            <span><strong>Archivo:</strong> ${escapeHtml(inv.name)}</span>
+                            <span><strong>Total Pagado:</strong> <span style="color: var(--color-warning); font-weight: 700;">${window.formatCurrency(item.totalAmount, item.currency)}</span></span>
+                        </div>
+                    </div>
+                    
+                    ${thumbnailSrc ? `
+                        <div style="cursor: pointer; position: relative; border-radius: 6px; overflow: hidden; border: 1px solid var(--border-color); width: 64px; height: 64px; flex-shrink: 0; background: #000;" class="purchasing-thumb-btn" data-inv-name="${escapeHtml(inv.name)}" title="Ver factura completa">
+                            <img src="${thumbnailSrc}" alt="Factura" style="width: 100%; height: 100%; object-fit: cover;">
+                            <div style="position: absolute; inset: 0; background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; color: white;">
+                                <i data-lucide="maximize-2" style="width: 14px; height: 14px;"></i>
+                            </div>
+                        </div>
+                    ` : ''}
+                </div>
+
+                <!-- Invoice General Fields Grid -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; margin-bottom: 0.85rem; background: rgba(0,0,0,0.15); padding: 0.65rem 0.85rem; border-radius: 6px;">
+                    <div>
+                        <label style="font-size: 0.72rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 0.2rem;">RUC Proveedor:</label>
+                        <input type="text" class="form-control form-control-sm input-purchasing-ruc" data-item-idx="${idx}" value="${escapeHtml(item.providerRuc)}" placeholder="Ej. J0310000001812" style="font-size: 0.8rem; font-family: monospace;">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.72rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 0.2rem;">N° de Factura:</label>
+                        <input type="text" class="form-control form-control-sm input-purchasing-invno" data-item-idx="${idx}" value="${escapeHtml(item.invoiceRef)}" placeholder="Ej. 460542" style="font-size: 0.8rem; font-family: monospace;">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.72rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 0.2rem;">Subtotal (Sin IVA):</label>
+                        <input type="number" step="0.01" class="form-control form-control-sm input-purchasing-subtotal" data-item-idx="${idx}" value="${(item.subtotalAmount || 0).toFixed(2)}" style="font-size: 0.8rem; font-weight: 600; color: var(--color-success);">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.72rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 0.2rem;">Total con IVA:</label>
+                        <input type="number" step="0.01" class="form-control form-control-sm input-purchasing-total" data-item-idx="${idx}" value="${(item.totalAmount || 0).toFixed(2)}" style="font-size: 0.8rem; font-weight: 600; color: var(--color-warning);">
+                    </div>
+                </div>
+
+                <!-- Products Table -->
+                <div style="margin-top: 0.5rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                        <span style="font-size: 0.78rem; font-weight: 700; color: var(--text-secondary);"><i data-lucide="package" style="width: 13px; height: 13px; display: inline-block; vertical-align: middle; margin-right: 2px;"></i> Desglose de Productos / Ítems para la OC:</span>
+                        <button type="button" class="btn btn-secondary btn-sm btn-add-prod-row" data-item-idx="${idx}" style="font-size: 0.72rem; padding: 2px 6px;">
+                            <i data-lucide="plus" style="width: 12px; height: 12px;"></i> Agregar Producto
+                        </button>
+                    </div>
+
+                    <div style="overflow-x: auto; border: 1px solid var(--border-color); border-radius: 6px;">
+                        <table class="table" style="margin: 0; width: 100%; font-size: 0.8rem;">
+                            <thead>
+                                <tr style="background: rgba(255,255,255,0.03);">
+                                    <th style="font-size: 0.72rem; padding: 0.4rem 0.5rem; width: 110px;">Cód. / Parte</th>
+                                    <th style="font-size: 0.72rem; padding: 0.4rem 0.5rem;">Descripción</th>
+                                    <th style="font-size: 0.72rem; padding: 0.4rem 0.5rem; text-align: center; width: 70px;">Cant.</th>
+                                    <th style="font-size: 0.72rem; padding: 0.4rem 0.5rem; text-align: right; width: 110px;">Costo Unit. (Sin IVA)</th>
+                                    <th style="font-size: 0.72rem; padding: 0.4rem 0.5rem; text-align: right; width: 110px;">Total (Sin IVA)</th>
+                                    <th style="font-size: 0.72rem; padding: 0.4rem 0.5rem; width: 40px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${productRowsHTML}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    if (window.lucide) window.lucide.createIcons();
+    bindPurchasingReportListeners();
+}
+
+/**
+ * Bind Interactive event listeners inside the Purchasing Modal
+ */
+function bindPurchasingReportListeners() {
+    const list = ReconState.purchasingItems || [];
+
+    // Thumbnail click to view invoice modal
+    document.querySelectorAll('.purchasing-thumb-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const invName = e.currentTarget.dataset.invName;
+            const inv = ReconState.invoices.find(i => i.name === invName);
+            if (inv) {
+                openViewInvoiceModal(inv);
+            }
+        });
+    });
+
+    // RUC live editing
+    document.querySelectorAll('.input-purchasing-ruc').forEach(inp => {
+        inp.addEventListener('input', (e) => {
+            const idx = parseInt(e.target.dataset.itemIdx, 10);
+            if (list[idx]) {
+                const val = e.target.value.trim().toUpperCase();
+                list[idx].providerRuc = val;
+                if (list[idx].invoice) {
+                    list[idx].invoice.providerRuc = val || null;
+                    list[idx].invoice.hasSinsaRuc = !!val;
+                }
+                renderReconciliationUI();
+            }
+        });
+    });
+
+    // Invoice Ref live editing
+    document.querySelectorAll('.input-purchasing-invno').forEach(inp => {
+        inp.addEventListener('input', (e) => {
+            const idx = parseInt(e.target.dataset.itemIdx, 10);
+            if (list[idx]) {
+                const val = e.target.value.trim();
+                list[idx].invoiceRef = val;
+                if (list[idx].invoice) {
+                    list[idx].invoice.invoiceRef = val || null;
+                }
+                renderReconciliationUI();
+            }
+        });
+    });
+
+    // Subtotal live editing
+    document.querySelectorAll('.input-purchasing-subtotal').forEach(inp => {
+        inp.addEventListener('input', (e) => {
+            const idx = parseInt(e.target.dataset.itemIdx, 10);
+            if (list[idx]) {
+                list[idx].subtotalAmount = parseFloat(e.target.value) || 0;
+                updatePurchasingSummaryTotals();
+            }
+        });
+    });
+
+    // Total live editing
+    document.querySelectorAll('.input-purchasing-total').forEach(inp => {
+        inp.addEventListener('input', (e) => {
+            const idx = parseInt(e.target.dataset.itemIdx, 10);
+            if (list[idx]) {
+                list[idx].totalAmount = parseFloat(e.target.value) || 0;
+                updatePurchasingSummaryTotals();
+            }
+        });
+    });
+
+    // Product item inputs
+    document.querySelectorAll('.input-prod-code').forEach(inp => {
+        inp.addEventListener('input', (e) => {
+            const tr = e.target.closest('tr');
+            const itemIdx = parseInt(tr.dataset.itemIdx, 10);
+            const prodIdx = parseInt(tr.dataset.prodIdx, 10);
+            if (list[itemIdx] && list[itemIdx].items[prodIdx]) {
+                list[itemIdx].items[prodIdx].code = e.target.value;
+            }
+        });
+    });
+
+    document.querySelectorAll('.input-prod-desc').forEach(inp => {
+        inp.addEventListener('input', (e) => {
+            const tr = e.target.closest('tr');
+            const itemIdx = parseInt(tr.dataset.itemIdx, 10);
+            const prodIdx = parseInt(tr.dataset.prodIdx, 10);
+            if (list[itemIdx] && list[itemIdx].items[prodIdx]) {
+                list[itemIdx].items[prodIdx].description = e.target.value;
+            }
+        });
+    });
+
+    document.querySelectorAll('.input-prod-qty').forEach(inp => {
+        inp.addEventListener('input', (e) => {
+            const tr = e.target.closest('tr');
+            const itemIdx = parseInt(tr.dataset.itemIdx, 10);
+            const prodIdx = parseInt(tr.dataset.prodIdx, 10);
+            if (list[itemIdx] && list[itemIdx].items[prodIdx]) {
+                const qty = parseFloat(e.target.value) || 1;
+                list[itemIdx].items[prodIdx].quantity = qty;
+                const unit = list[itemIdx].items[prodIdx].unitCost || 0;
+                const total = qty * unit;
+                list[itemIdx].items[prodIdx].totalCost = Math.round(total * 100) / 100;
+                const totalInp = tr.querySelector('.input-prod-total');
+                if (totalInp) totalInp.value = (list[itemIdx].items[prodIdx].totalCost).toFixed(2);
+                recalcItemSubtotal(itemIdx);
+            }
+        });
+    });
+
+    document.querySelectorAll('.input-prod-unit').forEach(inp => {
+        inp.addEventListener('input', (e) => {
+            const tr = e.target.closest('tr');
+            const itemIdx = parseInt(tr.dataset.itemIdx, 10);
+            const prodIdx = parseInt(tr.dataset.prodIdx, 10);
+            if (list[itemIdx] && list[itemIdx].items[prodIdx]) {
+                const unit = parseFloat(e.target.value) || 0;
+                list[itemIdx].items[prodIdx].unitCost = unit;
+                const qty = list[itemIdx].items[prodIdx].quantity || 1;
+                const total = qty * unit;
+                list[itemIdx].items[prodIdx].totalCost = Math.round(total * 100) / 100;
+                const totalInp = tr.querySelector('.input-prod-total');
+                if (totalInp) totalInp.value = (list[itemIdx].items[prodIdx].totalCost).toFixed(2);
+                recalcItemSubtotal(itemIdx);
+            }
+        });
+    });
+
+    document.querySelectorAll('.input-prod-total').forEach(inp => {
+        inp.addEventListener('input', (e) => {
+            const tr = e.target.closest('tr');
+            const itemIdx = parseInt(tr.dataset.itemIdx, 10);
+            const prodIdx = parseInt(tr.dataset.prodIdx, 10);
+            if (list[itemIdx] && list[itemIdx].items[prodIdx]) {
+                const total = parseFloat(e.target.value) || 0;
+                list[itemIdx].items[prodIdx].totalCost = total;
+                const qty = list[itemIdx].items[prodIdx].quantity || 1;
+                if (qty > 0) {
+                    list[itemIdx].items[prodIdx].unitCost = Math.round((total / qty) * 100) / 100;
+                    const unitInp = tr.querySelector('.input-prod-unit');
+                    if (unitInp) unitInp.value = (list[itemIdx].items[prodIdx].unitCost).toFixed(2);
+                }
+                recalcItemSubtotal(itemIdx);
+            }
+        });
+    });
+
+    // Add row button
+    document.querySelectorAll('.btn-add-prod-row').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const itemIdx = parseInt(e.currentTarget.dataset.itemIdx, 10);
+            if (list[itemIdx]) {
+                list[itemIdx].items.push({
+                    code: 'S/C',
+                    description: '',
+                    quantity: 1,
+                    unitCost: 0,
+                    totalCost: 0
+                });
+                renderPurchasingReportUI();
+            }
+        });
+    });
+
+    // Remove row button
+    document.querySelectorAll('.btn-remove-prod-row').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const itemIdx = parseInt(e.currentTarget.dataset.itemIdx, 10);
+            const prodIdx = parseInt(e.currentTarget.dataset.prodIdx, 10);
+            if (list[itemIdx] && list[itemIdx].items.length > 1) {
+                list[itemIdx].items.splice(prodIdx, 1);
+                recalcItemSubtotal(itemIdx);
+                renderPurchasingReportUI();
+            } else {
+                window.showToast('Debe existir al menos un producto por factura', 'warning');
+            }
+        });
+    });
+}
+
+function recalcItemSubtotal(itemIdx) {
+    const list = ReconState.purchasingItems;
+    if (!list || !list[itemIdx]) return;
+    const subtotal = list[itemIdx].items.reduce((acc, p) => acc + (p.totalCost || 0), 0);
+    list[itemIdx].subtotalAmount = Math.round(subtotal * 100) / 100;
+    const subtotalInp = document.querySelector(`.input-purchasing-subtotal[data-item-idx="${itemIdx}"]`);
+    if (subtotalInp) subtotalInp.value = (list[itemIdx].subtotalAmount).toFixed(2);
+    updatePurchasingSummaryTotals();
+}
+
+function updatePurchasingSummaryTotals() {
+    const list = ReconState.purchasingItems || [];
+    const subtotalSpan = document.getElementById('purchasing-summary-subtotal');
+    const totalSpan = document.getElementById('purchasing-summary-total');
+    let sumSubtotal = 0;
+    let sumTotal = 0;
+    list.forEach(item => {
+        sumSubtotal += (parseFloat(item.subtotalAmount) || 0);
+        sumTotal += (parseFloat(item.totalAmount) || 0);
+    });
+    if (subtotalSpan) subtotalSpan.textContent = window.formatCurrency(sumSubtotal, 'NIO');
+    if (totalSpan) totalSpan.textContent = window.formatCurrency(sumTotal, 'NIO');
+}
+
+/**
+ * Generate PDF Report for Purchasing (Solicitud de Órdenes de Compra)
+ */
+async function generatePurchasingPDFReport() {
+    const list = ReconState.purchasingItems || getPurchasingPendingItems();
+    if (list.length === 0) {
+        window.showToast('No hay facturas pendientes de Orden de Compra', 'info');
+        return;
+    }
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF('p', 'mm', 'a4');
+    const cardDigits = ReconState.statementCardDigits || '1180';
+    
+    // Header bar
+    doc.setFillColor(15, 23, 42); // slate-900
+    doc.rect(0, 0, 210, 30, 'F');
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.text('SILVA INTERNACIONAL S.A. - DEPARTAMENTO DE ADQUISICIONES', 15, 11);
+
+    doc.setFontSize(9.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(245, 158, 11);
+    doc.text('SOLICITUD DE ÓRDENES DE COMPRA (GENERACIÓN DE OC)', 15, 18);
+
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(203, 213, 225);
+    doc.text(`Tarjeta Corporativa: ***${cardDigits} | Fecha Solicitud: ${new Date().toLocaleDateString()} | Facturas Pendientes: ${list.length}`, 15, 25);
+
+    let nextY = 36;
+
+    // Resumen Ejecutivo
+    doc.setTextColor(15, 23, 42);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.text('1. RESUMEN DE FACTURAS PAGADAS PENDIENTES DE OC', 15, nextY);
+    nextY += 3.5;
+
+    const summaryRows = list.map((item, idx) => [
+        idx + 1,
+        item.dateStr,
+        item.vendorName,
+        item.providerRuc || 'Sin RUC',
+        item.invoiceRef ? `F.${item.invoiceRef}` : 'Sin N°',
+        window.formatCurrency(item.subtotalAmount, item.currency),
+        window.formatCurrency(item.totalAmount, item.currency)
+    ]);
+
+    doc.autoTable({
+        startY: nextY,
+        head: [['#', 'Fecha', 'Proveedor', 'RUC Proveedor', 'N° Factura', 'Subtotal (Sin IVA)', 'Total Pagado']],
+        body: summaryRows,
+        theme: 'grid',
+        headStyles: { fillColor: [245, 158, 11], textColor: [0, 0, 0], fontSize: 7.5, fontStyle: 'bold' },
+        styles: { fontSize: 7, cellPadding: 1.8 },
+        columnStyles: {
+            0: { cellWidth: 7, halign: 'center' },
+            1: { cellWidth: 17 },
+            2: { cellWidth: 56 },
+            3: { cellWidth: 28 },
+            4: { cellWidth: 18 },
+            5: { cellWidth: 27, halign: 'right' },
+            6: { cellWidth: 27, halign: 'right' }
+        }
+    });
+
+    nextY = doc.lastAutoTable.finalY + 7;
+
+    // Section 2: Detalle de Productos por Proveedor
+    if (nextY > 240) {
+        doc.addPage();
+        nextY = 18;
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text('2. DETALLE DE LÍNEAS / PRODUCTOS PARA REGISTRO DE OC', 15, nextY);
+    nextY += 4;
+
+    for (let i = 0; i < list.length; i++) {
+        const item = list[i];
+        if (nextY > 235) {
+            doc.addPage();
+            nextY = 18;
+        }
+
+        // Subheader for item
+        doc.setFillColor(241, 245, 249);
+        doc.rect(15, nextY, 180, 6.5, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.setTextColor(30, 41, 59);
+        doc.text(`#${i + 1}: ${item.vendorName} | RUC: ${item.providerRuc || '---'} | Factura: ${item.invoiceRef || '---'} (${item.dateStr})`, 17, nextY + 4.5);
+        nextY += 6.5;
+
+        const productRows = item.items.map(p => [
+            p.code || 'S/C',
+            p.description || item.vendorName,
+            p.quantity || 1,
+            window.formatCurrency(p.unitCost, item.currency),
+            window.formatCurrency(p.totalCost, item.currency)
+        ]);
+
+        doc.autoTable({
+            startY: nextY,
+            head: [['Cód. / Parte', 'Descripción del Producto / Servicio', 'Cant.', 'Costo Unit. (Sin IVA)', 'Subtotal Línea']],
+            body: productRows,
+            theme: 'plain',
+            headStyles: { fillColor: [226, 232, 240], textColor: [51, 65, 85], fontSize: 7, fontStyle: 'bold' },
+            styles: { fontSize: 6.8, cellPadding: 1.4 },
+            columnStyles: {
+                0: { cellWidth: 24 },
+                1: { cellWidth: 86 },
+                2: { cellWidth: 15, halign: 'center' },
+                3: { cellWidth: 27, halign: 'right' },
+                4: { cellWidth: 28, halign: 'right' }
+            }
+        });
+
+        nextY = doc.lastAutoTable.finalY + 4;
+    }
+
+    // Section 3: Anexo de Imágenes de Facturas de Respaldo
+    doc.addPage();
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, 210, 16, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.text('3. ANEXO - COMPROBANTES DE FACTURAS PARA ÁREA DE COMPRAS', 15, 11);
+
+    let imgY = 22;
+    for (let i = 0; i < list.length; i++) {
+        const item = list[i];
+        const inv = item.invoice;
+
+        if (imgY > 210) {
+            doc.addPage();
+            doc.setFillColor(15, 23, 42);
+            doc.rect(0, 0, 210, 16, 'F');
+            doc.setTextColor(255, 255, 255);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(10);
+            doc.text('3. ANEXO - COMPROBANTES DE FACTURAS (CONTINUACIÓN)', 15, 11);
+            imgY = 22;
+        }
+
+        doc.setDrawColor(203, 213, 225);
+        doc.setFillColor(248, 250, 252);
+        doc.roundedRect(15, imgY, 180, 84, 2, 2, 'FD');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.setTextColor(30, 41, 59);
+        doc.text(`#${i + 1}: ${item.vendorName} - Factura: ${item.invoiceRef || '---'} (Monto: ${window.formatCurrency(item.totalAmount, item.currency)})`, 18, imgY + 5.5);
+
+        if (inv.imageSrc && !inv.imageSrc.startsWith('data:image/svg')) {
+            try {
+                let imgData = inv.imageSrc;
+                let format = 'JPEG';
+                if (imgData.startsWith('data:image/png')) format = 'PNG';
+                doc.addImage(imgData, format, 20, imgY + 8, 170, 72, undefined, 'FAST');
+            } catch (err) {
+                doc.setFontSize(7.5);
+                doc.setTextColor(100, 116, 139);
+                doc.text(`[Imagen no disponible en memoria directa: ${inv.name}]`, 20, imgY + 25);
+            }
+        } else {
+            doc.setFontSize(7.5);
+            doc.setTextColor(100, 116, 139);
+            doc.text(`[Documento PDF o Comprobante: ${inv.name}]`, 20, imgY + 25);
+        }
+
+        imgY += 90;
+    }
+
+    doc.save(`Solicitud_Ordenes_Compra_Tarjeta_${cardDigits}_${new Date().toISOString().slice(0, 10)}.pdf`);
+    window.showToast('Reporte PDF para Compras generado con éxito', 'success');
+}
+
+/**
+ * Export Purchasing Line Items to CSV/Excel
+ */
+function exportPurchasingCSV() {
+    const list = ReconState.purchasingItems || getPurchasingPendingItems();
+    if (list.length === 0) {
+        window.showToast('No hay facturas pendientes de Orden de Compra', 'info');
+        return;
+    }
+
+    const headers = [
+        "Item",
+        "Fecha",
+        "Proveedor",
+        "RUC Proveedor",
+        "N° Factura",
+        "Código / Parte",
+        "Descripción del Producto",
+        "Cantidad",
+        "Costo Unitario (Sin IVA)",
+        "Subtotal Línea (Sin IVA)",
+        "IVA (15%)",
+        "Total Factura",
+        "Moneda",
+        "Referencia Bancaria"
+    ];
+
+    const rows = [];
+    let counter = 1;
+
+    list.forEach(item => {
+        const inv = item.invoice;
+        const tx = item.tx;
+        item.items.forEach(prod => {
+            const ivaVal = Math.round(prod.totalCost * 0.15 * 100) / 100;
+            rows.push([
+                counter++,
+                `"${item.dateStr}"`,
+                `"${item.vendorName.replace(/"/g, '""')}"`,
+                `"${(item.providerRuc || '').replace(/"/g, '""')}"`,
+                `"${(item.invoiceRef || '').replace(/"/g, '""')}"`,
+                `"${(prod.code || 'S/C').replace(/"/g, '""')}"`,
+                `"${(prod.description || '').replace(/"/g, '""')}"`,
+                prod.quantity || 1,
+                (prod.unitCost || 0).toFixed(2),
+                (prod.totalCost || 0).toFixed(2),
+                ivaVal.toFixed(2),
+                (item.totalAmount || 0).toFixed(2),
+                `"${item.currency}"`,
+                `"${tx.reference || ''}"`
+            ]);
+        });
+    });
+
+    const csvContent = "\uFEFF" + [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Solicitud_OC_Compras_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.showToast('Archivo CSV para Compras exportado con éxito', 'success');
 }
