@@ -589,11 +589,11 @@ async function processFiles() {
                         
                         // Fallback to OCR if page has little text (scanned PDF page)
                         if (text.trim().length < 20 && imageSrc && worker) {
-                            addLog(`Página ${p} del PDF ${fileEntry.name} tiene poco texto digital. Ejecutando OCR en imagen renderizada...`, 'info');
+                            addLog(`Página ${p} del PDF ${fileEntry.name} tiene poco texto digital. Ejecutando OCR optimizado con preprocesamiento...`, 'info');
                             try {
-                                const ocrResult = await worker.recognize(imageSrc);
-                                text = ocrResult.data.text;
-                                addLog(`OCR finalizado para ${pageItemName}.`, 'success');
+                                const ocrResult = await runSmartOCR(worker, imageSrc, pageItemName);
+                                text = ocrResult.text;
+                                addLog(`OCR finalizado para ${pageItemName} (Confianza: ${ocrResult.confidence}%).`, 'success');
                             } catch (ocrErr) {
                                 console.error("OCR error on PDF page:", ocrErr);
                             }
@@ -639,19 +639,19 @@ async function processFiles() {
                     const base64 = await blobToBase64(fileEntry.blob);
                     const imageSrc = base64;
                     
-                    addLog(`Ejecutando OCR en imagen: ${fileEntry.name}...`, 'info');
+                    addLog(`Optimizando imagen y ejecutando OCR Inteligente: ${fileEntry.name}...`, 'info');
                     let text = "";
                     let confidence = 0;
                     if (worker) {
-                        const ocrResult = await worker.recognize(imageSrc);
-                        text = ocrResult.data.text;
-                        confidence = ocrResult.data.confidence || 0;
+                        const ocrResult = await runSmartOCR(worker, imageSrc, fileEntry.name);
+                        text = ocrResult.text;
+                        confidence = ocrResult.confidence || 0;
                     }
                     
                     const docDetails = classifyAndExtractDocument(text, fileEntry.name);
                     const isLowQuality = (confidence < 45) || (text.trim().length < 40 && docDetails.docType === 'invoice' && !docDetails.amount && !docDetails.date);
                     
-                    addLog(`[Procesado] "${fileEntry.name}": Tipo: ${docDetails.docType.toUpperCase()}, Ref: ${docDetails.invoiceRef || '---'}, Monto: ${docDetails.amount ? window.formatCurrency(docDetails.amount, docDetails.currency) : '---'}`, 'success');
+                    addLog(`[Procesado] "${fileEntry.name}": Tipo: ${docDetails.docType.toUpperCase()}, Ref: ${docDetails.invoiceRef || '---'}, Monto: ${docDetails.amount ? window.formatCurrency(docDetails.amount, docDetails.currency) : '---'} (OCR: ${confidence}%)`, 'success');
                     
                     ReconState.invoices.push({
                         name: fileEntry.name,
@@ -729,6 +729,205 @@ function blobToBase64(blob) {
         reader.onerror = () => reject(reader.error);
         reader.readAsDataURL(blob);
     });
+}
+
+// --- ADVANCED IMAGE PREPROCESSING PIPELINE FOR OCR ---
+
+function loadImageElement(src) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => resolve(img);
+        img.onerror = (err) => reject(err);
+        img.src = src;
+    });
+}
+
+/**
+ * Advanced local canvas image preprocessor:
+ * 1. Smart bicubic upscaling to guarantee high character pixel density.
+ * 2. Grayscale conversion with human luminance weighting.
+ * 3. Dynamic contrast normalization (histogram stretching).
+ * 4. Adaptive local window binarization (Bradley-Roth algorithm) to remove shadows and creases.
+ */
+async function preprocessImageForOCR(imageSrc, mode = 'adaptive') {
+    try {
+        const img = await loadImageElement(imageSrc);
+        const origW = img.naturalWidth || img.width;
+        const origH = img.naturalHeight || img.height;
+        if (!origW || !origH) return imageSrc;
+
+        // 1. Calculate Target Scale (aim for 1800 - 2400px width/height for optimal OCR text height)
+        let scale = 1.0;
+        const minDim = Math.min(origW, origH);
+        const maxDim = Math.max(origW, origH);
+        if (minDim < 1400) {
+            scale = Math.min(2.5, Math.max(1.4, 1800 / minDim));
+        } else if (maxDim > 3200) {
+            scale = 3200 / maxDim;
+        }
+
+        const width = Math.round(origW * scale);
+        const height = Math.round(origH * scale);
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const imgData = ctx.getImageData(0, 0, width, height);
+        const data = imgData.data;
+        const totalPixels = width * height;
+        const gray = new Uint8Array(totalPixels);
+
+        // 2. Grayscale conversion
+        for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+            gray[p] = (data[i] * 77 + data[i + 1] * 150 + data[i + 2] * 29) >> 8;
+        }
+
+        if (mode === 'grayscale_only') {
+            for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+                const g = gray[p];
+                data[i] = g;
+                data[i + 1] = g;
+                data[i + 2] = g;
+            }
+            ctx.putImageData(imgData, 0, 0);
+            return canvas.toDataURL('image/png');
+        }
+
+        // 3. Contrast Stretching (Calculate 2nd and 98th percentiles)
+        const hist = new Int32Array(256);
+        for (let p = 0; p < totalPixels; p++) {
+            hist[gray[p]]++;
+        }
+        
+        let countLow = 0, countHigh = 0;
+        const targetLow = Math.round(totalPixels * 0.02);
+        const targetHigh = Math.round(totalPixels * 0.98);
+        let minLum = 0, maxLum = 255;
+        
+        for (let i = 0; i < 256; i++) {
+            countLow += hist[i];
+            if (countLow >= targetLow) { minLum = i; break; }
+        }
+        for (let i = 255; i >= 0; i--) {
+            countHigh += hist[i];
+            if (countHigh >= totalPixels - targetHigh) { maxLum = i; break; }
+        }
+        if (maxLum <= minLum) { minLum = 0; maxLum = 255; }
+        
+        const range = maxLum - minLum;
+        const stretched = new Uint8Array(totalPixels);
+        for (let p = 0; p < totalPixels; p++) {
+            const v = gray[p];
+            if (v <= minLum) stretched[p] = 0;
+            else if (v >= maxLum) stretched[p] = 255;
+            else stretched[p] = Math.round(((v - minLum) / range) * 255);
+        }
+
+        // 4. Bradley-Roth Adaptive Thresholding using Integral Image
+        const integral = new Float64Array(totalPixels);
+        for (let y = 0; y < height; y++) {
+            let sum = 0;
+            const rowOffset = y * width;
+            for (let x = 0; x < width; x++) {
+                sum += stretched[rowOffset + x];
+                integral[rowOffset + x] = (y === 0 ? sum : integral[rowOffset - width + x] + sum);
+            }
+        }
+
+        const S = Math.max(16, Math.round(width / 16));
+        const s2 = Math.round(S / 2);
+        const T = 0.14; // Threshold factor (14% below local neighborhood mean)
+
+        for (let y = 0; y < height; y++) {
+            const y1 = Math.max(0, y - s2);
+            const y2 = Math.min(height - 1, y + s2);
+            const rowOffset = y * width;
+            
+            for (let x = 0; x < width; x++) {
+                const x1 = Math.max(0, x - s2);
+                const x2 = Math.min(width - 1, x + s2);
+                const count = (x2 - x1 + 1) * (y2 - y1 + 1);
+
+                const sum = integral[y2 * width + x2] -
+                            (x1 > 0 ? integral[y2 * width + x1 - 1] : 0) -
+                            (y1 > 0 ? integral[(y1 - 1) * width + x2] : 0) +
+                            (x1 > 0 && y1 > 0 ? integral[(y1 - 1) * width + x1 - 1] : 0);
+
+                const pixelVal = stretched[rowOffset + x];
+                const pixelIndex = (rowOffset + x) * 4;
+
+                // If pixel is significantly darker than local average, it's text (0), else background (255)
+                if (pixelVal * count < sum * (1.0 - T)) {
+                    data[pixelIndex] = 0;
+                    data[pixelIndex + 1] = 0;
+                    data[pixelIndex + 2] = 0;
+                } else {
+                    data[pixelIndex] = 255;
+                    data[pixelIndex + 1] = 255;
+                    data[pixelIndex + 2] = 255;
+                }
+            }
+        }
+
+        ctx.putImageData(imgData, 0, 0);
+        return canvas.toDataURL('image/png');
+    } catch (err) {
+        console.warn('Preprocessing failed, using raw image:', err);
+        return imageSrc;
+    }
+}
+
+/**
+ * Multi-Pass Smart OCR Engine
+ */
+async function runSmartOCR(worker, imageSrc, fileName = "") {
+    if (!worker) return { text: "", confidence: 0 };
+    
+    try {
+        // Pass 1: Run with Adaptive Local Thresholding & Upscaling
+        const preprocessedSrc = await preprocessImageForOCR(imageSrc, 'adaptive');
+        const res1 = await worker.recognize(preprocessedSrc);
+        const text1 = res1.data.text || "";
+        const conf1 = res1.data.confidence || 0;
+
+        // Check if Pass 1 yielded a strong extraction
+        const details1 = classifyAndExtractDocument(text1, fileName);
+        const hasGoodData = (details1.amount !== null || details1.invoiceRef !== null) && text1.trim().length >= 40 && conf1 >= 50;
+
+        if (hasGoodData) {
+            return { text: text1, confidence: conf1, preprocessedSrc: preprocessedSrc };
+        }
+
+        // Pass 2: Fallback on Grayscale-Normalized Image if Pass 1 had low confidence
+        const graySrc = await preprocessImageForOCR(imageSrc, 'grayscale_only');
+        const res2 = await worker.recognize(graySrc);
+        const text2 = res2.data.text || "";
+        const conf2 = res2.data.confidence || 0;
+        const details2 = classifyAndExtractDocument(text2, fileName);
+
+        // Pick whichever pass extracted amount/date or higher confidence
+        if ((details2.amount && !details1.amount) || (conf2 > conf1 && text2.trim().length > text1.trim().length)) {
+            return { text: text2, confidence: conf2, preprocessedSrc: graySrc };
+        }
+
+        return { text: text1, confidence: conf1, preprocessedSrc: preprocessedSrc };
+    } catch (ocrErr) {
+        console.error("Smart OCR error:", ocrErr);
+        // Direct fallback to raw
+        try {
+            const rawRes = await worker.recognize(imageSrc);
+            return { text: rawRes.data.text || "", confidence: rawRes.data.confidence || 0 };
+        } catch (rawErr) {
+            return { text: "", confidence: 0 };
+        }
+    }
 }
 
 async function convertPdfPageToImage(pdf, pageNum) {
@@ -3146,14 +3345,15 @@ async function processSingleInvoiceUpload() {
 
             updateSingleProgress(10, 'Iniciando OCR...');
             
-            updateSingleProgress(30, 'Cargando motor de OCR...');
+            updateSingleProgress(25, 'Cargando motor de OCR...');
             const worker = await Tesseract.createWorker('spa+eng');
             
-            updateSingleProgress(50, 'Escaneando texto de la imagen...');
-            const result = await worker.recognize(imageSrc);
-            text = result.data.text;
-            confidence = result.data.confidence || 0;
-            isLowQuality = (confidence < 45) || (text.trim().length < 40);
+            updateSingleProgress(45, 'Optimizando resolución, binarización y nitidez...');
+            updateSingleProgress(65, 'Escaneando texto con OCR Inteligente...');
+            const ocrResult = await runSmartOCR(worker, imageSrc, singleInvoiceFileObj.name);
+            text = ocrResult.text;
+            confidence = ocrResult.confidence || 0;
+            isLowQuality = (confidence < 45) || (text.trim().length < 35);
             
             await worker.terminate();
         }
