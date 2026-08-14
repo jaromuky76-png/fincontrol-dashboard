@@ -4763,15 +4763,20 @@ async function loadSavedReconciliation(id) {
         reconElements.textareaNotes.value = record.notes || '';
     }
 
+    // Reveal stats and results sections in UI
+    if (reconElements.statsSection) reconElements.statsSection.classList.remove('hidden');
+    if (reconElements.resultsSection) reconElements.resultsSection.classList.remove('hidden');
+    if (reconElements.btnClearRecon) reconElements.btnClearRecon.classList.remove('hidden');
+
     // Store record period metadata on State so PDF generation knows the saved period details
     ReconState.loadedPeriod = {
         month: record.month,
         year: record.year,
         number: record.number
     };
+    ReconState.statementCardDigits = record.settings ? (record.settings.cardDigits || '9155') : '9155';
 
-    // Re-apply matching algorithm so that new rules (e.g. PUMA/UNO exemption, 
-    // exemption doc fix) take effect on historical data without re-uploading files.
+    // Re-apply matching algorithm so that new rules take effect while preserving matched documents
     runMatchingAlgorithm();
 
     // Render UI!
@@ -5626,19 +5631,19 @@ function getPurchasingPendingItems() {
         if (tx.purchaseOrderDoc) return;
 
         const invoices = tx.invoices || (tx.invoice ? [tx.invoice] : []);
-        const validInvoices = invoices.filter(inv => inv.docType === 'invoice');
+        const validInvoices = invoices.filter(inv => !inv.docType || inv.docType === 'invoice');
+
+        let vendorName = tx.description.replace(/,\s*MANAGUA.*$/i, '').trim();
+        if (vendorName.includes('ROMO') || vendorName.includes('ROBERTO MORALES')) {
+            vendorName = 'FERRETERIA ROBERTO MORALES CUADRA S.A. (ROMO)';
+        } else if (vendorName.includes('SINSA')) {
+            vendorName = 'SINSA (SERVICIOS INDUSTRIALES S.A.)';
+        }
 
         if (validInvoices.length > 0) {
             validInvoices.forEach(inv => {
                 if (processedDocNames.has(inv.name)) return;
                 processedDocNames.add(inv.name);
-
-                let vendorName = tx.description.replace(/,\s*MANAGUA.*$/i, '').trim();
-                if (vendorName.includes('ROMO') || vendorName.includes('ROBERTO MORALES')) {
-                    vendorName = 'FERRETERIA ROBERTO MORALES CUADRA S.A. (ROMO)';
-                } else if (vendorName.includes('SINSA')) {
-                    vendorName = 'SINSA (SERVICIOS INDUSTRIALES S.A.)';
-                }
 
                 const subtotal = inv.extractedSubtotal || (tx.amount / 1.15);
                 const items = extractInvoiceLineItems(inv.text, vendorName, tx.amount, subtotal);
@@ -5649,12 +5654,35 @@ function getPurchasingPendingItems() {
                     vendorName: vendorName,
                     providerRuc: inv.providerRuc || '',
                     invoiceRef: inv.invoiceRef || '',
-                    dateStr: tx.dateStr || inv.extractedDateStr || '',
+                    dateStr: inv.extractedDateStr || tx.dateStr || '',
                     currency: tx.currency || 'NIO',
                     totalAmount: tx.amount,
                     subtotalAmount: Math.round(subtotal * 100) / 100,
                     items: items
                 });
+            });
+        } else {
+            const subtotal = tx.amount / 1.15;
+            const dummyInv = {
+                name: `Soporte_${tx.id}`,
+                imageSrc: '',
+                text: '',
+                docType: 'invoice',
+                providerRuc: '',
+                invoiceRef: '',
+                extractedDateStr: tx.dateStr
+            };
+            list.push({
+                tx: tx,
+                invoice: dummyInv,
+                vendorName: vendorName,
+                providerRuc: '',
+                invoiceRef: '',
+                dateStr: tx.dateStr || '',
+                currency: tx.currency || 'NIO',
+                totalAmount: tx.amount,
+                subtotalAmount: Math.round(subtotal * 100) / 100,
+                items: extractInvoiceLineItems('', vendorName, tx.amount, subtotal)
             });
         }
     });
