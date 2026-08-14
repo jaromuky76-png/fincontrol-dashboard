@@ -1007,7 +1007,26 @@ select option {
 }
 
 .modal-content.modal-lg {
-    max-width: 900px;
+    max-width: 1100px;
+    width: 95vw;
+}
+
+.btn-zoom-action {
+    transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+.btn-zoom-action:hover {
+    background-color: rgba(255, 255, 255, 0.2) !important;
+    color: #ffffff !important;
+    transform: scale(1.08);
+}
+
+.btn-zoom-action:active {
+    transform: scale(0.95);
+}
+
+#invoice-zoom-viewport.is-dragging {
+    cursor: grabbing !important;
 }
 
 .btn-close {

@@ -2752,6 +2752,124 @@ function initModalListeners() {
             }
         });
     }
+
+    initInvoiceZoomControls();
+}
+
+// --- INVOICE IMAGE ZOOM & PAN CONTROLS ---
+
+let invoiceZoomState = {
+    scale: 1,
+    panX: 0,
+    panY: 0,
+    rotation: 0,
+    isDragging: false,
+    startX: 0,
+    startY: 0
+};
+
+function applyInvoiceZoom() {
+    const img = document.getElementById('view-invoice-img');
+    const badge = document.getElementById('zoom-level-badge');
+    if (!img) return;
+    
+    img.style.transform = `translate(${invoiceZoomState.panX}px, ${invoiceZoomState.panY}px) scale(${invoiceZoomState.scale}) rotate(${invoiceZoomState.rotation}deg)`;
+    if (badge) {
+        badge.textContent = `${Math.round(invoiceZoomState.scale * 100)}%`;
+    }
+}
+
+function resetInvoiceZoom() {
+    invoiceZoomState.scale = 1;
+    invoiceZoomState.panX = 0;
+    invoiceZoomState.panY = 0;
+    invoiceZoomState.rotation = 0;
+    invoiceZoomState.isDragging = false;
+    applyInvoiceZoom();
+}
+
+function initInvoiceZoomControls() {
+    const viewport = document.getElementById('invoice-zoom-viewport');
+    const btnIn = document.getElementById('btn-zoom-in');
+    const btnOut = document.getElementById('btn-zoom-out');
+    const btnReset = document.getElementById('btn-zoom-reset');
+    const btnRotate = document.getElementById('btn-zoom-rotate');
+    
+    if (btnIn) {
+        btnIn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            invoiceZoomState.scale = Math.min(invoiceZoomState.scale * 1.25, 5);
+            applyInvoiceZoom();
+        });
+    }
+    
+    if (btnOut) {
+        btnOut.addEventListener('click', (e) => {
+            e.stopPropagation();
+            invoiceZoomState.scale = Math.max(invoiceZoomState.scale / 1.25, 0.4);
+            applyInvoiceZoom();
+        });
+    }
+    
+    if (btnReset) {
+        btnReset.addEventListener('click', (e) => {
+            e.stopPropagation();
+            resetInvoiceZoom();
+        });
+    }
+    
+    if (btnRotate) {
+        btnRotate.addEventListener('click', (e) => {
+            e.stopPropagation();
+            invoiceZoomState.rotation = (invoiceZoomState.rotation + 90) % 360;
+            applyInvoiceZoom();
+        });
+    }
+    
+    if (viewport) {
+        // Mouse Wheel Zoom
+        viewport.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const delta = e.deltaY < 0 ? 1.15 : 0.87;
+            const newScale = Math.min(Math.max(invoiceZoomState.scale * delta, 0.4), 5);
+            invoiceZoomState.scale = newScale;
+            applyInvoiceZoom();
+        }, { passive: false });
+        
+        // Pan / Drag
+        viewport.addEventListener('mousedown', (e) => {
+            if (e.target.closest('#invoice-zoom-toolbar')) return;
+            invoiceZoomState.isDragging = true;
+            invoiceZoomState.startX = e.clientX - invoiceZoomState.panX;
+            invoiceZoomState.startY = e.clientY - invoiceZoomState.panY;
+            viewport.classList.add('is-dragging');
+        });
+        
+        window.addEventListener('mousemove', (e) => {
+            if (!invoiceZoomState.isDragging) return;
+            invoiceZoomState.panX = e.clientX - invoiceZoomState.startX;
+            invoiceZoomState.panY = e.clientY - invoiceZoomState.startY;
+            applyInvoiceZoom();
+        });
+        
+        window.addEventListener('mouseup', () => {
+            if (invoiceZoomState.isDragging) {
+                invoiceZoomState.isDragging = false;
+                if (viewport) viewport.classList.remove('is-dragging');
+            }
+        });
+        
+        // Double Click to toggle zoom
+        viewport.addEventListener('dblclick', (e) => {
+            if (e.target.closest('#invoice-zoom-toolbar')) return;
+            if (invoiceZoomState.scale > 1.1) {
+                resetInvoiceZoom();
+            } else {
+                invoiceZoomState.scale = 2.2;
+                applyInvoiceZoom();
+            }
+        });
+    }
 }
 
 function openTxModal(tx = null) {
@@ -3198,15 +3316,21 @@ function openViewInvoiceModal(invoice, tx = null) {
         }
     }
     
+    resetInvoiceZoom();
+    const zoomToolbar = document.getElementById('invoice-zoom-toolbar');
+    const openFullLink = document.getElementById('btn-open-full-image');
+    
     const viewPdfIframe = document.getElementById('view-invoice-pdf');
     const isPdfDoc = invoice.name.toLowerCase().endsWith('.pdf') && invoice.imageSrc && invoice.imageSrc.startsWith('data:application/pdf');
     if (isPdfDoc) {
+        if (zoomToolbar) zoomToolbar.classList.add('hidden');
         if (viewPdfIframe) {
             viewPdfIframe.src = invoice.imageSrc;
             viewPdfIframe.classList.remove('hidden');
             reconElements.viewInvoiceImg.classList.add('hidden');
         }
     } else {
+        if (zoomToolbar) zoomToolbar.classList.remove('hidden');
         if (viewPdfIframe) {
             viewPdfIframe.src = "";
             viewPdfIframe.classList.add('hidden');
@@ -3220,8 +3344,13 @@ function openViewInvoiceModal(invoice, tx = null) {
                 // inline SVG placeholder warning "Imagen no disponible en historial"
                 reconElements.viewInvoiceImg.src = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300"><rect width="100%" height="100%" fill="%231e293b"/><text x="50%" y="45%" dominant-baseline="middle" text-anchor="middle" fill="%2394a3b8" font-family="sans-serif" font-size="16" font-weight="bold">Imagen de Factura no Guardada</text><text x="50%" y="55%" dominant-baseline="middle" text-anchor="middle" fill="%2364748b" font-family="sans-serif" font-size="12">Las imágenes se omiten en la persistencia del historial</text><text x="50%" y="62%" dominant-baseline="middle" text-anchor="middle" fill="%2364748b" font-family="sans-serif" font-size="12">para respetar el límite de almacenamiento del navegador.</text></svg>`;
             }
+            if (openFullLink) openFullLink.classList.add('hidden');
         } else {
             reconElements.viewInvoiceImg.src = invoice.imageSrc;
+            if (openFullLink) {
+                openFullLink.href = invoice.imageSrc;
+                openFullLink.classList.remove('hidden');
+            }
         }
     }
     reconElements.viewInvoiceName.textContent = invoice.name;

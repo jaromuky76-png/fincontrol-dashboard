@@ -1502,9 +1502,33 @@
                 <button class="btn-close" id="btn-close-modal-view">&times;</button>
             </div>
             <div class="card-body grid-2" style="max-height: 70vh; overflow-y: auto;">
-                <div class="invoice-image-preview-container" style="position: relative; width: 100%; min-height: 400px; display: flex; align-items: center; justify-content: center;">
-                    <img id="view-invoice-img" src="" alt="Factura de Respaldo" style="max-width: 100%; border-radius: 8px; box-shadow: 0 4px 12px var(--shadow-color);">
-                    <iframe id="view-invoice-pdf" src="" style="width: 100%; height: 500px; border: none; border-radius: 8px; box-shadow: 0 4px 12px var(--shadow-color);" class="hidden"></iframe>
+                <div class="invoice-image-preview-container" style="position: relative; width: 100%; min-height: 500px; height: 550px; background: rgba(0, 0, 0, 0.4); border-radius: 8px; overflow: hidden; border: 1px solid var(--border-color); display: flex; align-items: center; justify-content: center;">
+                    <!-- Floating Zoom & Action Toolbar -->
+                    <div class="image-zoom-toolbar" id="invoice-zoom-toolbar" style="position: absolute; top: 12px; right: 12px; z-index: 20; display: flex; align-items: center; gap: 4px; background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(8px); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; padding: 4px 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);">
+                        <button type="button" class="btn-zoom-action" id="btn-zoom-out" title="Reducir zoom (-)" style="background: none; border: none; color: #f8fafc; padding: 4px 6px; border-radius: 4px; cursor: pointer; display: flex; align-items: center;">
+                            <i data-lucide="zoom-out" style="width: 15px; height: 15px;"></i>
+                        </button>
+                        <span id="zoom-level-badge" style="font-size: 0.75rem; font-weight: 600; color: #38bdf8; padding: 2px 4px; display: flex; align-items: center; min-width: 42px; justify-content: center; user-select: none;">100%</span>
+                        <button type="button" class="btn-zoom-action" id="btn-zoom-in" title="Aumentar zoom (+)" style="background: none; border: none; color: #f8fafc; padding: 4px 6px; border-radius: 4px; cursor: pointer; display: flex; align-items: center;">
+                            <i data-lucide="zoom-in" style="width: 15px; height: 15px;"></i>
+                        </button>
+                        <div style="width: 1px; height: 14px; background: rgba(255,255,255,0.2); margin: 0 2px;"></div>
+                        <button type="button" class="btn-zoom-action" id="btn-zoom-rotate" title="Girar 90°" style="background: none; border: none; color: #f8fafc; padding: 4px 6px; border-radius: 4px; cursor: pointer; display: flex; align-items: center;">
+                            <i data-lucide="rotate-cw" style="width: 15px; height: 15px;"></i>
+                        </button>
+                        <button type="button" class="btn-zoom-action" id="btn-zoom-reset" title="Restablecer (100% / Centrar)" style="background: none; border: none; color: #f8fafc; padding: 4px 6px; border-radius: 4px; cursor: pointer; display: flex; align-items: center;">
+                            <i data-lucide="maximize-2" style="width: 15px; height: 15px;"></i>
+                        </button>
+                        <a id="btn-open-full-image" href="#" target="_blank" title="Abrir imagen en nueva pestaña" style="background: none; border: none; color: #38bdf8; padding: 4px 6px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; text-decoration: none;">
+                            <i data-lucide="external-link" style="width: 15px; height: 15px;"></i>
+                        </a>
+                    </div>
+
+                    <!-- Interactive Pan & Zoom Viewport -->
+                    <div id="invoice-zoom-viewport" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; cursor: grab; user-select: none; overflow: hidden; position: relative;">
+                        <img id="view-invoice-img" src="" alt="Factura de Respaldo" style="max-width: 95%; max-height: 95%; object-fit: contain; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.5); transform-origin: center center; transition: transform 0.05s ease-out; pointer-events: none;">
+                    </div>
+                    <iframe id="view-invoice-pdf" src="" style="width: 100%; height: 100%; border: none; border-radius: 8px;" class="hidden"></iframe>
                 </div>
                 <div class="invoice-data-details">
                     <h4 class="section-title">Datos Extraídos por OCR</h4>
