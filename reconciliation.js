@@ -1021,15 +1021,15 @@ function classifyAndExtractDocument(text, fileName) {
     }
     
     // --- Purchase Order (Orden de Compra / OC) Heuristics ---
-    const hasOrdenCompra = /orden\s+(?:de\s+)?compra/i.test(textNorm) || /purchase\s+order/i.test(textNorm) || /\bo\s*[\.\/]\s*c\s*[:#\d]/i.test(textNorm) || /\borden\s+no\b/i.test(textNorm);
-    const hasPedido = /n[o°\.]?\s*pedido/i.test(textNorm) || /pedido\s+(?:de\s+)?compra/i.test(textNorm);
+    const hasOrdenCompra = /orden\s+(?:de\s+)?compra/i.test(textNorm) || /purchase\s+order/i.test(textNorm) || /^(?:.*\n)?\s*orden\s+no\b/im.test(textNorm);
+    const hasPedidoCompra = /pedido\s+(?:de\s+)?compra/i.test(textNorm);
     
-    if (hasOrdenCompra) purchaseOrderScore += 25;
-    if (hasPedido) purchaseOrderScore += 12;
+    if (hasOrdenCompra) purchaseOrderScore += 30;
+    if (hasPedidoCompra) purchaseOrderScore += 15;
     
-    // Strict filename check for purchase order (avoid matching "doc", "soporte", "compra", "pos")
-    if (/(?:^|[^a-z0-9])(?:orden[-_ ]?de[-_ ]?compra|purchase[-_ ]?order|o[-_.]?c)(?:[^a-z0-9]|$)/i.test(fileName) || /\borden\b/i.test(fileNorm)) {
-        purchaseOrderScore += 20;
+    // Strict filename check for purchase order
+    if (/(?:^|[^a-z0-9])(?:orden[-_ ]?de[-_ ]?compra|purchase[-_ ]?order)(?:[^a-z0-9]|$)/i.test(fileName)) {
+        purchaseOrderScore += 25;
     }
 
     // --- Invoice Heuristics ---
@@ -1062,7 +1062,7 @@ function classifyAndExtractDocument(text, fileName) {
     
     // --- Decision Logic ---
     let docType = 'invoice';
-    if (purchaseOrderScore > invoiceScore && purchaseOrderScore > retentionScore && purchaseOrderScore >= 15) {
+    if (purchaseOrderScore > invoiceScore && purchaseOrderScore > retentionScore && purchaseOrderScore >= 25) {
         docType = 'orden_compra';
     } else if (retentionScore > invoiceScore && retentionScore >= 8) {
         const isMunicipal = hasRetencionMunicipal || textNorm.includes("municipal") || textNorm.includes("alcaldia") || textNorm.includes("alma") || textNorm.includes("imi") || fileNorm.includes("municipal");
@@ -1322,15 +1322,38 @@ function checkBusinessNameMatch(txDescription, invoice) {
     if (!txDescription || !invoice) return false;
     const textLower = (invoice.text || "").toLowerCase();
     const nameLower = (invoice.name || "").toLowerCase();
+    const descLower = txDescription.toLowerCase();
     
-    // Tokenize transaction description into words of length >= 4
-    const tokens = txDescription.toLowerCase().match(/[a-zñáéíóúü]{4,}/g) || [];
+    // Known merchant alias mapping in Nicaragua
+    const aliases = [
+        { keys: ['romo', 'roberto morales', 'morales cuadra', 'ferreteria romo'], match: ['romo', 'roberto morales', 'morales cuadra', 'ferreteria romo', 'ferreteria roberto morales'] },
+        { keys: ['sinsa', 'servicios industriales'], match: ['sinsa', 'servicios industriales'] },
+        { keys: ['pricesmart', 'pricemart', 'price mart'], match: ['pricesmart', 'price mart', 'pricemart'] },
+        { keys: ['walmart', 'pali', 'maxi pali', 'union', 'supermercados unidos'], match: ['walmart', 'wal-mart', 'pali', 'maxi pali', 'la union', 'supermercados unidos'] },
+        { keys: ['claro', 'enitel'], match: ['claro', 'enitel', 'america movil'] },
+        { keys: ['tigo', 'telefonia celular'], match: ['tigo', 'telefonia celular', 'millicom'] },
+        { keys: ['puma'], match: ['puma', 'puma energy'] },
+        { keys: ['uno'], match: ['estacion uno', 'petronic', 'uno nicaragua'] },
+        { keys: ['dilansa'], match: ['dilansa', 'distribuidora agricola'] },
+        { keys: ['disagro'], match: ['disagro', 'distribuidora agricola superior'] }
+    ];
+
+    for (const item of aliases) {
+        if (item.keys.some(k => descLower.includes(k))) {
+            if (item.match.some(m => textLower.includes(m) || nameLower.includes(m))) {
+                return true;
+            }
+        }
+    }
+    
+    // Tokenize transaction description into words of length >= 3
+    const tokens = descLower.match(/[a-zñáéíóúü]{3,}/g) || [];
     const commonWords = new Set([
         'comercial', 'limitada', 'corporation', 'corporativo', 'services', 'servicio', 'servicios',
         'estacion', 'pago', 'tienda', 'super', 'supermercado', 'express', 'factura', 'recibo',
         'compra', 'ventas', 'venta', 'del', 'las', 'los', 'con', 'por', 'para', 'una', 'uno',
         'nacional', 'internacional', 'nicaragua', 'managua', 'telef', 'telefono', 'celular',
-        'asociados', 'grupo', 'centro', 'plaza', 'mall', 'inversiones', 'industrial'
+        'asociados', 'grupo', 'centro', 'plaza', 'mall', 'inversiones', 'industrial', 'mons', 'lezc'
     ]);
     
     const keywords = tokens.filter(w => !commonWords.has(w));
@@ -3232,17 +3255,8 @@ async function processSingleInvoiceUpload() {
             } else {
                 window.showToast('Comprobante de depósito asociado y reembolso registrado', 'success');
             }
-        } else if (docDetails.docType === 'invoice') {
-            if (!targetTx.invoices) targetTx.invoices = [];
-            targetTx.matched = true;
-            targetTx.isReimbursement = false;
-            targetTx.reimbursementDoc = null;
-            targetTx.invoices.push(newDoc);
-            targetTx.isManual = true;
-            newDoc.isManual = true;
-            window.showToast('Factura cargada y vinculada a la transacción', 'success');
-        } else {
-            // Force associate this doc to the target transaction
+        } else if (ReconState.uploadIsRetention) {
+            // Force associate this doc to the target transaction as tax retention/exemption
             if (docDetails.docType === 'retencion_ir') {
                 targetTx.hasRetencionIR = true;
                 targetTx.retentionIRDoc = newDoc;
@@ -3260,6 +3274,18 @@ async function processSingleInvoiceUpload() {
                 newDoc.isManual = true;
             }
             window.showToast(`Documento de tipo "${docDetails.docType.toUpperCase()}" cargado`, 'success');
+        } else {
+            // Default "Subir Factura" action: Always link as the main invoice support so the transaction is reconciled!
+            newDoc.docType = 'invoice';
+            if (!targetTx.invoices) targetTx.invoices = [];
+            targetTx.matched = true;
+            targetTx.isReimbursement = false;
+            targetTx.reimbursementDoc = null;
+            targetTx.invoices.push(newDoc);
+            targetTx.isManual = true;
+            newDoc.isManual = true;
+            newDoc.matched = true;
+            window.showToast(`Factura "${newDoc.name}" cargada y vinculada exitosamente`, 'success');
         }
         ReconState.invoices.push(newDoc);
 
