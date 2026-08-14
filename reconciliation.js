@@ -86,7 +86,7 @@ const reconElements = {
     modalView: document.getElementById('modal-view-invoice'),
     viewInvoiceImg: document.getElementById('view-invoice-img'),
     viewInvoiceName: document.getElementById('view-invoice-name'),
-    viewInvoiceDate: document.getElementById('view-invoice-date'),
+    viewInvoiceDate: document.getElementById('input-view-invoice-date'),
     viewInvoiceAmount: document.getElementById('view-invoice-amount'),
     viewInvoiceTxAmount: document.getElementById('view-invoice-tx-amount'),
     viewInvoiceRawText: document.getElementById('view-invoice-raw-text'),
@@ -3763,7 +3763,13 @@ function openViewInvoiceModal(invoice, tx = null) {
         }
     }
     reconElements.viewInvoiceName.textContent = invoice.name;
-    reconElements.viewInvoiceDate.textContent = invoice.extractedDateStr || 'No identificada';
+    if (reconElements.viewInvoiceDate) {
+        if ('value' in reconElements.viewInvoiceDate) {
+            reconElements.viewInvoiceDate.value = invoice.extractedDateStr || (tx ? tx.dateStr : '');
+        } else {
+            reconElements.viewInvoiceDate.textContent = invoice.extractedDateStr || 'No identificada';
+        }
+    }
     
     const invCurrency = tx ? tx.currency : (invoice.currency || 'NIO');
     const rowBase = document.getElementById('row-retention-base');
@@ -4196,7 +4202,8 @@ function switchReconTab(tabId) {
 // --- HELPERS ---
 
 function escapeHtml(text) {
-    if (!text) return '';
+    if (text === null || text === undefined) return '';
+    const str = String(text);
     const map = {
         '&': '&amp;',
         '<': '&lt;',
@@ -4204,7 +4211,7 @@ function escapeHtml(text) {
         '"': '&quot;',
         "'": '&#039;'
     };
-    return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+    return str.replace(/[&<>"']/g, function(m) { return map[m]; });
 }
 
 // Bind close on overlay click
