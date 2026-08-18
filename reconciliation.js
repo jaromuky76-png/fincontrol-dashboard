@@ -6663,9 +6663,9 @@ async function generatePurchasingPDFReport() {
 }
 
 /**
- * Export Purchasing Line Items to CSV/Excel
+ * Export Purchasing Line Items to Formatted Excel (.xlsx) replicating PDF Structure
  */
-function exportPurchasingCSV() {
+function exportPurchasingExcel() {
     syncPurchasingItemsFromDOM();
     const list = ReconState.purchasingItems || getPurchasingPendingItems();
     if (list.length === 0) {
@@ -6673,60 +6673,147 @@ function exportPurchasingCSV() {
         return;
     }
 
-    const headers = [
-        "Item",
-        "Fecha",
-        "Proveedor",
-        "RUC Proveedor",
-        "N° Factura",
-        "Código / Parte",
-        "Descripción del Producto",
-        "Cantidad",
-        "Costo Unitario (Sin IVA)",
-        "Subtotal Línea (Sin IVA)",
-        "IVA (15%)",
-        "Total Factura",
-        "Moneda",
-        "Referencia Bancaria"
-    ];
+    if (typeof XLSX === 'undefined') {
+        window.showToast('Librería XLSX no disponible, exportando a CSV', 'warning');
+        exportPurchasingCSV();
+        return;
+    }
 
-    const rows = [];
-    let counter = 1;
+    const cardDigits = ReconState.statementCardDigits || '1180';
+    const aoa = [];
 
-    list.forEach(item => {
-        const inv = item.invoice;
-        const tx = item.tx;
-        item.items.forEach(prod => {
-            const ivaVal = Math.round(prod.totalCost * 0.15 * 100) / 100;
-            rows.push([
-                counter++,
-                `"${item.dateStr}"`,
-                `"${item.vendorName.replace(/"/g, '""')}"`,
-                `"${(item.providerRuc || '').replace(/"/g, '""')}"`,
-                `"${(item.invoiceRef || '').replace(/"/g, '""')}"`,
-                `"${(prod.code || 'S/C').replace(/"/g, '""')}"`,
-                `"${(prod.description || '').replace(/"/g, '""')}"`,
-                prod.quantity || 1,
-                (prod.unitCost || 0).toFixed(2),
-                (prod.totalCost || 0).toFixed(2),
-                ivaVal.toFixed(2),
-                (item.totalAmount || 0).toFixed(2),
-                `"${item.currency}"`,
-                `"${tx.reference || ''}"`
-            ]);
-        });
+    // 1. Header Banner
+    aoa.push(["SILVA INTERNACIONAL S.A. - DEPARTAMENTO DE ADQUISICIONES"]);
+    aoa.push(["SOLICITUD DE ÓRDENES DE COMPRA (GENERACIÓN DE OC)"]);
+    aoa.push([`Tarjeta Corporativa: ***${cardDigits} | Fecha Solicitud: ${new Date().toLocaleDateString()} | Facturas Pendientes: ${list.length}`]);
+    aoa.push([]); // blank
+
+    // 2. Section 1: Resumen de Facturas
+    aoa.push(["1. RESUMEN DE FACTURAS PAGADAS PENDIENTES DE OC"]);
+    aoa.push(["#", "Fecha", "Proveedor", "RUC Proveedor", "N° Factura", "Subtotal (Sin IVA)", "Total Pagado (Con IVA)", "Moneda", "Referencia Bancaria"]);
+
+    let sumSubtotal = 0;
+    let sumTotal = 0;
+
+    list.forEach((item, idx) => {
+        sumSubtotal += (parseFloat(item.subtotalAmount) || 0);
+        sumTotal += (parseFloat(item.totalAmount) || 0);
+        aoa.push([
+            idx + 1,
+            item.dateStr,
+            item.vendorName,
+            item.providerRuc || 'Sin RUC',
+            item.invoiceRef ? `F.${item.invoiceRef}` : 'Sin N°',
+            parseFloat((item.subtotalAmount || 0).toFixed(2)),
+            parseFloat((item.totalAmount || 0).toFixed(2)),
+            item.currency || 'NIO',
+            (item.tx && item.tx.reference) ? item.tx.reference : ''
+        ]);
     });
 
-    const csvContent = "\uFEFF" + [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `Solicitud_OC_Compras_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.showToast('Archivo CSV para Compras exportado con éxito', 'success');
+    // Summary Totals
+    aoa.push([
+        "TOTAL",
+        "",
+        `Total ${list.length} Facturas`,
+        "",
+        "",
+        parseFloat(sumSubtotal.toFixed(2)),
+        parseFloat(sumTotal.toFixed(2)),
+        "NIO",
+        ""
+    ]);
+
+    aoa.push([]); // blank
+    aoa.push([]); // blank
+
+    // 3. Section 2: Detalle de Líneas / Productos por Proveedor
+    aoa.push(["2. DETALLE DE LÍNEAS / PRODUCTOS PARA REGISTRO DE OC"]);
+    aoa.push([]);
+
+    list.forEach((item, idx) => {
+        // Group Header
+        aoa.push([
+            `#${idx + 1}: ${item.vendorName} | RUC: ${item.providerRuc || 'Sin RUC'} | Factura: ${item.invoiceRef || 'Sin N°'} (${item.dateStr})`
+        ]);
+
+        // Product Columns
+        aoa.push([
+            "Cód. / Parte",
+            "Descripción del Producto / Servicio",
+            "Cant.",
+            "Costo Unit. (Sin IVA)",
+            "Subtotal Línea (Sin IVA)",
+            "IVA (15%)",
+            "Total con IVA",
+            "Moneda"
+        ]);
+
+        let invSubtotal = 0;
+
+        item.items.forEach(prod => {
+            const qty = prod.quantity || 1;
+            const unit = prod.unitCost || 0;
+            const subtotal = prod.totalCost || (qty * unit);
+            const iva = Math.round(subtotal * 0.15 * 100) / 100;
+            const totalWithIva = Math.round((subtotal + iva) * 100) / 100;
+            invSubtotal += subtotal;
+
+            aoa.push([
+                prod.code || 'S/C',
+                prod.description || item.vendorName,
+                qty,
+                parseFloat(unit.toFixed(2)),
+                parseFloat(subtotal.toFixed(2)),
+                parseFloat(iva.toFixed(2)),
+                parseFloat(totalWithIva.toFixed(2)),
+                item.currency || 'NIO'
+            ]);
+        });
+
+        // Invoice Subtotal line
+        const invIva = Math.round(invSubtotal * 0.15 * 100) / 100;
+        aoa.push([
+            "SUBTOTAL",
+            `Total Items Factura #${idx + 1}`,
+            "",
+            "",
+            parseFloat(invSubtotal.toFixed(2)),
+            parseFloat(invIva.toFixed(2)),
+            parseFloat((item.totalAmount || (invSubtotal + invIva)).toFixed(2)),
+            item.currency || 'NIO'
+        ]);
+
+        aoa.push([]); // spacing between invoice groups
+    });
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+    // Column widths
+    ws['!cols'] = [
+        { wch: 16 }, // A: Item / Codigo
+        { wch: 45 }, // B: Fecha / Descripcion / Proveedor
+        { wch: 10 }, // C: Cant / Proveedor
+        { wch: 22 }, // D: Costo Unit / RUC
+        { wch: 22 }, // E: Subtotal / Factura
+        { wch: 16 }, // F: IVA / Subtotal
+        { wch: 20 }, // G: Total / Total Pagado
+        { wch: 12 }, // H: Moneda
+        { wch: 20 }  // I: Referencia Bancaria
+    ];
+
+    XLSX.utils.book_append_sheet(wb, ws, "Solicitud OC Compras");
+    const fileName = `Solicitud_Ordenes_Compra_Tarjeta_${cardDigits}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+    window.showToast(`Reporte Excel (.xlsx) "${fileName}" generado con éxito`, 'success');
+}
+
+/**
+ * Fallback CSV export
+ */
+function exportPurchasingCSV() {
+    exportPurchasingExcel();
 }
 
 // =========================================================================
