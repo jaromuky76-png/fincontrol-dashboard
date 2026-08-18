@@ -3064,36 +3064,65 @@ function initModalListeners() {
             if (!selectOrphan || !targetTx) return;
             
             const selectedName = selectOrphan.value;
-            const invoice = ReconState.invoices.find(i => i.name === selectedName);
-            if (!invoice) {
-                window.showToast('No se encontró la factura seleccionada', 'error');
+            const doc = ReconState.invoices.find(i => i.name === selectedName);
+            if (!doc) {
+                window.showToast('No se encontró el documento seleccionado', 'error');
                 return;
             }
             
-            if (!targetTx.invoices) targetTx.invoices = [];
-            targetTx.invoices.push(invoice);
-            targetTx.matched = true;
-            targetTx.isManual = true;
-            targetTx.isReimbursement = false;
-            if (targetTx.reimbursementDoc) {
-                targetTx.reimbursementDoc.matched = false;
-                targetTx.reimbursementDoc.isManual = false;
-                const docIdx = ReconState.invoices.findIndex(i => i.name === targetTx.reimbursementDoc.name);
-                if (docIdx !== -1) {
-                    ReconState.invoices.splice(docIdx, 1);
+            doc.matched = true;
+            doc.isManual = true;
+
+            if (ReconState.uploadIsPurchaseOrder) {
+                targetTx.purchaseOrderDoc = doc;
+                doc.docType = 'orden_compra';
+                window.showToast(`Orden de Compra "${doc.name}" vinculada exitosamente`, 'success');
+            } else if (ReconState.uploadIsRetention) {
+                const rType = ReconState.uploadRetentionType || 'exencion';
+                doc.docType = rType;
+                if (rType === 'retencion_ir') {
+                    targetTx.hasRetencionIR = true;
+                    targetTx.retentionIRDoc = doc;
+                    window.showToast(`Retención IR (2%) "${doc.name}" vinculada`, 'success');
+                } else if (rType === 'exencion_dgi') {
+                    targetTx.hasExemptionDGI = true;
+                    targetTx.exemptionDGIDoc = doc;
+                    window.showToast(`Exoneración DGI "${doc.name}" vinculada`, 'success');
+                } else if (rType === 'retencion_municipal') {
+                    targetTx.hasRetencionMunicipal = true;
+                    targetTx.retentionMunicipalDoc = doc;
+                    window.showToast(`Retención Municipal (1%) "${doc.name}" vinculada`, 'success');
+                } else if (rType === 'exencion_alma') {
+                    targetTx.hasExemptionALMA = true;
+                    targetTx.exemptionALMADoc = doc;
+                    window.showToast(`Exoneración ALMA "${doc.name}" vinculada`, 'success');
+                } else {
+                    targetTx.isExempt = true;
+                    targetTx.exemptionDoc = doc;
+                    targetTx.exemptionDGIDoc = doc;
+                    targetTx.exemptionALMADoc = doc;
+                    window.showToast(`Exención de Impuestos "${doc.name}" vinculada`, 'success');
                 }
-                targetTx.reimbursementDoc = null;
-            }
-            invoice.matched = true;
-            invoice.isManual = true;
-            invoice.currency = targetTx.currency;
-            if (!invoice.extractedAmount) invoice.extractedAmount = targetTx.amount;
-            if (!invoice.extractedDateStr) {
-                invoice.extractedDateStr = targetTx.dateStr;
-                invoice.extractedDate = targetTx.date;
+            } else if (ReconState.uploadIsReimbursement) {
+                targetTx.isReimbursement = true;
+                targetTx.reimbursementDoc = doc;
+                doc.docType = 'reimbursement_receipt';
+                window.showToast(`Comprobante de reembolso "${doc.name}" vinculado`, 'success');
+            } else {
+                doc.docType = 'invoice';
+                if (!targetTx.invoices) targetTx.invoices = [];
+                targetTx.invoices.push(doc);
+                targetTx.matched = true;
+                targetTx.isManual = true;
+                targetTx.isReimbursement = false;
+                if (!doc.extractedAmount) doc.extractedAmount = targetTx.amount;
+                if (!doc.extractedDateStr) {
+                    doc.extractedDateStr = targetTx.dateStr;
+                    doc.extractedDate = targetTx.date;
+                }
+                window.showToast(`Factura "${doc.name}" asignada exitosamente`, 'success');
             }
             
-            window.showToast(`Factura "${invoice.name}" asignada exitosamente`, 'success');
             closeModal(reconElements.modalUpload);
             runMatchingAlgorithm();
             renderReconciliationUI();
@@ -3480,21 +3509,25 @@ function openUploadModalForTx(txOrGroup, isReimbursement = false, isRetention = 
     const containerPickOrphan = document.getElementById('container-pick-orphan-invoice');
     const selectOrphan = document.getElementById('select-orphan-invoice-to-assign');
     if (containerPickOrphan && selectOrphan) {
-        if (!isReimbursement && !isRetention && !isPurchaseOrder) {
-            const unassignedInvoices = ReconState.invoices.filter(i => !i.matched && (i.docType === 'invoice' || !i.docType));
-            if (unassignedInvoices.length > 0) {
-                selectOrphan.innerHTML = '';
-                unassignedInvoices.forEach(inv => {
-                    const opt = document.createElement('option');
-                    opt.value = inv.name;
-                    const amtStr = inv.extractedAmount ? window.formatCurrency(inv.extractedAmount, inv.currency || 'NIO') : 'Monto N/A';
-                    opt.textContent = `${inv.name} | ${inv.extractedDateStr || 'Sin fecha'} | ${amtStr}`;
-                    selectOrphan.appendChild(opt);
-                });
-                containerPickOrphan.classList.remove('hidden');
-            } else {
-                containerPickOrphan.classList.add('hidden');
-            }
+        // Show any loaded document in batch
+        const candidateDocs = ReconState.invoices.filter(i => {
+            if (!i.matched) return true;
+            if (isRetention) return true;
+            if (isPurchaseOrder) return true;
+            return false;
+        });
+
+        if (candidateDocs.length > 0) {
+            selectOrphan.innerHTML = '';
+            candidateDocs.forEach(inv => {
+                const opt = document.createElement('option');
+                opt.value = inv.name;
+                const typeLabel = inv.docType ? `[${inv.docType.toUpperCase()}] ` : '';
+                const amtStr = inv.extractedAmount ? window.formatCurrency(inv.extractedAmount, inv.currency || 'NIO') : (inv.baseAmount ? `Base: ${window.formatCurrency(inv.baseAmount, inv.currency || 'NIO')}` : 'Monto N/A');
+                opt.textContent = `${typeLabel}${inv.name} | ${inv.extractedDateStr || 'Sin fecha'} | ${amtStr}`;
+                selectOrphan.appendChild(opt);
+            });
+            containerPickOrphan.classList.remove('hidden');
         } else {
             containerPickOrphan.classList.add('hidden');
         }
@@ -3666,24 +3699,35 @@ async function processSingleInvoiceUpload() {
                 window.showToast('Comprobante de depósito asociado y reembolso registrado', 'success');
             }
         } else if (ReconState.uploadIsRetention) {
-            // Force associate this doc to the target transaction as tax retention/exemption
-            if (docDetails.docType === 'retencion_ir') {
+            const rType = ReconState.uploadRetentionType || docDetails.docType || 'exencion';
+            docDetails.docType = rType;
+            newDoc.docType = rType;
+
+            if (rType === 'retencion_ir') {
                 targetTx.hasRetencionIR = true;
                 targetTx.retentionIRDoc = newDoc;
-                newDoc.matched = true;
-                newDoc.isManual = true;
-            } else if (docDetails.docType === 'retencion_municipal') {
+                window.showToast('Comprobante de Retención IR (2%) vinculado', 'success');
+            } else if (rType === 'exencion_dgi') {
+                targetTx.hasExemptionDGI = true;
+                targetTx.exemptionDGIDoc = newDoc;
+                window.showToast('Constancia de Exoneración DGI vinculada', 'success');
+            } else if (rType === 'retencion_municipal') {
                 targetTx.hasRetencionMunicipal = true;
                 targetTx.retentionMunicipalDoc = newDoc;
-                newDoc.matched = true;
-                newDoc.isManual = true;
-            } else if (docDetails.docType === 'exencion') {
+                window.showToast('Comprobante de Retención Municipal (1%) vinculado', 'success');
+            } else if (rType === 'exencion_alma') {
+                targetTx.hasExemptionALMA = true;
+                targetTx.exemptionALMADoc = newDoc;
+                window.showToast('Constancia de Exoneración ALMA vinculada', 'success');
+            } else {
                 targetTx.isExempt = true;
                 targetTx.exemptionDoc = newDoc;
-                newDoc.matched = true;
-                newDoc.isManual = true;
+                targetTx.exemptionDGIDoc = newDoc;
+                targetTx.exemptionALMADoc = newDoc;
+                window.showToast('Constancia de Exoneración vinculada', 'success');
             }
-            window.showToast(`Documento de tipo "${docDetails.docType.toUpperCase()}" cargado`, 'success');
+            newDoc.matched = true;
+            newDoc.isManual = true;
         } else {
             // Default "Subir Factura" action: Always link as the main invoice support so the transaction is reconciled!
             newDoc.docType = 'invoice';
@@ -6085,6 +6129,36 @@ function renderPurchasingReportUI() {
         const inv = item.invoice;
         const thumbnailSrc = inv.imageSrc && !inv.imageSrc.startsWith('data:image/svg') ? inv.imageSrc : '';
 
+        const grossSubtotal = (item.items || []).reduce((acc, p) => acc + (p.totalCost || 0), 0);
+        const discountVal = parseFloat(item.discountAmount) || 0;
+        const netSubtotal = Math.max(0, grossSubtotal - discountVal);
+        const calculatedTotalWithIva = Math.round((netSubtotal * 1.15) * 100) / 100;
+        const paidTotal = parseFloat(item.totalAmount) || (item.tx ? item.tx.amount : 0);
+        const diffAmount = Math.abs(calculatedTotalWithIva - paidTotal);
+        const isBalanced = diffAmount <= 0.05;
+
+        const balanceBannerHTML = isBalanced ? `
+            <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.45rem 0.85rem; border-radius: 6px; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+                <div style="display: flex; align-items: center; gap: 6px; color: var(--color-success); font-size: 0.8rem; font-weight: 600;">
+                    <i data-lucide="check-circle-2" style="width: 15px; height: 15px;"></i>
+                    <span>Factura Cuadrada al 100% con IVA</span>
+                </div>
+                <div style="font-size: 0.75rem; color: var(--text-muted);">
+                    Subtotal Bruto: <strong>${window.formatCurrency(grossSubtotal, item.currency)}</strong> | Descuento: <strong>-${window.formatCurrency(discountVal, item.currency)}</strong> | IVA (15%): <strong>${window.formatCurrency(netSubtotal * 0.15, item.currency)}</strong>
+                </div>
+            </div>
+        ` : `
+            <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.35); padding: 0.55rem 0.85rem; border-radius: 6px; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+                <div style="display: flex; align-items: center; gap: 8px; color: #fca5a5; font-size: 0.82rem; font-weight: 600;">
+                    <i data-lucide="alert-triangle" style="width: 18px; height: 18px; color: var(--color-danger); flex-shrink: 0;"></i>
+                    <span><strong>Descuadre de ${window.formatCurrency(diffAmount, item.currency)}:</strong> Los productos con IVA suman <strong>${window.formatCurrency(calculatedTotalWithIva, item.currency)}</strong> vs el Total Pagado de <strong>${window.formatCurrency(paidTotal, item.currency)}</strong>.</span>
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm btn-autobalance-invoice" data-item-idx="${idx}" style="font-size: 0.74rem; padding: 3px 9px; color: #fbbf24; border-color: rgba(251, 191, 36, 0.4); background: rgba(251, 191, 36, 0.08);" title="Ajustar el descuento o costo unitario automáticamente para cuadrar exactamente">
+                    <i data-lucide="sparkles" style="width: 12px; height: 12px;"></i> Auto-Cuadrar Factura
+                </button>
+            </div>
+        `;
+
         const productRowsHTML = item.items.map((prod, pIdx) => `
             <tr data-item-idx="${idx}" data-prod-idx="${pIdx}">
                 <td style="padding: 0.4rem 0.5rem;">
@@ -6111,12 +6185,12 @@ function renderPurchasingReportUI() {
         `).join('');
 
         return `
-            <div class="card" style="border: 1px solid var(--border-color); background: var(--bg-card); border-radius: 8px; padding: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.2);">
+            <div class="card" style="border: 1px solid ${isBalanced ? 'var(--border-color)' : 'rgba(239, 68, 68, 0.4)'}; background: var(--bg-card); border-radius: 8px; padding: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.2);">
                 <!-- Card Header -->
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem; margin-bottom: 0.75rem; flex-wrap: wrap;">
                     <div style="flex: 1; min-width: 260px;">
                         <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
-                            <span class="badge badge-warning" style="font-size: 0.75rem; font-weight: 700;">#${idx + 1}</span>
+                            <span class="badge ${isBalanced ? 'badge-warning' : 'badge-danger'}" style="font-size: 0.75rem; font-weight: 700;">#${idx + 1}</span>
                             <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--text-main);">${escapeHtml(item.vendorName)}</h4>
                         </div>
                         <div style="font-size: 0.78rem; color: var(--text-muted); display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.35rem;">
@@ -6141,6 +6215,9 @@ function renderPurchasingReportUI() {
                         </div>
                     ` : ''}
                 </div>
+
+                <!-- Cuadratura / Balancing Banner -->
+                ${balanceBannerHTML}
 
                 <!-- Invoice General Fields Grid -->
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 0.65rem; margin-bottom: 0.85rem; background: rgba(0,0,0,0.18); padding: 0.75rem 0.85rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);">
@@ -6210,6 +6287,35 @@ function renderPurchasingReportUI() {
  */
 function bindPurchasingReportListeners() {
     const list = ReconState.purchasingItems || [];
+
+    // Auto-balance button click
+    document.querySelectorAll('.btn-autobalance-invoice').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const idx = parseInt(e.currentTarget.dataset.itemIdx, 10);
+            if (list[idx]) {
+                const paid = list[idx].totalAmount || (list[idx].tx ? list[idx].tx.amount : 0);
+                const targetNet = Math.round((paid / 1.15) * 100) / 100;
+                const gross = (list[idx].items || []).reduce((acc, p) => acc + (p.totalCost || 0), 0);
+                
+                if (gross > targetNet) {
+                    list[idx].discountAmount = Math.round((gross - targetNet) * 100) / 100;
+                } else if (list[idx].items.length === 1) {
+                    list[idx].items[0].quantity = 1;
+                    list[idx].items[0].unitCost = targetNet;
+                    list[idx].items[0].totalCost = targetNet;
+                    list[idx].discountAmount = 0;
+                } else {
+                    list[idx].discountAmount = 0;
+                }
+                
+                list[idx].subtotalAmount = targetNet;
+                list[idx].totalAmount = paid;
+                recalcItemSubtotal(idx);
+                renderPurchasingReportUI();
+                window.showToast(`Factura #${idx + 1} cuadrada con el total pagado (${window.formatCurrency(paid, list[idx].currency)})`, 'success');
+            }
+        });
+    });
 
     // Thumbnail click to open dedicated Purchasing Lightbox
     document.querySelectorAll('.purchasing-thumb-btn').forEach(btn => {
