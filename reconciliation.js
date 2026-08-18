@@ -6758,7 +6758,7 @@ async function generatePurchasingPDFReport() {
 }
 
 /**
- * Export Purchasing Line Items to Formatted Excel (.xlsx) replicating PDF Structure
+ * Export Purchasing Line Items to Formatted Excel (.xlsx) with dedicated sheets, merged headers and full column visibility
  */
 function exportPurchasingExcel() {
     syncPurchasingItemsFromDOM();
@@ -6775,95 +6775,71 @@ function exportPurchasingExcel() {
     }
 
     const cardDigits = ReconState.statementCardDigits || '1180';
-    const aoa = [];
+    const requestDate = new Date().toLocaleDateString();
+    const wb = XLSX.utils.book_new();
 
-    // 1. Header Banner
-    aoa.push(["SILVA INTERNACIONAL S.A. - DEPARTAMENTO DE ADQUISICIONES"]);
-    aoa.push(["SOLICITUD DE ÓRDENES DE COMPRA (GENERACIÓN DE OC)"]);
-    aoa.push([`Tarjeta Corporativa: ***${cardDigits} | Fecha Solicitud: ${new Date().toLocaleDateString()} | Facturas Pendientes: ${list.length}`]);
-    aoa.push([]); // blank
+    // =========================================================================
+    // SHEET 1: DETALLE POR PROVEEDOR (Formato Fiel al Reporte PDF para OC)
+    // =========================================================================
+    const aoaDetails = [];
+    const mergesDetails = [];
+    let curRow = 0;
 
-    // 2. Section 1: Resumen de Facturas
-    aoa.push(["1. RESUMEN DE FACTURAS PAGADAS PENDIENTES DE OC"]);
-    aoa.push(["#", "Fecha", "Proveedor", "RUC Proveedor", "N° Factura", "Subtotal Bruto (Sin IVA)", "Descuento", "Subtotal Neto (Sin IVA)", "Total Pagado (Con IVA)", "Moneda", "Referencia Bancaria"]);
+    // Header Banner (Merged across all 9 columns A to I)
+    aoaDetails.push(["SILVA INTERNACIONAL S.A. - DEPARTAMENTO DE ADQUISICIONES"]);
+    mergesDetails.push({ s: { r: curRow, c: 0 }, e: { r: curRow, c: 8 } });
+    curRow++;
 
-    let sumSubtotal = 0;
-    let sumDiscount = 0;
-    let sumTotal = 0;
+    aoaDetails.push(["SOLICITUD DE ÓRDENES DE COMPRA (GENERACIÓN DE OC)"]);
+    mergesDetails.push({ s: { r: curRow, c: 0 }, e: { r: curRow, c: 8 } });
+    curRow++;
 
-    list.forEach((item, idx) => {
-        const gross = (item.items || []).reduce((acc, p) => acc + (p.totalCost || 0), 0) || item.subtotalAmount;
-        const discount = parseFloat(item.discountAmount) || 0;
-        sumSubtotal += (parseFloat(item.subtotalAmount) || 0);
-        sumDiscount += discount;
-        sumTotal += (parseFloat(item.totalAmount) || 0);
+    aoaDetails.push([`Tarjeta Corporativa: ***${cardDigits}  |  Fecha Solicitud: ${requestDate}  |  Facturas Pendientes: ${list.length}`]);
+    mergesDetails.push({ s: { r: curRow, c: 0 }, e: { r: curRow, c: 8 } });
+    curRow++;
 
-        aoa.push([
-            idx + 1,
-            item.dateStr,
-            item.vendorName,
-            item.providerRuc || 'Sin RUC',
-            item.invoiceRef ? `F.${item.invoiceRef}` : 'Sin N°',
-            parseFloat(gross.toFixed(2)),
-            parseFloat(discount.toFixed(2)),
-            parseFloat((item.subtotalAmount || 0).toFixed(2)),
-            parseFloat((item.totalAmount || 0).toFixed(2)),
-            item.currency || 'NIO',
-            (item.tx && item.tx.reference) ? item.tx.reference : ''
-        ]);
-    });
+    aoaDetails.push([]); // blank row
+    curRow++;
 
-    // Summary Totals
-    aoa.push([
-        "TOTAL",
-        "",
-        `Total ${list.length} Facturas`,
-        "",
-        "",
-        parseFloat((sumSubtotal + sumDiscount).toFixed(2)),
-        parseFloat(sumDiscount.toFixed(2)),
-        parseFloat(sumSubtotal.toFixed(2)),
-        parseFloat(sumTotal.toFixed(2)),
-        "NIO",
-        ""
-    ]);
+    aoaDetails.push(["DETALLE DE LÍNEAS / PRODUCTOS PARA REGISTRO DE ÓRDENES DE COMPRA"]);
+    mergesDetails.push({ s: { r: curRow, c: 0 }, e: { r: curRow, c: 8 } });
+    curRow++;
 
-    aoa.push([]); // blank
-    aoa.push([]); // blank
-
-    // 3. Section 2: Detalle de Líneas / Productos por Proveedor
-    aoa.push(["2. DETALLE DE LÍNEAS / PRODUCTOS PARA REGISTRO DE OC"]);
-    aoa.push([]);
+    aoaDetails.push([]); // blank row
+    curRow++;
 
     list.forEach((item, idx) => {
         const discount = parseFloat(item.discountAmount) || 0;
-        // Group Header
-        aoa.push([
-            `#${idx + 1}: ${item.vendorName} | RUC: ${item.providerRuc || 'Sin RUC'} | Factura: ${item.invoiceRef || 'Sin N°'} (${item.dateStr})`
-        ]);
+        
+        // Group Header Banner (Merged A to I)
+        const headerTitle = `FACTURA #${idx + 1}: ${item.vendorName.toUpperCase()}   |   RUC: ${item.providerRuc || 'Sin RUC'}   |   N° FACTURA: ${item.invoiceRef ? `F.${item.invoiceRef}` : 'Sin N°'}   |   FECHA: ${item.dateStr}`;
+        aoaDetails.push([headerTitle]);
+        mergesDetails.push({ s: { r: curRow, c: 0 }, e: { r: curRow, c: 8 } });
+        curRow++;
 
-        // Product Columns
-        aoa.push([
+        // Product Columns Header
+        aoaDetails.push([
             "Cód. / Parte",
             "Descripción del Producto / Servicio",
-            "Cant.",
+            "Cantidad",
             "Costo Unit. (Sin IVA)",
             "Subtotal Línea (Sin IVA)",
-            "Descuento Aplicado",
+            "Descuento",
             "IVA (15%)",
-            "Total con IVA",
+            "Total Línea (Con IVA)",
             "Moneda"
         ]);
+        curRow++;
 
         let invGrossSubtotal = 0;
 
-        item.items.forEach(prod => {
+        (item.items || []).forEach(prod => {
             const qty = prod.quantity || 1;
             const unit = prod.unitCost || 0;
             const subtotal = prod.totalCost || (qty * unit);
             invGrossSubtotal += subtotal;
 
-            aoa.push([
+            aoaDetails.push([
                 prod.code || 'S/C',
                 prod.description || item.vendorName,
                 qty,
@@ -6874,47 +6850,224 @@ function exportPurchasingExcel() {
                 parseFloat((subtotal * 1.15).toFixed(2)),
                 item.currency || 'NIO'
             ]);
+            curRow++;
         });
 
-        // Invoice Subtotal line
+        // Invoice Totals Row
         const invNetSubtotal = Math.max(0, invGrossSubtotal - discount);
         const invIva = Math.round(invNetSubtotal * 0.15 * 100) / 100;
-        aoa.push([
-            "SUBTOTAL",
-            `Total Factura #${idx + 1} (Subtotal Bruto: C$${invGrossSubtotal.toFixed(2)} | Descuento: -C$${discount.toFixed(2)})`,
+        const invTotal = parseFloat((item.totalAmount || (invNetSubtotal + invIva)).toFixed(2));
+
+        aoaDetails.push([
+            `TOTAL FACTURA #${idx + 1}`,
+            `Subtotal Bruto: C$ ${invGrossSubtotal.toFixed(2)}  |  Descuento: -C$ ${discount.toFixed(2)}  |  Subtotal Neto: C$ ${invNetSubtotal.toFixed(2)}`,
             "",
             "",
             parseFloat(invGrossSubtotal.toFixed(2)),
             parseFloat(discount.toFixed(2)),
             parseFloat(invIva.toFixed(2)),
-            parseFloat((item.totalAmount || (invNetSubtotal + invIva)).toFixed(2)),
+            invTotal,
             item.currency || 'NIO'
         ]);
+        curRow++;
 
-        aoa.push([]); // spacing between invoice groups
+        aoaDetails.push([]); // blank separator row
+        curRow++;
     });
 
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-
-    // Column widths
-    ws['!cols'] = [
-        { wch: 16 }, // A: Item / Codigo
-        { wch: 45 }, // B: Fecha / Descripcion / Proveedor
-        { wch: 10 }, // C: Cant / Proveedor
-        { wch: 22 }, // D: Costo Unit / RUC
-        { wch: 22 }, // E: Subtotal Bruto
+    const wsDetails = XLSX.utils.aoa_to_sheet(aoaDetails);
+    wsDetails['!merges'] = mergesDetails;
+    wsDetails['!cols'] = [
+        { wch: 18 }, // A: Codigo / Titulo
+        { wch: 55 }, // B: Descripcion / Detalle
+        { wch: 12 }, // C: Cantidad
+        { wch: 24 }, // D: Costo Unit
+        { wch: 24 }, // E: Subtotal
         { wch: 16 }, // F: Descuento
-        { wch: 22 }, // G: Subtotal Neto
-        { wch: 20 }, // H: Total con IVA
-        { wch: 12 }, // I: Moneda
-        { wch: 20 }  // J: Referencia Bancaria
+        { wch: 16 }, // G: IVA
+        { wch: 22 }, // H: Total
+        { wch: 12 }  // I: Moneda
     ];
+    XLSX.utils.book_append_sheet(wb, wsDetails, "Detalle por Proveedor");
 
-    XLSX.utils.book_append_sheet(wb, ws, "Solicitud OC Compras");
+    // =========================================================================
+    // SHEET 2: RESUMEN EJECUTIVO DE FACTURAS (Tabla Consolidada de 1 Factura por Fila)
+    // =========================================================================
+    const aoaSummary = [];
+    const mergesSummary = [];
+    let curSumRow = 0;
+
+    aoaSummary.push(["SILVA INTERNACIONAL S.A. - DEPARTAMENTO DE ADQUISICIONES"]);
+    mergesSummary.push({ s: { r: curSumRow, c: 0 }, e: { r: curSumRow, c: 10 } });
+    curSumRow++;
+
+    aoaSummary.push(["RESUMEN DE FACTURAS PAGADAS PENDIENTES DE ORDEN DE COMPRA"]);
+    mergesSummary.push({ s: { r: curSumRow, c: 0 }, e: { r: curSumRow, c: 10 } });
+    curSumRow++;
+
+    aoaSummary.push([`Tarjeta Corporativa: ***${cardDigits}  |  Fecha Solicitud: ${requestDate}  |  Total Facturas: ${list.length}`]);
+    mergesSummary.push({ s: { r: curSumRow, c: 0 }, e: { r: curSumRow, c: 10 } });
+    curSumRow++;
+
+    aoaSummary.push([]); // blank row
+    curSumRow++;
+
+    aoaSummary.push([
+        "#",
+        "Fecha Factura",
+        "Proveedor",
+        "RUC Proveedor",
+        "N° Factura",
+        "Subtotal Bruto (Sin IVA)",
+        "Descuento",
+        "Subtotal Neto (Sin IVA)",
+        "Total Pagado (Con IVA)",
+        "Moneda",
+        "Referencia Bancaria"
+    ]);
+    curSumRow++;
+
+    let grandGross = 0;
+    let grandDiscount = 0;
+    let grandNet = 0;
+    let grandTotal = 0;
+
+    list.forEach((item, idx) => {
+        const gross = (item.items || []).reduce((acc, p) => acc + (p.totalCost || 0), 0) || item.subtotalAmount;
+        const discount = parseFloat(item.discountAmount) || 0;
+        const net = parseFloat((item.subtotalAmount || (gross - discount)).toFixed(2));
+        const total = parseFloat((item.totalAmount || (net * 1.15)).toFixed(2));
+
+        grandGross += gross;
+        grandDiscount += discount;
+        grandNet += net;
+        grandTotal += total;
+
+        aoaSummary.push([
+            idx + 1,
+            item.dateStr,
+            item.vendorName,
+            item.providerRuc || 'Sin RUC',
+            item.invoiceRef ? `F.${item.invoiceRef}` : 'Sin N°',
+            parseFloat(gross.toFixed(2)),
+            parseFloat(discount.toFixed(2)),
+            net,
+            total,
+            item.currency || 'NIO',
+            (item.tx && item.tx.reference) ? item.tx.reference : ''
+        ]);
+        curSumRow++;
+    });
+
+    // Grand Totals Row
+    aoaSummary.push([
+        "TOTAL",
+        "",
+        `TOTAL GENERAL (${list.length} FACTURAS)`,
+        "",
+        "",
+        parseFloat(grandGross.toFixed(2)),
+        parseFloat(grandDiscount.toFixed(2)),
+        parseFloat(grandNet.toFixed(2)),
+        parseFloat(grandTotal.toFixed(2)),
+        "NIO",
+        ""
+    ]);
+
+    const wsSummary = XLSX.utils.aoa_to_sheet(aoaSummary);
+    wsSummary['!merges'] = mergesSummary;
+    wsSummary['!cols'] = [
+        { wch: 6 },  // A: #
+        { wch: 16 }, // B: Fecha
+        { wch: 48 }, // C: Proveedor
+        { wch: 22 }, // D: RUC
+        { wch: 16 }, // E: N° Factura
+        { wch: 24 }, // F: Subtotal Bruto
+        { wch: 16 }, // G: Descuento
+        { wch: 24 }, // H: Subtotal Neto
+        { wch: 24 }, // I: Total Pagado
+        { wch: 12 }, // J: Moneda
+        { wch: 22 }  // K: Referencia Bancaria
+    ];
+    XLSX.utils.book_append_sheet(wb, wsSummary, "Resumen Facturas");
+
+    // =========================================================================
+    // SHEET 3: BASE DE DATOS PLANA (Ideal para Importar o Filtrar en Excel/ERP)
+    // =========================================================================
+    const aoaFlat = [];
+    aoaFlat.push([
+        "Item #",
+        "Factura #",
+        "Fecha",
+        "Proveedor",
+        "RUC Proveedor",
+        "N° Factura",
+        "Código / Parte",
+        "Descripción del Producto / Servicio",
+        "Cantidad",
+        "Costo Unitario (Sin IVA)",
+        "Subtotal Línea (Sin IVA)",
+        "Descuento",
+        "IVA (15%)",
+        "Total Línea (Con IVA)",
+        "Moneda",
+        "Referencia Bancaria"
+    ]);
+
+    let rowCounter = 1;
+    list.forEach((item, idx) => {
+        (item.items || []).forEach(prod => {
+            const qty = prod.quantity || 1;
+            const unit = prod.unitCost || 0;
+            const subtotal = prod.totalCost || (qty * unit);
+            const iva = Math.round(subtotal * 0.15 * 100) / 100;
+            const totalWithIva = Math.round((subtotal + iva) * 100) / 100;
+
+            aoaFlat.push([
+                rowCounter++,
+                idx + 1,
+                item.dateStr,
+                item.vendorName,
+                item.providerRuc || 'Sin RUC',
+                item.invoiceRef ? `F.${item.invoiceRef}` : 'Sin N°',
+                prod.code || 'S/C',
+                prod.description || item.vendorName,
+                qty,
+                parseFloat(unit.toFixed(2)),
+                parseFloat(subtotal.toFixed(2)),
+                0.00,
+                parseFloat(iva.toFixed(2)),
+                parseFloat(totalWithIva.toFixed(2)),
+                item.currency || 'NIO',
+                (item.tx && item.tx.reference) ? item.tx.reference : ''
+            ]);
+        });
+    });
+
+    const wsFlat = XLSX.utils.aoa_to_sheet(aoaFlat);
+    wsFlat['!cols'] = [
+        { wch: 8 },  // Item #
+        { wch: 10 }, // Factura #
+        { wch: 14 }, // Fecha
+        { wch: 45 }, // Proveedor
+        { wch: 22 }, // RUC
+        { wch: 16 }, // N° Factura
+        { wch: 18 }, // Código
+        { wch: 55 }, // Descripción
+        { wch: 10 }, // Cantidad
+        { wch: 22 }, // Costo Unit
+        { wch: 22 }, // Subtotal Línea
+        { wch: 14 }, // Descuento
+        { wch: 16 }, // IVA
+        { wch: 22 }, // Total Línea
+        { wch: 12 }, // Moneda
+        { wch: 22 }  // Ref Bancaria
+    ];
+    XLSX.utils.book_append_sheet(wb, wsFlat, "Base de Datos Plana (ERP)");
+
     const fileName = `Solicitud_Ordenes_Compra_Tarjeta_${cardDigits}_${new Date().toISOString().slice(0, 10)}.xlsx`;
     XLSX.writeFile(wb, fileName);
-    window.showToast(`Reporte Excel (.xlsx) "${fileName}" generado con éxito`, 'success');
+    window.showToast(`Reporte Excel (.xlsx) estructurado generado con éxito`, 'success');
 }
 
 /**
