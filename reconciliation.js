@@ -4527,6 +4527,7 @@ async function saveReconciliation() {
             providerRuc: item.providerRuc,
             invoiceRef: item.invoiceRef,
             dateStr: item.dateStr,
+            discountAmount: item.discountAmount || 0,
             currency: item.currency,
             totalAmount: item.totalAmount,
             subtotalAmount: item.subtotalAmount,
@@ -4804,11 +4805,12 @@ async function loadSavedReconciliation(id) {
             const invoice = ReconState.invoices.find(i => i.name === p.invoiceName) || null;
             return {
                 tx: tx,
-                invoice: invoice || { name: p.invoiceName || '', imageSrc: '', text: '', providerRuc: p.providerRuc, invoiceRef: p.invoiceRef, extractedDateStr: p.dateStr },
+                invoice: invoice || { name: p.invoiceName || '', imageSrc: '', text: '', providerRuc: p.providerRuc, invoiceRef: p.invoiceRef, extractedDateStr: p.dateStr, discountAmount: p.discountAmount || 0 },
                 vendorName: p.vendorName,
                 providerRuc: p.providerRuc,
                 invoiceRef: p.invoiceRef,
                 dateStr: p.dateStr,
+                discountAmount: p.discountAmount || 0,
                 currency: p.currency || 'NIO',
                 totalAmount: p.totalAmount,
                 subtotalAmount: p.subtotalAmount,
@@ -5955,6 +5957,7 @@ function savePurchasingItemsToStorage() {
             providerRuc: item.providerRuc,
             invoiceRef: item.invoiceRef,
             dateStr: item.dateStr,
+            discountAmount: item.discountAmount || 0,
             currency: item.currency,
             totalAmount: item.totalAmount,
             subtotalAmount: item.subtotalAmount,
@@ -5977,11 +5980,12 @@ function loadPurchasingItemsFromStorage() {
             const invoice = ReconState.invoices.find(i => i.name === p.invoiceName) || null;
             return {
                 tx: tx,
-                invoice: invoice || { name: p.invoiceName || '', imageSrc: '', text: '', providerRuc: p.providerRuc, invoiceRef: p.invoiceRef, extractedDateStr: p.dateStr },
+                invoice: invoice || { name: p.invoiceName || '', imageSrc: '', text: '', providerRuc: p.providerRuc, invoiceRef: p.invoiceRef, extractedDateStr: p.dateStr, discountAmount: p.discountAmount || 0 },
                 vendorName: p.vendorName,
                 providerRuc: p.providerRuc,
                 invoiceRef: p.invoiceRef,
                 dateStr: p.dateStr,
+                discountAmount: p.discountAmount || 0,
                 currency: p.currency || 'NIO',
                 totalAmount: p.totalAmount,
                 subtotalAmount: p.subtotalAmount,
@@ -6139,7 +6143,7 @@ function renderPurchasingReportUI() {
                 </div>
 
                 <!-- Invoice General Fields Grid -->
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; margin-bottom: 0.85rem; background: rgba(0,0,0,0.15); padding: 0.65rem 0.85rem; border-radius: 6px;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 0.65rem; margin-bottom: 0.85rem; background: rgba(0,0,0,0.18); padding: 0.75rem 0.85rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);">
                     <div>
                         <label style="font-size: 0.72rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 0.2rem;">RUC Proveedor:</label>
                         <input type="text" class="form-control form-control-sm input-purchasing-ruc" data-item-idx="${idx}" value="${escapeHtml(item.providerRuc)}" placeholder="Ej. J0310000001812" style="font-size: 0.8rem; font-family: monospace;">
@@ -6149,7 +6153,15 @@ function renderPurchasingReportUI() {
                         <input type="text" class="form-control form-control-sm input-purchasing-invno" data-item-idx="${idx}" value="${escapeHtml(item.invoiceRef)}" placeholder="Ej. 460542" style="font-size: 0.8rem; font-family: monospace;">
                     </div>
                     <div>
-                        <label style="font-size: 0.72rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 0.2rem;">Subtotal (Sin IVA):</label>
+                        <label style="font-size: 0.72rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 0.2rem;">Fecha Factura:</label>
+                        <input type="text" class="form-control form-control-sm input-purchasing-date" data-item-idx="${idx}" value="${escapeHtml(item.dateStr || '')}" placeholder="DD/MM/AAAA" style="font-size: 0.8rem;">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.72rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 0.2rem;">Descuento (C$ / $):</label>
+                        <input type="number" step="0.01" class="form-control form-control-sm input-purchasing-discount" data-item-idx="${idx}" value="${(item.discountAmount || 0).toFixed(2)}" placeholder="0.00" style="font-size: 0.8rem; color: #f43f5e; font-weight: 600;">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.72rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 0.2rem;">Subtotal Neto (Sin IVA):</label>
                         <input type="number" step="0.01" class="form-control form-control-sm input-purchasing-subtotal" data-item-idx="${idx}" value="${(item.subtotalAmount || 0).toFixed(2)}" style="font-size: 0.8rem; font-weight: 600; color: var(--color-success);">
                     </div>
                     <div>
@@ -6230,6 +6242,7 @@ function bindPurchasingReportListeners() {
                     list[idx].invoice.providerRuc = val || null;
                     list[idx].invoice.hasSinsaRuc = !!val;
                 }
+                savePurchasingItemsToStorage();
                 renderReconciliationUI();
             }
         });
@@ -6245,7 +6258,39 @@ function bindPurchasingReportListeners() {
                 if (list[idx].invoice) {
                     list[idx].invoice.invoiceRef = val || null;
                 }
+                savePurchasingItemsToStorage();
                 renderReconciliationUI();
+            }
+        });
+    });
+
+    // Date live editing
+    document.querySelectorAll('.input-purchasing-date').forEach(inp => {
+        inp.addEventListener('input', (e) => {
+            const idx = parseInt(e.target.dataset.itemIdx, 10);
+            if (list[idx]) {
+                const val = e.target.value.trim();
+                list[idx].dateStr = val;
+                if (list[idx].invoice) {
+                    list[idx].invoice.extractedDateStr = val || null;
+                }
+                savePurchasingItemsToStorage();
+                renderReconciliationUI();
+            }
+        });
+    });
+
+    // Discount live editing
+    document.querySelectorAll('.input-purchasing-discount').forEach(inp => {
+        inp.addEventListener('input', (e) => {
+            const idx = parseInt(e.target.dataset.itemIdx, 10);
+            if (list[idx]) {
+                const discount = parseFloat(e.target.value) || 0;
+                list[idx].discountAmount = discount;
+                if (list[idx].invoice) {
+                    list[idx].invoice.discountAmount = discount;
+                }
+                recalcItemSubtotal(idx);
             }
         });
     });
@@ -6256,7 +6301,12 @@ function bindPurchasingReportListeners() {
             const idx = parseInt(e.target.dataset.itemIdx, 10);
             if (list[idx]) {
                 list[idx].subtotalAmount = parseFloat(e.target.value) || 0;
+                if (list[idx].invoice) {
+                    list[idx].invoice.extractedSubtotal = list[idx].subtotalAmount;
+                }
                 updatePurchasingSummaryTotals();
+                savePurchasingItemsToStorage();
+                renderReconciliationUI();
             }
         });
     });
@@ -6267,7 +6317,12 @@ function bindPurchasingReportListeners() {
             const idx = parseInt(e.target.dataset.itemIdx, 10);
             if (list[idx]) {
                 list[idx].totalAmount = parseFloat(e.target.value) || 0;
+                if (list[idx].invoice) {
+                    list[idx].invoice.extractedAmount = list[idx].totalAmount;
+                }
                 updatePurchasingSummaryTotals();
+                savePurchasingItemsToStorage();
+                renderReconciliationUI();
             }
         });
     });
@@ -6280,6 +6335,7 @@ function bindPurchasingReportListeners() {
             const prodIdx = parseInt(tr.dataset.prodIdx, 10);
             if (list[itemIdx] && list[itemIdx].items[prodIdx]) {
                 list[itemIdx].items[prodIdx].code = e.target.value;
+                savePurchasingItemsToStorage();
             }
         });
     });
@@ -6291,6 +6347,7 @@ function bindPurchasingReportListeners() {
             const prodIdx = parseInt(tr.dataset.prodIdx, 10);
             if (list[itemIdx] && list[itemIdx].items[prodIdx]) {
                 list[itemIdx].items[prodIdx].description = e.target.value;
+                savePurchasingItemsToStorage();
             }
         });
     });
@@ -6386,11 +6443,29 @@ function bindPurchasingReportListeners() {
 function recalcItemSubtotal(itemIdx) {
     const list = ReconState.purchasingItems;
     if (!list || !list[itemIdx]) return;
-    const subtotal = list[itemIdx].items.reduce((acc, p) => acc + (p.totalCost || 0), 0);
-    list[itemIdx].subtotalAmount = Math.round(subtotal * 100) / 100;
+    
+    const gross = list[itemIdx].items.reduce((acc, p) => acc + (p.totalCost || 0), 0);
+    const discount = parseFloat(list[itemIdx].discountAmount) || 0;
+    const netSubtotal = Math.max(0, gross - discount);
+    
+    list[itemIdx].subtotalAmount = Math.round(netSubtotal * 100) / 100;
+    list[itemIdx].totalAmount = Math.round((netSubtotal * 1.15) * 100) / 100;
+
     const subtotalInp = document.querySelector(`.input-purchasing-subtotal[data-item-idx="${itemIdx}"]`);
     if (subtotalInp) subtotalInp.value = (list[itemIdx].subtotalAmount).toFixed(2);
+
+    const totalInp = document.querySelector(`.input-purchasing-total[data-item-idx="${itemIdx}"]`);
+    if (totalInp) totalInp.value = (list[itemIdx].totalAmount).toFixed(2);
+
+    if (list[itemIdx].invoice) {
+        list[itemIdx].invoice.extractedSubtotal = list[itemIdx].subtotalAmount;
+        list[itemIdx].invoice.extractedAmount = list[itemIdx].totalAmount;
+        list[itemIdx].invoice.discountAmount = discount;
+    }
+
     updatePurchasingSummaryTotals();
+    savePurchasingItemsToStorage();
+    renderReconciliationUI();
 }
 
 function updatePurchasingSummaryTotals() {
@@ -6418,17 +6493,15 @@ function syncPurchasingItemsFromDOM() {
 
         const rucInp = card.querySelector('.input-purchasing-ruc');
         const invNoInp = card.querySelector('.input-purchasing-invno');
+        const dateInp = card.querySelector('.input-purchasing-date');
+        const discountInp = card.querySelector('.input-purchasing-discount');
         const subtotalInp = card.querySelector('.input-purchasing-subtotal');
         const totalInp = card.querySelector('.input-purchasing-total');
 
-        if (rucInp) {
-            item.providerRuc = rucInp.value.trim().toUpperCase();
-            if (item.invoice) item.invoice.providerRuc = item.providerRuc || null;
-        }
-        if (invNoInp) {
-            item.invoiceRef = invNoInp.value.trim();
-            if (item.invoice) item.invoice.invoiceRef = item.invoiceRef || null;
-        }
+        if (rucInp) item.providerRuc = rucInp.value.trim().toUpperCase();
+        if (invNoInp) item.invoiceRef = invNoInp.value.trim();
+        if (dateInp) item.dateStr = dateInp.value.trim();
+        if (discountInp) item.discountAmount = parseFloat(discountInp.value) || 0;
         if (subtotalInp) item.subtotalAmount = parseFloat(subtotalInp.value) || item.subtotalAmount;
         if (totalInp) item.totalAmount = parseFloat(totalInp.value) || item.totalAmount;
 
@@ -6457,7 +6530,27 @@ function syncPurchasingItemsFromDOM() {
         if (updatedProds.length > 0) {
             item.items = updatedProds;
         }
+
+        // --- UNIVERSAL SYNC TO INVOICE AND TRANSACTION OBJECTS ---
+        if (item.invoice) {
+            item.invoice.providerRuc = item.providerRuc || null;
+            item.invoice.invoiceRef = item.invoiceRef || null;
+            item.invoice.extractedDateStr = item.dateStr || null;
+            item.invoice.extractedSubtotal = item.subtotalAmount;
+            item.invoice.extractedAmount = item.totalAmount;
+            item.invoice.discountAmount = item.discountAmount || 0;
+        }
+        if (item.tx) {
+            if (item.invoiceRef && !item.tx.reference) {
+                item.tx.reference = item.invoiceRef;
+            }
+        }
     });
+
+    savePurchasingItemsToStorage();
+    if (typeof renderReconciliationUI === 'function') {
+        renderReconciliationUI();
+    }
 }
 
 /**
@@ -6510,12 +6603,13 @@ async function generatePurchasingPDFReport() {
         item.providerRuc || 'Sin RUC',
         item.invoiceRef ? `F.${item.invoiceRef}` : 'Sin N°',
         window.formatCurrency(item.subtotalAmount, item.currency),
+        (item.discountAmount > 0 ? `-${window.formatCurrency(item.discountAmount, item.currency)}` : 'C$0.00'),
         window.formatCurrency(item.totalAmount, item.currency)
     ]);
 
     doc.autoTable({
         startY: nextY,
-        head: [['#', 'Fecha', 'Proveedor', 'RUC Proveedor', 'N° Factura', 'Subtotal (Sin IVA)', 'Total Pagado']],
+        head: [['#', 'Fecha', 'Proveedor', 'RUC Proveedor', 'N° Factura', 'Subtotal (Sin IVA)', 'Descuento', 'Total Pagado']],
         body: summaryRows,
         theme: 'grid',
         headStyles: { fillColor: [245, 158, 11], textColor: [0, 0, 0], fontSize: 7.5, fontStyle: 'bold' },
@@ -6523,11 +6617,12 @@ async function generatePurchasingPDFReport() {
         columnStyles: {
             0: { cellWidth: 7, halign: 'center' },
             1: { cellWidth: 17 },
-            2: { cellWidth: 56 },
-            3: { cellWidth: 28 },
-            4: { cellWidth: 18 },
-            5: { cellWidth: 27, halign: 'right' },
-            6: { cellWidth: 27, halign: 'right' }
+            2: { cellWidth: 50 },
+            3: { cellWidth: 26 },
+            4: { cellWidth: 16 },
+            5: { cellWidth: 22, halign: 'right' },
+            6: { cellWidth: 18, halign: 'right' },
+            7: { cellWidth: 24, halign: 'right' }
         }
     });
 
@@ -6690,20 +6785,27 @@ function exportPurchasingExcel() {
 
     // 2. Section 1: Resumen de Facturas
     aoa.push(["1. RESUMEN DE FACTURAS PAGADAS PENDIENTES DE OC"]);
-    aoa.push(["#", "Fecha", "Proveedor", "RUC Proveedor", "N° Factura", "Subtotal (Sin IVA)", "Total Pagado (Con IVA)", "Moneda", "Referencia Bancaria"]);
+    aoa.push(["#", "Fecha", "Proveedor", "RUC Proveedor", "N° Factura", "Subtotal Bruto (Sin IVA)", "Descuento", "Subtotal Neto (Sin IVA)", "Total Pagado (Con IVA)", "Moneda", "Referencia Bancaria"]);
 
     let sumSubtotal = 0;
+    let sumDiscount = 0;
     let sumTotal = 0;
 
     list.forEach((item, idx) => {
+        const gross = (item.items || []).reduce((acc, p) => acc + (p.totalCost || 0), 0) || item.subtotalAmount;
+        const discount = parseFloat(item.discountAmount) || 0;
         sumSubtotal += (parseFloat(item.subtotalAmount) || 0);
+        sumDiscount += discount;
         sumTotal += (parseFloat(item.totalAmount) || 0);
+
         aoa.push([
             idx + 1,
             item.dateStr,
             item.vendorName,
             item.providerRuc || 'Sin RUC',
             item.invoiceRef ? `F.${item.invoiceRef}` : 'Sin N°',
+            parseFloat(gross.toFixed(2)),
+            parseFloat(discount.toFixed(2)),
             parseFloat((item.subtotalAmount || 0).toFixed(2)),
             parseFloat((item.totalAmount || 0).toFixed(2)),
             item.currency || 'NIO',
@@ -6718,6 +6820,8 @@ function exportPurchasingExcel() {
         `Total ${list.length} Facturas`,
         "",
         "",
+        parseFloat((sumSubtotal + sumDiscount).toFixed(2)),
+        parseFloat(sumDiscount.toFixed(2)),
         parseFloat(sumSubtotal.toFixed(2)),
         parseFloat(sumTotal.toFixed(2)),
         "NIO",
@@ -6732,6 +6836,7 @@ function exportPurchasingExcel() {
     aoa.push([]);
 
     list.forEach((item, idx) => {
+        const discount = parseFloat(item.discountAmount) || 0;
         // Group Header
         aoa.push([
             `#${idx + 1}: ${item.vendorName} | RUC: ${item.providerRuc || 'Sin RUC'} | Factura: ${item.invoiceRef || 'Sin N°'} (${item.dateStr})`
@@ -6744,20 +6849,19 @@ function exportPurchasingExcel() {
             "Cant.",
             "Costo Unit. (Sin IVA)",
             "Subtotal Línea (Sin IVA)",
+            "Descuento Aplicado",
             "IVA (15%)",
             "Total con IVA",
             "Moneda"
         ]);
 
-        let invSubtotal = 0;
+        let invGrossSubtotal = 0;
 
         item.items.forEach(prod => {
             const qty = prod.quantity || 1;
             const unit = prod.unitCost || 0;
             const subtotal = prod.totalCost || (qty * unit);
-            const iva = Math.round(subtotal * 0.15 * 100) / 100;
-            const totalWithIva = Math.round((subtotal + iva) * 100) / 100;
-            invSubtotal += subtotal;
+            invGrossSubtotal += subtotal;
 
             aoa.push([
                 prod.code || 'S/C',
@@ -6765,22 +6869,25 @@ function exportPurchasingExcel() {
                 qty,
                 parseFloat(unit.toFixed(2)),
                 parseFloat(subtotal.toFixed(2)),
-                parseFloat(iva.toFixed(2)),
-                parseFloat(totalWithIva.toFixed(2)),
+                0.00,
+                parseFloat((subtotal * 0.15).toFixed(2)),
+                parseFloat((subtotal * 1.15).toFixed(2)),
                 item.currency || 'NIO'
             ]);
         });
 
         // Invoice Subtotal line
-        const invIva = Math.round(invSubtotal * 0.15 * 100) / 100;
+        const invNetSubtotal = Math.max(0, invGrossSubtotal - discount);
+        const invIva = Math.round(invNetSubtotal * 0.15 * 100) / 100;
         aoa.push([
             "SUBTOTAL",
-            `Total Items Factura #${idx + 1}`,
+            `Total Factura #${idx + 1} (Subtotal Bruto: C$${invGrossSubtotal.toFixed(2)} | Descuento: -C$${discount.toFixed(2)})`,
             "",
             "",
-            parseFloat(invSubtotal.toFixed(2)),
+            parseFloat(invGrossSubtotal.toFixed(2)),
+            parseFloat(discount.toFixed(2)),
             parseFloat(invIva.toFixed(2)),
-            parseFloat((item.totalAmount || (invSubtotal + invIva)).toFixed(2)),
+            parseFloat((item.totalAmount || (invNetSubtotal + invIva)).toFixed(2)),
             item.currency || 'NIO'
         ]);
 
@@ -6796,11 +6903,12 @@ function exportPurchasingExcel() {
         { wch: 45 }, // B: Fecha / Descripcion / Proveedor
         { wch: 10 }, // C: Cant / Proveedor
         { wch: 22 }, // D: Costo Unit / RUC
-        { wch: 22 }, // E: Subtotal / Factura
-        { wch: 16 }, // F: IVA / Subtotal
-        { wch: 20 }, // G: Total / Total Pagado
-        { wch: 12 }, // H: Moneda
-        { wch: 20 }  // I: Referencia Bancaria
+        { wch: 22 }, // E: Subtotal Bruto
+        { wch: 16 }, // F: Descuento
+        { wch: 22 }, // G: Subtotal Neto
+        { wch: 20 }, // H: Total con IVA
+        { wch: 12 }, // I: Moneda
+        { wch: 20 }  // J: Referencia Bancaria
     ];
 
     XLSX.utils.book_append_sheet(wb, ws, "Solicitud OC Compras");
