@@ -2112,7 +2112,10 @@
 
             <div class="modal-footer justify-between" style="border-top: 1px solid var(--border-color); padding: 1rem 1.5rem; display: flex; align-items: center;">
                 <button type="button" class="btn btn-secondary" id="btn-cancel-purchasing-modal">Cerrar</button>
-                <div style="display: flex; gap: 0.5rem;">
+                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                    <button type="button" class="btn btn-secondary btn-sm" id="btn-save-purchasing-changes" style="border: 1px solid var(--color-primary); color: var(--color-primary); background: rgba(56, 189, 248, 0.08);">
+                        <i data-lucide="save"></i> Guardar Cambios
+                    </button>
                     <button type="button" class="btn btn-secondary btn-sm" id="btn-export-purchasing-csv">
                         <i data-lucide="file-spreadsheet"></i> Exportar a Excel / CSV
                     </button>
