@@ -3214,6 +3214,10 @@ function initModalListeners() {
             closeModal(reconElements.modalUpload);
             runMatchingAlgorithm();
             renderReconciliationUI();
+            
+            if (doc.docType === 'invoice') {
+                openViewInvoiceModal(doc, targetTx);
+            }
         });
     }
 
@@ -3877,6 +3881,9 @@ async function processSingleInvoiceUpload() {
             closeModal(reconElements.modalUpload);
             runMatchingAlgorithm();
             renderReconciliationUI();
+            if (newDoc.docType === 'invoice') {
+                openViewInvoiceModal(newDoc, targetTx);
+            }
         }, 1000);
 
     } catch (err) {
