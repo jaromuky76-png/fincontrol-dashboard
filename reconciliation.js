@@ -2053,7 +2053,9 @@ function getRetentionsBadgeHTML(tx) {
     // Add Purchase Order check for non-fuel charges
     const isFuel = /\bPUMA\b|\bUNO\b/i.test(tx.description);
     if (!isFuel && tx.type === 'charge') {
-        if (tx.purchaseOrderDoc) {
+        if (tx.ocExempt) {
+            html += `<span class="badge" style="background-color: rgba(148, 163, 184, 0.1); color: var(--text-muted);"><i data-lucide="file-minus"></i>OC Exenta</span>`;
+        } else if (tx.purchaseOrderDoc) {
             const poNo = tx.purchaseOrderDoc.purchaseOrderRef || tx.purchaseOrderDoc.name.substring(0, 15);
             html += `<span class="badge badge-success" title="OC vinculada: ${tx.purchaseOrderDoc.name}"><i data-lucide="file-text"></i>OC: ${poNo}</span>`;
         } else {
@@ -5197,7 +5199,7 @@ async function generatePdfReport() {
                 if (rucInv) {
                     comercioStr += `\n(RUC: ${rucInv.providerRuc})`;
                 } else {
-                    comercioStr += `\n(⚠️ Sin RUC)`;
+                    comercioStr += `\n(Sin RUC)`;
                 }
             }
 
@@ -5208,7 +5210,7 @@ async function generatePdfReport() {
                 } else if (tx.purchaseOrderDoc) {
                     ocNumbers = tx.purchaseOrderDoc.purchaseOrderRef || '---';
                 } else {
-                    ocNumbers = '⚠️ Falta OC';
+                    ocNumbers = 'Falta OC';
                 }
             } else if (tx.vehiclePlate) {
                 ocNumbers = `Placa: ${tx.vehiclePlate}`;
