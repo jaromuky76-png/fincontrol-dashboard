@@ -1728,7 +1728,8 @@ function runMatchingAlgorithm() {
             !doc.matched && 
             doc.docType === 'invoice' &&
             checkAmountMatch(tx.amount, tx.currency, doc, false) &&
-            checkBusinessNameMatch(tx.description, doc)
+            checkBusinessNameMatch(tx.description, doc) &&
+            !(doc.excludedTxIds && doc.excludedTxIds.includes(tx.id))
         );
 
         if (eligibleInvoices.length > 0) {
@@ -1768,7 +1769,8 @@ function runMatchingAlgorithm() {
             !doc.matched && 
             doc.docType === 'invoice' &&
             checkAmountMatch(tx.amount, tx.currency, doc, true) &&
-            checkBusinessNameMatch(tx.description, doc)
+            checkBusinessNameMatch(tx.description, doc) &&
+            !(doc.excludedTxIds && doc.excludedTxIds.includes(tx.id))
         );
 
         if (eligibleInvoices.length > 0) {
@@ -1808,7 +1810,8 @@ function runMatchingAlgorithm() {
         const eligibleInvoices = ReconState.invoices.filter(doc => 
             !doc.matched && 
             doc.docType === 'invoice' &&
-            checkAmountMatch(tx.amount, tx.currency, doc, false)
+            checkAmountMatch(tx.amount, tx.currency, doc, false) &&
+            !(doc.excludedTxIds && doc.excludedTxIds.includes(tx.id))
         );
 
         if (eligibleInvoices.length > 0) {
@@ -1847,7 +1850,8 @@ function runMatchingAlgorithm() {
         const eligibleInvoices = ReconState.invoices.filter(doc => 
             !doc.matched && 
             doc.docType === 'invoice' &&
-            checkAmountMatch(tx.amount, tx.currency, doc, true)
+            checkAmountMatch(tx.amount, tx.currency, doc, true) &&
+            !(doc.excludedTxIds && doc.excludedTxIds.includes(tx.id))
         );
 
         if (eligibleInvoices.length > 0) {
@@ -4176,7 +4180,14 @@ function unlinkInvoiceManually() {
     const tx = ReconState.activeTxToUnlink;
     const invoice = ReconState.activeInvoiceToLink;
     if (tx && invoice) {
-        if (invoice.docType === 'invoice') {
+        const docType = invoice.docType || 'invoice';
+        
+        invoice.excludedTxIds = invoice.excludedTxIds || [];
+        if (!invoice.excludedTxIds.includes(tx.id)) {
+            invoice.excludedTxIds.push(tx.id);
+        }
+
+        if (docType === 'invoice') {
             if (tx.invoices) {
                 tx.invoices = tx.invoices.filter(i => i.name !== invoice.name);
             }
@@ -4184,22 +4195,22 @@ function unlinkInvoiceManually() {
                 tx.matched = false;
                 tx.isManual = false;
             }
-        } else if (invoice.docType === 'retencion_ir') {
+        } else if (docType === 'retencion_ir') {
             tx.hasRetencionIR = false;
             tx.retentionIRDoc = null;
-        } else if (invoice.docType === 'retencion_municipal') {
+        } else if (docType === 'retencion_municipal') {
             tx.hasRetencionMunicipal = false;
             tx.retentionMunicipalDoc = null;
-        } else if (invoice.docType === 'exencion') {
+        } else if (docType === 'exencion') {
             tx.isExempt = false;
             tx.exemptionDoc = null;
-        } else if (invoice.docType === 'exencion_dgi') {
+        } else if (docType === 'exencion_dgi') {
             tx.hasExemptionDGI = false;
             tx.exemptionDGIDoc = null;
-        } else if (invoice.docType === 'exencion_alma') {
+        } else if (docType === 'exencion_alma') {
             tx.hasExemptionALMA = false;
             tx.exemptionALMADoc = null;
-        } else if (invoice.docType === 'orden_compra') {
+        } else if (docType === 'orden_compra') {
             tx.purchaseOrderDoc = null;
         }
         
