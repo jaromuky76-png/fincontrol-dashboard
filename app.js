@@ -11,7 +11,7 @@ const AppState = {
         bank: 'BANPRO',
         toleranceDays: 4
     },
-    currentView: 'reconciliation',
+    currentView: 'accounting',
     theme: 'dark'
 };
 
@@ -217,51 +217,55 @@ function applyTheme() {
 
 function initNavigation() {
     const menuItems = [
-        { btn: elements.menuReconciliation, view: elements.viewReconciliation, title: 'Rendición de Cuentas', subtitle: 'Concilia facturas (ZIP) con tu estado de cuenta BANPRO (PDF)' },
-        { btn: elements.menuAvailability, view: elements.viewAvailability, title: 'Disponibilidad de Tarjetas', subtitle: 'Extrae saldos disponibles de los PDFs de Tesorería' },
-        { btn: elements.menuAccounting, view: elements.viewAccounting, title: 'Modo Contable - Costeo de Mano de Obra', subtitle: 'Identifica y procesa los códigos de mano de obra por unidad de negocio desde la sábana de ventas' },
-        { btn: elements.menuSettings, view: elements.viewSettings, title: 'Configuración de Parámetros', subtitle: 'Administra tus tarjetas corporativas y variables de sistema' }
+        { id: 'menu-reconciliation', viewId: 'view-reconciliation', title: 'Rendición de Cuentas', subtitle: 'Concilia facturas (ZIP) con tu estado de cuenta BANPRO (PDF)' },
+        { id: 'menu-availability', viewId: 'view-availability', title: 'Disponibilidad de Tarjetas', subtitle: 'Extrae saldos disponibles de los PDFs de Tesorería' },
+        { id: 'menu-accounting', viewId: 'view-accounting', title: 'Modo Contable - Costeo de Mano de Obra', subtitle: 'Identifica y procesa los códigos de mano de obra por unidad de negocio desde la sábana de ventas' },
+        { id: 'menu-settings', viewId: 'view-settings', title: 'Configuración de Parámetros', subtitle: 'Administra tus tarjetas corporativas y variables de sistema' }
     ];
 
-    menuItems.forEach(item => {
-        if (!item.btn || !item.view) return;
-        item.btn.addEventListener('click', (e) => {
-            e.preventDefault();
-            
-            // Deactivate all
-            menuItems.forEach(mi => {
-                if (mi.btn && mi.view) {
-                    mi.btn.classList.remove('active');
-                    mi.view.classList.remove('active');
-                    mi.view.classList.add('hidden');
-                }
-            });
+    function activateView(targetViewId) {
+        menuItems.forEach(item => {
+            const btn = document.getElementById(item.id);
+            const view = document.getElementById(item.viewId);
 
-            // Activate current
-            item.btn.classList.add('active');
-            item.view.classList.add('active');
-            item.view.classList.remove('hidden');
-            
-            // Update titles
-            elements.viewTitle.textContent = item.title;
-            elements.viewSubtitle.textContent = item.subtitle;
-            
-            // Scroll to top of main-content
-            document.querySelector('.main-content').scrollTop = 0;
-            
-            AppState.currentView = item.view.id.replace('view-', '');
+            if (item.viewId === targetViewId) {
+                if (btn) btn.classList.add('active');
+                if (view) {
+                    view.classList.remove('hidden');
+                    view.style.display = 'block';
+                }
+                const titleEl = document.getElementById('view-title');
+                const subEl = document.getElementById('view-subtitle');
+                if (titleEl) titleEl.textContent = item.title;
+                if (subEl) subEl.textContent = item.subtitle;
+                AppState.currentView = item.viewId.replace('view-', '');
+            } else {
+                if (btn) btn.classList.remove('active');
+                if (view) {
+                    view.classList.add('hidden');
+                    view.style.display = 'none';
+                }
+            }
         });
+    }
+
+    menuItems.forEach(item => {
+        const btn = document.getElementById(item.id);
+        if (btn) {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                activateView(item.viewId);
+                history.replaceState(null, null, `#${item.viewId.replace('view-', '')}`);
+            });
+        }
     });
 
-    // Check hash for routing on initial load
-    const hash = window.location.hash;
-    if (hash === '#availability' && elements.menuAvailability) {
-        elements.menuAvailability.click();
-    } else if (hash === '#accounting' && elements.menuAccounting) {
-        elements.menuAccounting.click();
-    } else if (hash === '#settings' && elements.menuSettings) {
-        elements.menuSettings.click();
-    }
+    // Hash router inicial
+    const hash = window.location.hash.replace('#', '');
+    if (hash === 'availability') activateView('view-availability');
+    else if (hash === 'settings') activateView('view-settings');
+    else if (hash === 'reconciliation') activateView('view-reconciliation');
+    else activateView('view-accounting');
 }
 
 // --- DRAG AND DROP UTILS ---
@@ -270,45 +274,58 @@ function initDragAndDropGlobal() {
     const dropzones = document.querySelectorAll('.drop-zone');
 
     dropzones.forEach(zone => {
-        // Skip accounting dropzone as accounting.js manages its own events
-        if (zone.id === 'drop-excel-sales') return;
+        // Skip accounting & sales dropzones as accounting.js manages its own events
+        if (zone.id === 'drop-excel-sales' || zone.id === 'drop-acc-ot' || zone.id === 'drop-acc-ventas') return;
 
         const input = zone.querySelector('input[type="file"]');
         if (!input) return;
 
-        // Click triggers file dialog
+        // Prevenir comportamiento por defecto de abrir archivo en el navegador
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            zone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+            }, false);
+        });
+
+        // Click abre diálogo
         zone.addEventListener('click', (e) => {
             if (e.target !== input) {
                 input.click();
             }
         });
 
-        // Drag events
+        // Resaltar al arrastrar sobre la zona
         ['dragenter', 'dragover'].forEach(eventName => {
-            zone.addEventListener(eventName, (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                zone.classList.add('dragover');
+            zone.addEventListener(eventName, () => {
+                zone.classList.add('dragover', 'drag-over');
             }, false);
         });
 
         ['dragleave', 'drop'].forEach(eventName => {
-            zone.addEventListener(eventName, (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                zone.classList.remove('dragover');
-                if (eventName === 'drop' && e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                    try {
-                        const dt = new DataTransfer();
-                        Array.from(e.dataTransfer.files).forEach(f => dt.items.add(f));
-                        input.files = dt.files;
-                    } catch (err) {
-                        console.warn('DataTransfer assignment not supported', err);
-                    }
-                    input.dispatchEvent(new Event('change', { bubbles: true }));
-                }
+            zone.addEventListener(eventName, () => {
+                zone.classList.remove('dragover', 'drag-over');
             }, false);
         });
+
+        // Soltar archivo
+        zone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const files = e.dataTransfer?.files;
+            if (files && files.length > 0) {
+                try {
+                    input.files = files;
+                } catch (err) {
+                    try {
+                        const dt = new DataTransfer();
+                        Array.from(files).forEach(f => dt.items.add(f));
+                        input.files = dt.files;
+                    } catch (e2) {}
+                }
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        }, false);
     });
 }
 
@@ -1123,10 +1140,10 @@ function generateCardInventoryPdfReport() {
     doc.setTextColor(71, 85, 105);
 
     doc.line(30, finalY, 110, finalY);
-    doc.text('Elaborado / Entregado por (Administración)', 32, finalY + 4.5);
+    doc.text('Elaborado y Conciliado por', 32, finalY + 4.5);
 
     doc.line(160, finalY, 240, finalY);
-    doc.text('Recibido / Verificación por (Contabilidad & Tesorería)', 162, finalY + 4.5);
+    doc.text('Revisado y aprobado por', 162, finalY + 4.5);
 
     // Annex Section: Vehicle Documents & Circulation Images (Derecho & Revés)
     const cardsWithDocs = CardInventoryState.cards.filter(c => c.plasticImage || c.regFrontImage || c.regBackImage);

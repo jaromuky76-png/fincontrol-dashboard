@@ -5193,67 +5193,44 @@ async function generatePdfReport() {
             const amtNIO = tx.currency === 'NIO' ? `C$${tx.amount.toFixed(2)}` : '---';
             const amtUSD = tx.currency === 'USD' ? `$${tx.amount.toFixed(2)}` : '---';
             
-            let retText = "No requiere";
-            if (tx.requiresRetentions) {
-                const isExemptRoute = tx.exemptionDGIDoc || tx.exemptionALMADoc || tx.isExempt;
-                if (isExemptRoute) {
-                    const parts = [];
-                    parts.push(tx.exemptionDGIDoc ? "Exon. DGI OK" : "FALTA Exon. DGI");
-                    if (tx.currency !== 'USD') {
-                        parts.push(tx.exemptionALMADoc ? "Exon. ALMA OK" : "FALTA Exon. ALMA");
-                    }
-                    retText = parts.join(" / ");
+            let invoiceNumbers = '---';
+            let ocNumbers = '---';
+            let comercioStr = tx.description.substring(0, 35);
+            
+            const invoices = tx.invoices || (tx.invoice ? [tx.invoice] : []);
+            if (invoices.length > 0) {
+                // Collect invoice numbers without "F."
+                invoiceNumbers = invoices.map(inv => inv.invoiceRef || '---').join(', ');
+                
+                // Get RUC from the first invoice that has one and append it to Comercio
+                const rucInv = invoices.find(inv => inv.providerRuc);
+                if (rucInv) {
+                    comercioStr += `\n(RUC: ${rucInv.providerRuc})`;
                 } else {
-                    const parts = [];
-                    parts.push(tx.hasRetencionIR ? "IR 2% OK" : "FALTA IR 2%");
-                    if (tx.currency !== 'USD') {
-                        parts.push(tx.hasRetencionMunicipal ? "ALMA 1% OK" : "FALTA ALMA 1%");
-                    }
-                    retText = parts.join(" / ");
+                    comercioStr += `\n(⚠️ Sin RUC)`;
                 }
             }
 
-            // Detailed Support Status (Invoice + OC / Plate)
-            let supportStatus = 'No disponible';
-            const invoices = tx.invoices || (tx.invoice ? [tx.invoice] : []);
-            if (invoices.length > 0) {
-                const parts = invoices.map(inv => {
-                    let invText = `F.${inv.invoiceRef || '---'}`;
-                    if (inv.docType === 'invoice') {
-                        if (inv.providerRuc) {
-                            invText += ` (RUC: ${inv.providerRuc})`;
-                        } else {
-                            invText += ' (⚠️ Sin RUC)';
-                        }
-                    }
-                    return invText;
-                });
-                
-                const isFuelTx = /\bPUMA\b|\bUNO\b/i.test(tx.description);
-                if (!isFuelTx) {
-                    if (tx.ocExempt) {
-                        parts.push('OC Exenta');
-                    } else if (tx.purchaseOrderDoc) {
-                        const poNo = tx.purchaseOrderDoc.purchaseOrderRef || '---';
-                        parts.push(`OC.${poNo}`);
-                    } else {
-                        parts.push('⚠️ Falta OC');
-                    }
-                } else if (tx.vehiclePlate) {
-                    parts.push(`Placa: ${tx.vehiclePlate}`);
+            const isFuelTx = /\bPUMA\b|\bUNO\b/i.test(tx.description);
+            if (!isFuelTx) {
+                if (tx.ocExempt) {
+                    ocNumbers = 'No requiere';
+                } else if (tx.purchaseOrderDoc) {
+                    ocNumbers = tx.purchaseOrderDoc.purchaseOrderRef || '---';
+                } else {
+                    ocNumbers = '⚠️ Falta OC';
                 }
-                
-                supportStatus = parts.join(' / ');
+            } else if (tx.vehiclePlate) {
+                ocNumbers = `Placa: ${tx.vehiclePlate}`;
             }
 
             return [
                 tx.dateStr,
-                tx.reference || '---',
-                tx.description.substring(0, 30),
+                comercioStr,
+                invoiceNumbers,
+                ocNumbers,
                 amtNIO,
-                amtUSD,
-                supportStatus,
-                retText
+                amtUSD
             ];
         });
 
@@ -5263,16 +5240,15 @@ async function generatePdfReport() {
             styles: { fontSize: 7.5 },
             headStyles: { fillColor: [0, 128, 64] }, // Sinsa Green
             columnStyles: {
-                0: { cellWidth: 12 }, // Fecha
-                1: { cellWidth: 28 }, // Referencia
-                2: { cellWidth: 'auto' }, // Comercio
-                3: { cellWidth: 22, halign: 'right' }, // Monto NIO
-                4: { cellWidth: 22, halign: 'right' }, // Monto USD
-                5: { cellWidth: 32 }, // Factura / OC
-                6: { cellWidth: 22 }  // Impuestos / Retenciones
+                0: { cellWidth: 14 }, // Fecha
+                1: { cellWidth: 'auto' }, // Comercio / RUC
+                2: { cellWidth: 28 }, // N° Factura
+                3: { cellWidth: 32 }, // Orden de Compra
+                4: { cellWidth: 24, halign: 'right' }, // Monto NIO
+                5: { cellWidth: 24, halign: 'right' }  // Monto USD
             },
-            head: [['Fecha', 'Referencia', 'Comercio', 'Monto NIO', 'Monto USD', 'Factura / OC', 'Impuestos / Retenciones']],
-            body: resolvedRows.length > 0 ? resolvedRows : [['---', '---', 'No hay cargos conciliados', '---', '---', '---', '---']]
+            head: [['Fecha', 'Comercio / RUC', 'N° Factura', 'Orden de Compra', 'Monto NIO', 'Monto USD']],
+            body: resolvedRows.length > 0 ? resolvedRows : [['---', 'No hay cargos conciliados', '---', '---', '---', '---']]
         });
 
         nextY = doc.previousAutoTable.finalY + 12;
@@ -5290,8 +5266,7 @@ async function generatePdfReport() {
             const amtUSD = tx.currency === 'USD' ? `$${tx.amount.toFixed(2)}` : '---';
             return [
                 tx.dateStr,
-                tx.reference || '---',
-                tx.description.substring(0, 45),
+                tx.description.substring(0, 50),
                 amtNIO,
                 amtUSD,
                 'Falta Documentación'
@@ -5304,15 +5279,14 @@ async function generatePdfReport() {
             styles: { fontSize: 7.5 },
             headStyles: { fillColor: [185, 28, 28] }, // Red matching alert color
             columnStyles: {
-                0: { cellWidth: 12 }, // Fecha
-                1: { cellWidth: 28 }, // Referencia
-                2: { cellWidth: 'auto' }, // Comercio
-                3: { cellWidth: 22, halign: 'right' }, // Monto NIO
-                4: { cellWidth: 22, halign: 'right' }, // Monto USD
-                5: { cellWidth: 28 }  // Estado Conciliación
+                0: { cellWidth: 14 }, // Fecha
+                1: { cellWidth: 'auto' }, // Comercio
+                2: { cellWidth: 26, halign: 'right' }, // Monto NIO
+                3: { cellWidth: 26, halign: 'right' }, // Monto USD
+                4: { cellWidth: 32 }  // Estado Conciliación
             },
-            head: [['Fecha', 'Referencia', 'Comercio/Descripción', 'Monto NIO', 'Monto USD', 'Estado Conciliación']],
-            body: unresolvedRows.length > 0 ? unresolvedRows : [['---', '---', 'No se encontraron cargos sin respaldo', '---', '---', 'Cuadratura Perfecta']]
+            head: [['Fecha', 'Comercio/Descripción', 'Monto NIO', 'Monto USD', 'Estado Conciliación']],
+            body: unresolvedRows.length > 0 ? unresolvedRows : [['---', 'No se encontraron cargos sin respaldo', '---', '---', 'Cuadratura Perfecta']]
         });
 
         nextY = doc.previousAutoTable.finalY + 12;
@@ -5330,8 +5304,7 @@ async function generatePdfReport() {
             const reimbursementStatus = tx.reimbursementDoc ? 'Disponible' : 'No disponible';
             return [
                 tx.dateStr,
-                tx.reference || '---',
-                tx.description.substring(0, 35),
+                tx.description.substring(0, 45),
                 amtNIO,
                 amtUSD,
                 reimbursementStatus
@@ -5340,8 +5313,7 @@ async function generatePdfReport() {
 
         // Append total row
         reimbursementRows.push([
-            'TOTAL REEMBOLSOS',
-            '',
+            'TOTAL',
             '',
             `C$${sumReimbursementsNIO.toFixed(2)}`,
             `$${sumReimbursementsUSD.toFixed(2)}`,
@@ -5354,15 +5326,14 @@ async function generatePdfReport() {
             styles: { fontSize: 7.5 },
             headStyles: { fillColor: [217, 119, 6] }, // Amber/Warning color matching CSS color-warning
             columnStyles: {
-                0: { cellWidth: 12 }, // Fecha
-                1: { cellWidth: 28 }, // Referencia
-                2: { cellWidth: 'auto' }, // Comercio
-                3: { cellWidth: 22, halign: 'right' }, // Monto NIO
-                4: { cellWidth: 22, halign: 'right' }, // Monto USD
-                5: { cellWidth: 28 }  // Comprobante de Reembolso
+                0: { cellWidth: 14 }, // Fecha
+                1: { cellWidth: 'auto' }, // Comercio
+                2: { cellWidth: 26, halign: 'right' }, // Monto NIO
+                3: { cellWidth: 26, halign: 'right' }, // Monto USD
+                4: { cellWidth: 32 }  // Comprobante de Reembolso
             },
-            head: [['Fecha', 'Referencia', 'Comercio/Descripción', 'Monto NIO', 'Monto USD', 'Comprobante de Reembolso']],
-            body: reimbursementRows.length > 1 ? reimbursementRows : [['---', '---', 'No hay cargos marcados para reembolso', '---', '---', '---']],
+            head: [['Fecha', 'Comercio/Descripción', 'Monto NIO', 'Monto USD', 'Comprobante de Reembolso']],
+            body: reimbursementRows.length > 1 ? reimbursementRows : [['---', 'No hay cargos marcados para reembolso', '---', '---', '---']],
             didParseCell: function(data) {
                 // Make the total row bold
                 if (data.row.index === reimbursementRows.length - 1 && reimbursementRows.length > 1) {
