@@ -4694,8 +4694,8 @@ async function saveReconciliation() {
         notes: reconElements.textareaNotes ? reconElements.textareaNotes.value : '',
         settings: {
             toleranceDays: window.AppState.settings.toleranceDays,
-            cardDigits: document.getElementById('input-recon-card') ? document.getElementById('input-recon-card').value : '9155',
-            bank: document.getElementById('select-bank') ? document.getElementById('select-bank').value : 'BANPRO'
+            cardDigits: window.AppState && window.AppState.settings ? window.AppState.settings.reconCard : '9155',
+            bank: window.AppState && window.AppState.settings ? window.AppState.settings.bank : 'BANPRO'
         }
     };
 
@@ -4937,24 +4937,9 @@ async function loadSavedReconciliation(id) {
         };
     });
 
-    // Keep settings
-    if (record.settings) {
-        window.AppState.settings.toleranceDays = record.settings.toleranceDays || 4;
-        window.AppState.settings.reconCard = record.settings.cardDigits || '9155';
-        window.AppState.settings.bank = record.settings.bank || 'BANPRO';
-        
-        // Save to localStorage so they persist across refreshes
-        localStorage.setItem('fincontrol_settings', JSON.stringify(window.AppState.settings));
-
-        const inputTolerance = document.getElementById('input-match-tolerance');
-        if (inputTolerance) inputTolerance.value = String(record.settings.toleranceDays);
-        
-        const inputCard = document.getElementById('input-recon-card');
-        if (inputCard) inputCard.value = record.settings.reconCard;
-        
-        const selectBank = document.getElementById('select-bank');
-        if (selectBank) selectBank.value = record.settings.bank;
-    }
+    // The historical settings are kept in ReconState.loadedPeriod.settings
+    // We intentionally DO NOT overwrite window.AppState.settings or localStorage here
+    // so the user's global preferences are not lost when viewing an old record.
 
     // Restore purchasing items if saved in history
     if (record.purchasingItems && Array.isArray(record.purchasingItems)) {
@@ -5106,15 +5091,20 @@ async function generatePdfReport() {
         let year = parseInt(reconElements.inputSaveYear.value, 10) || new Date().getFullYear();
         let reconNum = parseInt(reconElements.inputSaveNumber.value, 10) || 1;
 
+        let cardDigits = window.AppState && window.AppState.settings ? window.AppState.settings.reconCard : '9155';
+        let bankName = window.AppState && window.AppState.settings ? window.AppState.settings.bank : 'BANPRO';
+
         if (ReconState.loadedPeriod) {
             month = ReconState.loadedPeriod.month;
             year = ReconState.loadedPeriod.year;
             reconNum = ReconState.loadedPeriod.number;
+            if (ReconState.loadedPeriod.settings) {
+                cardDigits = ReconState.loadedPeriod.settings.cardDigits || cardDigits;
+                bankName = ReconState.loadedPeriod.settings.bank || bankName;
+            }
         }
 
         const monthName = monthNames[month - 1];
-        const cardDigits = document.getElementById('input-recon-card') ? document.getElementById('input-recon-card').value : '9155';
-        const bankName = document.getElementById('select-bank') ? document.getElementById('select-bank').value : 'BANPRO';
 
         // Corporate Header (SILVA INTERNACIONAL S.A. Green: #008040 / RGB: 0, 128, 64)
         doc.setFillColor(0, 128, 64);
