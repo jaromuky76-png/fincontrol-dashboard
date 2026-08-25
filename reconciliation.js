@@ -3529,21 +3529,43 @@ function openUploadModalForTx(txOrGroup, isReimbursement = false, isRetention = 
     const selectOrphan = document.getElementById('select-orphan-invoice-to-assign');
     if (containerPickOrphan && selectOrphan) {
         // Show any loaded document in batch
-        const candidateDocs = ReconState.invoices.filter(i => {
-            if (!i.matched) return true;
-            if (isRetention) return true;
-            if (isPurchaseOrder) return true;
-            return false;
-        });
+        const candidateDocs = ReconState.invoices.filter(i => !i.matched);
 
         if (candidateDocs.length > 0) {
+            // Sort candidates by date descending
+            candidateDocs.sort((a, b) => {
+                const dateA = a.extractedDate ? new Date(a.extractedDate).getTime() : 0;
+                const dateB = b.extractedDate ? new Date(b.extractedDate).getTime() : 0;
+                return dateB - dateA;
+            });
+
             selectOrphan.innerHTML = '';
             candidateDocs.forEach(inv => {
                 const opt = document.createElement('option');
                 opt.value = inv.name;
+                
                 const typeLabel = inv.docType ? `[${inv.docType.toUpperCase()}] ` : '';
                 const amtStr = inv.extractedAmount ? window.formatCurrency(inv.extractedAmount, inv.currency || 'NIO') : (inv.baseAmount ? `Base: ${window.formatCurrency(inv.baseAmount, inv.currency || 'NIO')}` : 'Monto N/A');
-                opt.textContent = `${typeLabel}${inv.name} | ${inv.extractedDateStr || 'Sin fecha'} | ${amtStr}`;
+                
+                // Helper to extract basic provider name from OCR text
+                let providerName = 'PROVEEDOR DESCONOCIDO';
+                if (inv.text) {
+                    const lines = inv.text.split('\n').map(l => l.trim()).filter(l => l.length > 3);
+                    for (const line of lines) {
+                        const upper = line.toUpperCase();
+                        if (upper.startsWith('RUC') || upper.startsWith('FECHA') || upper.startsWith('FACTURA') || upper.startsWith('TELEF')) continue;
+                        if (/[A-Za-z]/.test(line)) {
+                            providerName = line.substring(0, 35).toUpperCase();
+                            break;
+                        }
+                    }
+                }
+
+                let refStr = 'Sin N°';
+                if (inv.invoiceRef) refStr = `Fact: ${inv.invoiceRef}`;
+                else if (inv.purchaseOrderRef) refStr = `OC: ${inv.purchaseOrderRef}`;
+
+                opt.textContent = `${typeLabel}${providerName} | ${refStr} | F: ${inv.extractedDateStr || '--/--/----'} | ${amtStr}`;
                 selectOrphan.appendChild(opt);
             });
             containerPickOrphan.classList.remove('hidden');
