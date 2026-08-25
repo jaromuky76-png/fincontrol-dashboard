@@ -2505,13 +2505,14 @@ function renderReconciliationUI() {
             document.querySelectorAll('.btn-view-retention-action').forEach(btn => {
                 btn.addEventListener('click', (e) => {
                     const idx = parseInt(e.currentTarget.dataset.idx, 10);
-                    const retList = ReconState.invoices.filter(i => i.docType === 'retencion_ir' || i.docType === 'retencion_municipal' || i.docType === 'exencion');
+                    const retList = ReconState.invoices.filter(i => i.docType === 'retencion_ir' || i.docType === 'retencion_municipal' || i.docType === 'exencion' || i.docType === 'orden_compra');
                     const doc = retList[idx];
                     if (doc) {
                         const associatedTx = ReconState.transactions.find(t => 
                             t.retentionIRDoc === doc || 
                             t.retentionMunicipalDoc === doc || 
-                            t.exemptionDoc === doc
+                            t.exemptionDoc === doc ||
+                            t.purchaseOrderDoc === doc
                         );
                         openViewInvoiceModal(doc, associatedTx);
                     }
@@ -3076,6 +3077,13 @@ function initModalListeners() {
             if (ReconState.uploadIsPurchaseOrder) {
                 targetTx.purchaseOrderDoc = doc;
                 doc.docType = 'orden_compra';
+                
+                const ocInput = document.getElementById('input-oc-number');
+                if (ocInput && ocInput.value.trim() !== '') {
+                    doc.purchaseOrderRef = ocInput.value.trim();
+                    targetTx.purchaseOrderRef = ocInput.value.trim();
+                }
+                
                 window.showToast(`Orden de Compra "${doc.name}" vinculada exitosamente`, 'success');
             } else if (ReconState.uploadIsRetention) {
                 const rType = ReconState.uploadRetentionType || 'exencion';
@@ -3480,6 +3488,17 @@ function openUploadModalForTx(txOrGroup, isReimbursement = false, isRetention = 
         if (dropZoneText) dropZoneText.textContent = 'Arrastra la factura (imagen o PDF) o haz clic aquí';
     }
 
+    const containerOcNumber = document.getElementById('container-oc-number');
+    const inputOcNumber = document.getElementById('input-oc-number');
+    if (containerOcNumber && inputOcNumber) {
+        if (isPurchaseOrder) {
+            containerOcNumber.classList.remove('hidden');
+            inputOcNumber.value = '';
+        } else {
+            containerOcNumber.classList.add('hidden');
+        }
+    }
+
     // Fill transaction details
     if (isGroup) {
         const count = txOrGroup.length;
@@ -3683,6 +3702,13 @@ async function processSingleInvoiceUpload() {
             newDoc.docType = 'orden_compra';
             newDoc.matched = true;
             newDoc.isManual = true;
+            
+            const ocInput = document.getElementById('input-oc-number');
+            if (ocInput && ocInput.value.trim() !== '') {
+                newDoc.purchaseOrderRef = ocInput.value.trim();
+                targetTx.purchaseOrderRef = ocInput.value.trim();
+            }
+
             window.showToast('Orden de Compra vinculada a la transacción', 'success');
         } else if (isReimbursementUpload) {
             const targets = ReconState.targetTxGroup || [targetTx];

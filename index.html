@@ -1467,6 +1467,11 @@
                     <span class="file-info" id="single-invoice-file-info">Ningún archivo seleccionado</span>
                     <input type="file" id="input-single-invoice" accept="image/*,.pdf" class="hidden-input">
                 </div>
+                <!-- OC Number Input (Hidden by default, shown when uploading OC) -->
+                <div id="container-oc-number" class="hidden" style="margin-top: 1rem;">
+                    <label for="input-oc-number" style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 0.4rem;">Número de Orden de Compra (Requerido):</label>
+                    <input type="text" id="input-oc-number" class="form-control" placeholder="Ej: OC-2026-0814" style="font-size: 0.9rem; padding: 0.5rem;">
+                </div>
                 <!-- Mini Progress -->
                 <div class="progress-container hidden" id="single-invoice-progress" style="margin-top: 1rem;">
                     <div class="progress-bar">
