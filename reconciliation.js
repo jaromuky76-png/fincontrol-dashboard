@@ -2413,6 +2413,16 @@ function renderReconciliationUI() {
                 `;
             }
 
+            // Note input field
+            descContent += `
+                <div style="margin-top: 0.4rem; display: flex; flex-direction: column; gap: 0.2rem;">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <span style="font-size: 0.65rem; color: var(--color-primary); font-weight: 600;"><i data-lucide="message-square" style="width: 10px; height: 10px; display: inline-block; vertical-align: middle; margin-right: 2px;"></i>Nota Aclaratoria:</span>
+                    </div>
+                    <textarea class="input-tx-note" data-id="${tx.id}" placeholder="Escribe aclaración aquí..." style="width: 100%; min-height: 28px; height: 28px; font-size: 0.7rem; padding: 0.2rem 0.3rem; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(30, 41, 59, 0.4); color: var(--text-main); resize: vertical; box-sizing: border-box;" spellcheck="false">${tx.note || ''}</textarea>
+                </div>
+            `;
+
             tr.innerHTML = `
                 <td>${tx.dateStr}</td>
                 <td><small class="text-muted" style="font-family: monospace;">${tx.reference || '---'}</small></td>
@@ -3012,6 +3022,18 @@ function bindTableActionButtons() {
             if (tx) {
                 tx.vehiclePlate = e.target.value.trim();
                 window.showToast(`Placa actualizada para ${tx.description.substring(0, 15)}...`, 'success');
+            }
+        });
+    });
+
+    // Bind transaction note changes
+    document.querySelectorAll('.input-tx-note').forEach(input => {
+        input.addEventListener('change', (e) => {
+            const txId = e.target.dataset.id;
+            const tx = ReconState.transactions.find(t => t.id === txId);
+            if (tx) {
+                tx.note = e.target.value.trim();
+                window.showToast('Nota de transacción actualizada.', 'success');
             }
         });
     });
@@ -4666,7 +4688,8 @@ async function saveReconciliation() {
             exemptionDocName: tx.exemptionDoc ? tx.exemptionDoc.name : null,
             reimbursementDocName: tx.reimbursementDoc ? tx.reimbursementDoc.name : null,
             purchaseOrderDocName: tx.purchaseOrderDoc ? tx.purchaseOrderDoc.name : null,
-            vehiclePlate: tx.vehiclePlate || ''
+            vehiclePlate: tx.vehiclePlate || '',
+            note: tx.note || ''
         };
     });
 
@@ -4935,7 +4958,8 @@ async function loadSavedReconciliation(id) {
             exemptionDoc: linkedExemption,
             reimbursementDoc: linkedReimbursement,
             purchaseOrderDoc: linkedPO,
-            vehiclePlate: tx.vehiclePlate || ''
+            vehiclePlate: tx.vehiclePlate || '',
+            note: tx.note || ''
         };
     });
 
@@ -5216,6 +5240,10 @@ async function generatePdfReport() {
                 ocNumbers = `Placa: ${tx.vehiclePlate}`;
             }
 
+            if (tx.note) {
+                comercioStr += `\n*Nota: ${tx.note}`;
+            }
+
             return [
                 tx.dateStr,
                 comercioStr,
@@ -5256,9 +5284,13 @@ async function generatePdfReport() {
         const unresolvedRows = unresolvedTx.map(tx => {
             const amtNIO = tx.currency === 'NIO' ? `C$${tx.amount.toFixed(2)}` : '---';
             const amtUSD = tx.currency === 'USD' ? `$${tx.amount.toFixed(2)}` : '---';
+            let comercioStr = tx.description.substring(0, 50);
+            if (tx.note) {
+                comercioStr += `\n*Nota: ${tx.note}`;
+            }
             return [
                 tx.dateStr,
-                tx.description.substring(0, 50),
+                comercioStr,
                 amtNIO,
                 amtUSD,
                 'Falta Documentación'
@@ -5294,9 +5326,13 @@ async function generatePdfReport() {
             const amtNIO = tx.currency === 'NIO' ? `C$${tx.amount.toFixed(2)}` : '---';
             const amtUSD = tx.currency === 'USD' ? `$${tx.amount.toFixed(2)}` : '---';
             const reimbursementStatus = tx.reimbursementDoc ? 'Disponible' : 'No disponible';
+            let comercioStr = tx.description.substring(0, 45);
+            if (tx.note) {
+                comercioStr += `\n*Nota: ${tx.note}`;
+            }
             return [
                 tx.dateStr,
-                tx.description.substring(0, 45),
+                comercioStr,
                 amtNIO,
                 amtUSD,
                 reimbursementStatus
