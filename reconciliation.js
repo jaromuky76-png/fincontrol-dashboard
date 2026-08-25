@@ -5548,7 +5548,8 @@ async function generatePdfReport() {
                             const imgX = x + 2 + (maxW - imgW) / 2;
                             const imgY = y + 10 + (maxH - imgH) / 2;
                             
-                            doc.addImage(imgData.dataUrl, 'JPEG', imgX, imgY, imgW, imgH);
+                            const imgFormat = imgData.dataUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
+                            doc.addImage(imgData.dataUrl, imgFormat, imgX, imgY, imgW, imgH);
                             
                             doc.setDrawColor(220, 220, 220);
                             doc.setLineWidth(0.1);
