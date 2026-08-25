@@ -5189,7 +5189,7 @@ async function generatePdfReport() {
                 ['Banco Emisor / Tarjeta', `${bankName} (Terminación **** ${cardDigits})`],
                 ['Total Cargos en Estado de Cuenta', `${totalTx} transacciones`],
                 ['Cargos Conciliados con Facturas', `${matchedTx} transacciones (${totalTx > 0 ? Math.round((matchedTx/totalTx)*100) : 0}%)`],
-                ['Cargos para Reembolso (Cargos a Empleado)', `${reimbursementTx.length} transacciones (C$ ${sumReimbursementsNIO.toFixed(2)} / $ ${sumReimbursementsUSD.toFixed(2)})`],
+                ['Cargos para Reembolso (Cargos a Empleado)', `${reimbursementTx.length} transacciones (${window.formatCurrency(sumReimbursementsNIO, 'NIO')} / ${window.formatCurrency(sumReimbursementsUSD, 'USD')})`],
                 ['Cargos sin Respaldo (Faltantes)', `${missingTx} transacciones`],
                 ['Auditoría Fiscal de Retenciones', retSummaryText]
             ]
@@ -5206,8 +5206,8 @@ async function generatePdfReport() {
 
         const resolvedTx = ReconState.transactions.filter(t => t.matched && !t.isReimbursement && t.type === 'charge');
         const resolvedRows = resolvedTx.map(tx => {
-            const amtNIO = tx.currency === 'NIO' ? `C$${tx.amount.toFixed(2)}` : '---';
-            const amtUSD = tx.currency === 'USD' ? `$${tx.amount.toFixed(2)}` : '---';
+            const amtNIO = tx.currency === 'NIO' ? window.formatCurrency(tx.amount, 'NIO') : '---';
+            const amtUSD = tx.currency === 'USD' ? window.formatCurrency(tx.amount, 'USD') : '---';
             
             let invoiceNumbers = '---';
             let ocNumbers = '---';
@@ -5282,8 +5282,8 @@ async function generatePdfReport() {
 
         const unresolvedTx = ReconState.transactions.filter(t => !t.matched && t.type === 'charge');
         const unresolvedRows = unresolvedTx.map(tx => {
-            const amtNIO = tx.currency === 'NIO' ? `C$${tx.amount.toFixed(2)}` : '---';
-            const amtUSD = tx.currency === 'USD' ? `$${tx.amount.toFixed(2)}` : '---';
+            const amtNIO = tx.currency === 'NIO' ? window.formatCurrency(tx.amount, 'NIO') : '---';
+            const amtUSD = tx.currency === 'USD' ? window.formatCurrency(tx.amount, 'USD') : '---';
             let comercioStr = tx.description.substring(0, 50);
             if (tx.note) {
                 comercioStr += `\n*Nota: ${tx.note}`;
@@ -5323,8 +5323,8 @@ async function generatePdfReport() {
         doc.line(15, nextY + 2, 195, nextY + 2);
 
         const reimbursementRows = reimbursementTx.map(tx => {
-            const amtNIO = tx.currency === 'NIO' ? `C$${tx.amount.toFixed(2)}` : '---';
-            const amtUSD = tx.currency === 'USD' ? `$${tx.amount.toFixed(2)}` : '---';
+            const amtNIO = tx.currency === 'NIO' ? window.formatCurrency(tx.amount, 'NIO') : '---';
+            const amtUSD = tx.currency === 'USD' ? window.formatCurrency(tx.amount, 'USD') : '---';
             const reimbursementStatus = tx.reimbursementDoc ? 'Disponible' : 'No disponible';
             let comercioStr = tx.description.substring(0, 45);
             if (tx.note) {
@@ -5343,8 +5343,8 @@ async function generatePdfReport() {
         reimbursementRows.push([
             'TOTAL',
             '',
-            `C$${sumReimbursementsNIO.toFixed(2)}`,
-            `$${sumReimbursementsUSD.toFixed(2)}`,
+            window.formatCurrency(sumReimbursementsNIO, 'NIO'),
+            window.formatCurrency(sumReimbursementsUSD, 'USD'),
             ''
         ]);
 

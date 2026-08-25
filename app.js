@@ -366,7 +366,7 @@ function showToast(message, type = 'info') {
 
 // Global Currency Formatter
 function formatCurrency(amount, currency = 'USD') {
-    const formatter = new Intl.NumberFormat('es-NI', {
+    const formatter = new Intl.NumberFormat('en-US', {
         style: 'currency',
         currency: currency,
         minimumFractionDigits: 2
