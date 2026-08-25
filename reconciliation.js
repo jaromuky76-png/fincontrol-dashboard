@@ -2851,7 +2851,7 @@ function bindTableActionButtons() {
         btn.addEventListener('click', (e) => {
             const btnEl = e.currentTarget;
             const oIdx = parseInt(btnEl.dataset.orphanIdx, 10);
-            const orphansList = ReconState.invoices.filter(i => !i.matched);
+            const orphansList = ReconState.invoices.filter(i => !i.matched && (i.docType === 'invoice' || !i.docType));
             let inv = (!isNaN(oIdx) && orphansList[oIdx]) ? orphansList[oIdx] : null;
             if (!inv && btnEl.dataset.name) {
                 inv = ReconState.invoices.find(i => i.name === btnEl.dataset.name);
@@ -3225,6 +3225,22 @@ function initModalListeners() {
     if (unlinkBtn) {
         unlinkBtn.addEventListener('click', () => {
             unlinkInvoiceManually();
+        });
+    }
+
+    const deleteOrphanBtn = document.getElementById('btn-delete-orphan-invoice');
+    if (deleteOrphanBtn) {
+        deleteOrphanBtn.addEventListener('click', () => {
+            const invoice = ReconState.activeInvoiceToLink;
+            if (invoice && confirm('¿Estás seguro de que deseas eliminar este documento subido?')) {
+                const idx = ReconState.invoices.findIndex(i => i.name === invoice.name);
+                if (idx !== -1) {
+                    ReconState.invoices.splice(idx, 1);
+                    window.showToast('Documento eliminado', 'info');
+                    closeModal(reconElements.modalView);
+                    renderReconciliationUI();
+                }
+            }
         });
     }
 
@@ -4034,6 +4050,7 @@ function openViewInvoiceModal(invoice, tx = null) {
     }
     
     const unlinkBtn = document.getElementById('btn-unlink-invoice');
+    const deleteBtn = document.getElementById('btn-delete-orphan-invoice');
     
     if (tx) {
         reconElements.viewInvoiceTxAmount.textContent = window.formatCurrency(tx.amount, tx.currency);
@@ -4045,10 +4062,12 @@ function openViewInvoiceModal(invoice, tx = null) {
                 unlinkBtn.classList.remove('hidden');
             }
         }
+        if (deleteBtn) deleteBtn.classList.add('hidden');
     } else {
         reconElements.viewInvoiceTxAmount.textContent = 'N/A';
         reconElements.viewInvoiceLinkContainer.classList.remove('hidden');
         if (unlinkBtn) unlinkBtn.classList.add('hidden');
+        if (deleteBtn) deleteBtn.classList.remove('hidden');
         
         const targetList = ReconState.transactions
             .filter(t => t.type === 'charge')
