@@ -2280,7 +2280,13 @@ function renderReconciliationUI() {
                 let purchaseOrderButtonsHTML = '';
                 const isFuel = /\bPUMA\b|\bUNO\b/i.test(tx.description);
                 if (!isFuel && tx.type === 'charge') {
-                    if (tx.purchaseOrderDoc) {
+                    if (tx.ocExempt) {
+                        purchaseOrderButtonsHTML += `
+                            <button class="btn btn-secondary btn-sm btn-toggle-oc-exempt" data-id="${tx.id}" title="Restaurar requisito de Orden de Compra" style="margin: 0.1rem; border: 1px dashed var(--color-success); color: var(--color-success); background: transparent;">
+                                <i data-lucide="check-circle"></i>OC Exenta (Restaurar)
+                            </button>
+                        `;
+                    } else if (tx.purchaseOrderDoc) {
                         purchaseOrderButtonsHTML += `
                             <button class="btn btn-success btn-sm btn-view-po-action" data-id="${tx.id}" title="Ver Orden de Compra" style="margin: 0.1rem;">
                                 <i data-lucide="file-text"></i>Ver OC
@@ -2294,12 +2300,18 @@ function renderReconciliationUI() {
                             <button class="btn btn-warning btn-sm btn-upload-po-action" data-id="${tx.id}" title="Subir Orden de Compra" style="margin: 0.1rem;">
                                 <i data-lucide="upload"></i>Subir OC
                             </button>
+                            <button class="btn btn-secondary btn-sm btn-toggle-oc-exempt" data-id="${tx.id}" title="Marcar como: No requiere Orden de Compra" style="margin: 0.1rem; border: 1px dashed var(--text-muted); color: var(--text-muted); background: transparent;">
+                                <i data-lucide="file-minus"></i>No Requiere
+                            </button>
                         `;
                     }
                 }
 
                 let retentionButtonsHTML = '';
                 if (tx.requiresRetentions) {
+                    const isExemptRoute = tx.exemptionDGIDoc || tx.exemptionALMADoc || tx.isExempt;
+                    const isRetentionRoute = tx.hasRetencionIR || tx.hasRetencionMunicipal;
+
                     // 1. IR / DGI Component
                     if (tx.exemptionDGIDoc) {
                         retentionButtonsHTML += `
@@ -2314,14 +2326,28 @@ function renderReconciliationUI() {
                             </button>
                         `;
                     } else {
-                        retentionButtonsHTML += `
-                            <button class="btn btn-warning btn-sm btn-upload-retention-ir-action" data-id="${tx.id}" title="Subir Retención IR 2%" style="margin: 0.1rem;">
-                                <i data-lucide="upload"></i>Subir IR 2%
-                            </button>
-                            <button class="btn btn-secondary btn-sm btn-upload-exemption-dgi-action" data-id="${tx.id}" title="Subir Exoneración DGI" style="margin: 0.1rem; border: 1px dashed var(--color-primary); color: var(--color-primary); background: transparent;">
-                                <i data-lucide="shield"></i>Exoneración DGI
-                            </button>
-                        `;
+                        if (isExemptRoute) {
+                            retentionButtonsHTML += `
+                                <button class="btn btn-secondary btn-sm btn-upload-exemption-dgi-action" data-id="${tx.id}" title="Subir Exoneración DGI" style="margin: 0.1rem; border: 1px dashed var(--color-primary); color: var(--color-primary); background: transparent;">
+                                    <i data-lucide="shield"></i>Subir Exon. DGI
+                                </button>
+                            `;
+                        } else if (isRetentionRoute) {
+                            retentionButtonsHTML += `
+                                <button class="btn btn-warning btn-sm btn-upload-retention-ir-action" data-id="${tx.id}" title="Subir Retención IR 2%" style="margin: 0.1rem;">
+                                    <i data-lucide="upload"></i>Subir IR 2%
+                                </button>
+                            `;
+                        } else {
+                            retentionButtonsHTML += `
+                                <button class="btn btn-warning btn-sm btn-upload-retention-ir-action" data-id="${tx.id}" title="Subir Retención IR 2%" style="margin: 0.1rem;">
+                                    <i data-lucide="upload"></i>Subir IR 2%
+                                </button>
+                                <button class="btn btn-secondary btn-sm btn-upload-exemption-dgi-action" data-id="${tx.id}" title="Subir Exoneración DGI" style="margin: 0.1rem; border: 1px dashed var(--color-primary); color: var(--color-primary); background: transparent;">
+                                    <i data-lucide="shield"></i>Exon. DGI
+                                </button>
+                            `;
+                        }
                     }
 
                     // 2. ALMA / Municipal Component (NIO only)
@@ -2339,14 +2365,28 @@ function renderReconciliationUI() {
                                 </button>
                             `;
                         } else {
-                            retentionButtonsHTML += `
-                                <button class="btn btn-warning btn-sm btn-upload-retention-municipal-action" data-id="${tx.id}" title="Subir Retención ALMA 1%" style="margin: 0.1rem;">
-                                    <i data-lucide="upload"></i>Subir ALMA 1%
-                                </button>
-                                <button class="btn btn-secondary btn-sm btn-upload-exemption-alma-action" data-id="${tx.id}" title="Subir Exoneración ALMA" style="margin: 0.1rem; border: 1px dashed var(--color-primary); color: var(--color-primary); background: transparent;">
-                                    <i data-lucide="shield"></i>Exoneración ALMA
-                                </button>
-                            `;
+                            if (isExemptRoute) {
+                                retentionButtonsHTML += `
+                                    <button class="btn btn-secondary btn-sm btn-upload-exemption-alma-action" data-id="${tx.id}" title="Subir Exoneración ALMA" style="margin: 0.1rem; border: 1px dashed var(--color-primary); color: var(--color-primary); background: transparent;">
+                                        <i data-lucide="shield"></i>Subir Exon. ALMA
+                                    </button>
+                                `;
+                            } else if (isRetentionRoute) {
+                                retentionButtonsHTML += `
+                                    <button class="btn btn-warning btn-sm btn-upload-retention-municipal-action" data-id="${tx.id}" title="Subir Retención ALMA 1%" style="margin: 0.1rem;">
+                                        <i data-lucide="upload"></i>Subir ALMA 1%
+                                    </button>
+                                `;
+                            } else {
+                                retentionButtonsHTML += `
+                                    <button class="btn btn-warning btn-sm btn-upload-retention-municipal-action" data-id="${tx.id}" title="Subir Retención ALMA 1%" style="margin: 0.1rem;">
+                                        <i data-lucide="upload"></i>Subir ALMA 1%
+                                    </button>
+                                    <button class="btn btn-secondary btn-sm btn-upload-exemption-alma-action" data-id="${tx.id}" title="Subir Exoneración ALMA" style="margin: 0.1rem; border: 1px dashed var(--color-primary); color: var(--color-primary); background: transparent;">
+                                        <i data-lucide="shield"></i>Exon. ALMA
+                                    </button>
+                                `;
+                            }
                         }
                     }
                 }
@@ -2774,6 +2814,18 @@ function bindTableActionButtons() {
                     window.showToast('Orden de Compra desvinculada', 'info');
                     renderReconciliationUI();
                 }
+            }
+        });
+    });
+
+    document.querySelectorAll('.btn-toggle-oc-exempt').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const txId = e.currentTarget.dataset.id;
+            const tx = ReconState.transactions.find(t => t.id === txId);
+            if (tx) {
+                tx.ocExempt = !tx.ocExempt;
+                window.showToast(tx.ocExempt ? 'Marcado como exento de OC' : 'Requisito de OC restaurado', 'info');
+                renderReconciliationUI();
             }
         });
     });
@@ -4117,6 +4169,12 @@ function unlinkInvoiceManually() {
         } else if (invoice.docType === 'exencion') {
             tx.isExempt = false;
             tx.exemptionDoc = null;
+        } else if (invoice.docType === 'exencion_dgi') {
+            tx.hasExemptionDGI = false;
+            tx.exemptionDGIDoc = null;
+        } else if (invoice.docType === 'exencion_alma') {
+            tx.hasExemptionALMA = false;
+            tx.exemptionALMADoc = null;
         } else if (invoice.docType === 'orden_compra') {
             tx.purchaseOrderDoc = null;
         }
@@ -4152,6 +4210,8 @@ function handleInvoiceTypeChange() {
         t.retentionIRDoc === invoice || 
         t.retentionMunicipalDoc === invoice || 
         t.exemptionDoc === invoice ||
+        t.exemptionDGIDoc === invoice ||
+        t.exemptionALMADoc === invoice ||
         t.purchaseOrderDoc === invoice
     );
     
@@ -4184,6 +4244,12 @@ function handleInvoiceTypeChange() {
         } else if (invoice.docType === 'exencion') {
             associatedTx.isExempt = false;
             associatedTx.exemptionDoc = null;
+        } else if (invoice.docType === 'exencion_dgi') {
+            associatedTx.hasExemptionDGI = false;
+            associatedTx.exemptionDGIDoc = null;
+        } else if (invoice.docType === 'exencion_alma') {
+            associatedTx.hasExemptionALMA = false;
+            associatedTx.exemptionALMADoc = null;
         } else if (invoice.docType === 'orden_compra') {
             associatedTx.purchaseOrderDoc = null;
         }
@@ -5129,12 +5195,20 @@ async function generatePdfReport() {
             
             let retText = "No requiere";
             if (tx.requiresRetentions) {
-                if (tx.isExempt) {
-                    retText = "Exento";
+                const isExemptRoute = tx.exemptionDGIDoc || tx.exemptionALMADoc || tx.isExempt;
+                if (isExemptRoute) {
+                    const parts = [];
+                    parts.push(tx.exemptionDGIDoc ? "Exon. DGI OK" : "FALTA Exon. DGI");
+                    if (tx.currency !== 'USD') {
+                        parts.push(tx.exemptionALMADoc ? "Exon. ALMA OK" : "FALTA Exon. ALMA");
+                    }
+                    retText = parts.join(" / ");
                 } else {
                     const parts = [];
                     parts.push(tx.hasRetencionIR ? "IR 2% OK" : "FALTA IR 2%");
-                    parts.push(tx.hasRetencionMunicipal ? "ALMA 1% OK" : "FALTA ALMA 1%");
+                    if (tx.currency !== 'USD') {
+                        parts.push(tx.hasRetencionMunicipal ? "ALMA 1% OK" : "FALTA ALMA 1%");
+                    }
                     retText = parts.join(" / ");
                 }
             }
@@ -5157,7 +5231,9 @@ async function generatePdfReport() {
                 
                 const isFuelTx = /\bPUMA\b|\bUNO\b/i.test(tx.description);
                 if (!isFuelTx) {
-                    if (tx.purchaseOrderDoc) {
+                    if (tx.ocExempt) {
+                        parts.push('OC Exenta');
+                    } else if (tx.purchaseOrderDoc) {
                         const poNo = tx.purchaseOrderDoc.purchaseOrderRef || '---';
                         parts.push(`OC.${poNo}`);
                     } else {
