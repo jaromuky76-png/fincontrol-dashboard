@@ -1707,7 +1707,14 @@ function runMatchingAlgorithm() {
     // Reset matches on documents, preserving manual ones
     ReconState.invoices.forEach(doc => {
         const isLinkedToManual = ReconState.transactions.some(t => t.isManual && t.invoices && t.invoices.includes(doc));
-        const isLinkedToRetention = ReconState.transactions.some(t => t.retentionIRDoc === doc || t.retentionMunicipalDoc === doc || t.exemptionDoc === doc);
+        const isLinkedToRetention = ReconState.transactions.some(t => 
+            t.retentionIRDoc === doc || 
+            t.retentionMunicipalDoc === doc || 
+            t.exemptionDoc === doc ||
+            t.exemptionDGIDoc === doc ||
+            t.exemptionALMADoc === doc ||
+            t.purchaseOrderDoc === doc
+        );
         const isLinkedToReimbursement = ReconState.transactions.some(t => t.isManual && t.reimbursementDoc === doc);
         
         if (doc.isManual && (isLinkedToManual || isLinkedToRetention || isLinkedToReimbursement)) {
@@ -4743,6 +4750,8 @@ async function saveReconciliation() {
             retentionIRDocName: tx.retentionIRDoc ? tx.retentionIRDoc.name : null,
             retentionMunicipalDocName: tx.retentionMunicipalDoc ? tx.retentionMunicipalDoc.name : null,
             exemptionDocName: tx.exemptionDoc ? tx.exemptionDoc.name : null,
+            exemptionDGIDocName: tx.exemptionDGIDoc ? tx.exemptionDGIDoc.name : null,
+            exemptionALMADocName: tx.exemptionALMADoc ? tx.exemptionALMADoc.name : null,
             reimbursementDocName: tx.reimbursementDoc ? tx.reimbursementDoc.name : null,
             purchaseOrderDocName: tx.purchaseOrderDoc ? tx.purchaseOrderDoc.name : null,
             vehiclePlate: tx.vehiclePlate || '',
@@ -4987,6 +4996,8 @@ async function loadSavedReconciliation(id) {
         const linkedIR = tx.retentionIRDocName ? ReconState.invoices.find(i => i.name === tx.retentionIRDocName) : null;
         const linkedMunicipal = tx.retentionMunicipalDocName ? ReconState.invoices.find(i => i.name === tx.retentionMunicipalDocName) : null;
         const linkedExemption = tx.exemptionDocName ? ReconState.invoices.find(i => i.name === tx.exemptionDocName) : null;
+        const linkedExemptionDGI = tx.exemptionDGIDocName ? ReconState.invoices.find(i => i.name === tx.exemptionDGIDocName) : null;
+        const linkedExemptionALMA = tx.exemptionALMADocName ? ReconState.invoices.find(i => i.name === tx.exemptionALMADocName) : null;
         const linkedReimbursement = tx.reimbursementDocName ? ReconState.invoices.find(i => i.name === tx.reimbursementDocName) : null;
         const linkedPO = tx.purchaseOrderDocName ? ReconState.invoices.find(i => i.name === tx.purchaseOrderDocName) : null;
 
@@ -5005,6 +5016,8 @@ async function loadSavedReconciliation(id) {
             requiresRetentions: tx.requiresRetentions,
             hasRetencionIR: tx.hasRetencionIR,
             hasRetencionMunicipal: tx.hasRetencionMunicipal,
+            hasExemptionDGI: tx.hasExemptionDGI || !!linkedExemptionDGI,
+            hasExemptionALMA: tx.hasExemptionALMA || !!linkedExemptionALMA,
             isExempt: tx.isExempt,
             retentionsValid: tx.retentionsValid,
             retentionsIRValid: tx.retentionsIRValid !== undefined ? tx.retentionsIRValid : true,
@@ -5013,6 +5026,8 @@ async function loadSavedReconciliation(id) {
             retentionIRDoc: linkedIR,
             retentionMunicipalDoc: linkedMunicipal,
             exemptionDoc: linkedExemption,
+            exemptionDGIDoc: linkedExemptionDGI,
+            exemptionALMADoc: linkedExemptionALMA,
             reimbursementDoc: linkedReimbursement,
             purchaseOrderDoc: linkedPO,
             vehiclePlate: tx.vehiclePlate || '',
