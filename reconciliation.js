@@ -2492,7 +2492,7 @@ function renderReconciliationUI() {
     if (tbodyRetentions) {
         tbodyRetentions.innerHTML = '';
         
-        const retventionsList = ReconState.invoices.filter(i => i.docType === 'retencion_ir' || i.docType === 'retencion_municipal' || i.docType === 'exencion' || i.docType === 'orden_compra');
+        const retventionsList = ReconState.invoices.filter(i => i.docType === 'retencion_ir' || i.docType === 'retencion_municipal' || i.docType === 'exencion' || i.docType === 'exencion_dgi' || i.docType === 'exencion_alma' || i.docType === 'orden_compra');
         
         // Update header count
         const countRetentions = document.getElementById('count-retentions');
@@ -2509,6 +2509,8 @@ function renderReconciliationUI() {
                 let docTypeStr = "Exención";
                 if (doc.docType === 'retencion_ir') docTypeStr = "Retención IR 2%";
                 else if (doc.docType === 'retencion_municipal') docTypeStr = "Retención Municipal 1%";
+                else if (doc.docType === 'exencion_dgi') docTypeStr = "Exoneración DGI";
+                else if (doc.docType === 'exencion_alma') docTypeStr = "Exoneración ALMA";
                 else if (doc.docType === 'orden_compra') docTypeStr = "Orden de Compra";
 
                 let baseAmt = doc.baseAmount ? window.formatCurrency(doc.baseAmount, doc.currency || 'NIO') : '---';
@@ -2518,6 +2520,8 @@ function renderReconciliationUI() {
                     t.retentionIRDoc === doc || 
                     t.retentionMunicipalDoc === doc || 
                     t.exemptionDoc === doc ||
+                    t.exemptionDGIDoc === doc ||
+                    t.exemptionALMADoc === doc ||
                     t.purchaseOrderDoc === doc
                 );
                 
@@ -2561,13 +2565,15 @@ function renderReconciliationUI() {
             document.querySelectorAll('.btn-view-retention-action').forEach(btn => {
                 btn.addEventListener('click', (e) => {
                     const idx = parseInt(e.currentTarget.dataset.idx, 10);
-                    const retList = ReconState.invoices.filter(i => i.docType === 'retencion_ir' || i.docType === 'retencion_municipal' || i.docType === 'exencion' || i.docType === 'orden_compra');
+                    const retList = ReconState.invoices.filter(i => i.docType === 'retencion_ir' || i.docType === 'retencion_municipal' || i.docType === 'exencion' || i.docType === 'exencion_dgi' || i.docType === 'exencion_alma' || i.docType === 'orden_compra');
                     const doc = retList[idx];
                     if (doc) {
                         const associatedTx = ReconState.transactions.find(t => 
                             t.retentionIRDoc === doc || 
                             t.retentionMunicipalDoc === doc || 
                             t.exemptionDoc === doc ||
+                            t.exemptionDGIDoc === doc ||
+                            t.exemptionALMADoc === doc ||
                             t.purchaseOrderDoc === doc
                         );
                         openViewInvoiceModal(doc, associatedTx);
