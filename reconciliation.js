@@ -2536,10 +2536,14 @@ function renderReconciliationUI() {
                 }
 
                 let nameDisplay = doc.name;
+                if (associatedTx) {
+                    nameDisplay = `<div style="font-weight: 600;">${escapeHtml(associatedTx.description)}</div><div class="text-muted" style="font-size: 0.75rem; word-break: break-all;">${escapeHtml(doc.name)}</div>`;
+                }
+                
                 if (doc.lowQuality) {
                     nameDisplay = `
                         <div style="display: flex; flex-direction: column; gap: 0.25rem;">
-                            <span>${doc.name}</span>
+                            <span>${nameDisplay}</span>
                             <span class="badge badge-danger" style="font-size: 0.65rem; width: fit-content;" title="Confianza OCR: ${doc.confidence}%">
                                 <i data-lucide="alert-triangle"></i>Baja Legibilidad / Re-subir
                             </span>
@@ -4193,6 +4197,16 @@ function linkInvoiceManuallyToTx() {
         } else if (invoice.docType === 'exencion') {
             tx.isExempt = true;
             tx.exemptionDoc = invoice;
+            invoice.matched = true;
+            invoice.isManual = true;
+        } else if (invoice.docType === 'exencion_dgi') {
+            tx.hasExemptionDGI = true;
+            tx.exemptionDGIDoc = invoice;
+            invoice.matched = true;
+            invoice.isManual = true;
+        } else if (invoice.docType === 'exencion_alma') {
+            tx.hasExemptionALMA = true;
+            tx.exemptionALMADoc = invoice;
             invoice.matched = true;
             invoice.isManual = true;
         } else if (invoice.docType === 'orden_compra') {
