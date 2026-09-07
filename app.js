@@ -441,6 +441,7 @@ const CardInventoryState = {
     tempRegFrontBase64: '',
     tempRegBackBase64: ''
 };
+window.CardInventoryState = CardInventoryState;
 
 function compressImageFile(file, maxWidth = 1000, quality = 0.75) {
     return new Promise((resolve) => {
@@ -512,6 +513,15 @@ function initCardInventoryModule() {
     if (!sec) {
         // Set default security (PIN: 1234, Question: Palabra Clave, Answer: admin)
         saveInventorySecurity('1234', '¿Palabra Clave o Código Maestro?', 'admin');
+    }
+
+    // Preload cards silently in background for availability cross-referencing
+    if (window.dbGetAllInventoryCards) {
+        window.dbGetAllInventoryCards().then(list => {
+            if (list && Array.isArray(list)) {
+                CardInventoryState.cards = list;
+            }
+        }).catch(err => console.warn('Could not preload inventory cards:', err));
     }
 
     // Login Form Submit

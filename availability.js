@@ -494,12 +494,40 @@ function extractReportDate(text) {
 
 // --- RESULTS AGGREGATION & RENDERING ---
 
-function compileFinalResults() {
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+async function compileFinalResults() {
     availElements.resultsCard.classList.remove('hidden');
     availElements.tbodyResults.innerHTML = '';
     
     if (availElements.btnClearAvailability) {
         availElements.btnClearAvailability.classList.remove('hidden');
+    }
+
+    // Try to ensure card inventory is loaded
+    let inventoryCards = [];
+    if (window.CardInventoryState && Array.isArray(window.CardInventoryState.cards) && window.CardInventoryState.cards.length > 0) {
+        inventoryCards = window.CardInventoryState.cards;
+    } else if (window.dbGetAllInventoryCards) {
+        try {
+            const list = await window.dbGetAllInventoryCards();
+            if (list && Array.isArray(list)) {
+                inventoryCards = list;
+                if (window.CardInventoryState) {
+                    window.CardInventoryState.cards = list;
+                }
+            }
+        } catch (e) {
+            console.warn('No se pudo cargar el inventario de tarjetas en disponibilidad:', e);
+        }
     }
 
     const targetCards = window.AppState.settings.targetCards;
@@ -551,26 +579,44 @@ function compileFinalResults() {
             tr.style.opacity = '0.75';
         }
 
-        let displayHolder = row.holder;
-        if (window.CardInventoryState && window.CardInventoryState.cards) {
-            const invCard = window.CardInventoryState.cards.find(c => c.cardNumber.endsWith(row.card));
-            if (invCard) {
-                let subtitle = '';
-                if (invCard.type === 'combustible') {
-                    subtitle = `Placa: ${invCard.vehiclePlate || '---'} | Circulación: ${invCard.vehicleReg || '---'}`;
-                } else {
-                    subtitle = `Código: ${invCard.holderCode || '---'}`;
-                }
-                displayHolder = `
-                    <div style="font-weight: 600;">${invCard.holderName || '---'}</div>
-                    <div class="text-muted" style="font-size: 0.75rem;">${subtitle}</div>
-                `;
+        // Match card from inventory
+        const invCard = inventoryCards.find(c => {
+            const num = String(c.cardNumber || '').trim();
+            return num.endsWith(row.card) || num === row.card;
+        });
+
+        // 1. Column: Responsable
+        let responsableHTML = '---';
+        if (invCard && invCard.holderName) {
+            responsableHTML = `<div style="font-weight: 600; color: var(--text-main);">${escapeHtml(invCard.holderName)}</div>`;
+            if (invCard.holderCode) {
+                responsableHTML += `<div class="text-muted" style="font-size: 0.75rem;">Código: ${escapeHtml(invCard.holderCode)}</div>`;
             }
+        } else if (row.holder && row.holder !== '---' && !row.holder.toLowerCase().startsWith('placa:')) {
+            responsableHTML = `<div style="font-weight: 500;">${escapeHtml(row.holder)}</div>`;
+        }
+
+        // 2. Column: Vehículo (Placa / Circulación)
+        let vehiculoHTML = '---';
+        if (invCard) {
+            if (invCard.type === 'combustible' || invCard.vehiclePlate || invCard.vehicleReg) {
+                const plateVal = invCard.vehiclePlate ? `Placa: ${escapeHtml(invCard.vehiclePlate)}` : 'Sin Placa';
+                const regVal = invCard.vehicleReg ? `Circulación: ${escapeHtml(invCard.vehicleReg)}` : 'Sin Circulación';
+                vehiculoHTML = `
+                    <div style="font-weight: 600; color: var(--color-primary);">${plateVal}</div>
+                    <div class="text-muted" style="font-size: 0.75rem;">${regVal}</div>
+                `;
+            } else {
+                vehiculoHTML = `<span class="badge" style="background: rgba(148, 163, 184, 0.1); color: var(--text-muted); font-size: 0.72rem;">No aplica (Corporativa)</span>`;
+            }
+        } else if (row.holder && row.holder.toLowerCase().startsWith('placa:')) {
+            vehiculoHTML = `<div style="font-size: 0.85rem; font-weight: 500;">${escapeHtml(row.holder)}</div>`;
         }
 
         tr.innerHTML = `
             <td class="font-medium">**** ${row.card}</td>
-            <td>${displayHolder}</td>
+            <td>${responsableHTML}</td>
+            <td>${vehiculoHTML}</td>
             <td>${statusBadge}</td>
             <td class="text-right font-medium color-info">${balanceDisplay}</td>
             <td>${row.date}</td>
@@ -605,10 +651,13 @@ function initExportListeners() {
 
 function exportToCSV() {
     const targetCards = window.AppState.settings.targetCards;
-    
+    const inventoryCards = (window.CardInventoryState && Array.isArray(window.CardInventoryState.cards)) 
+        ? window.CardInventoryState.cards 
+        : [];
+
     // Build CSV Content
     let csvContent = "data:text/csv;charset=utf-8,";
-    csvContent += "Tarjeta,Titular/Placa,Estado,Disponible NIO,Disponible USD,Fecha Reporte,Archivo Fuente\n";
+    csvContent += "Tarjeta,Responsable,Código,Placa,Circulación,Estado,Disponible NIO,Disponible USD,Fecha Reporte,Archivo Fuente\n";
 
     targetCards.forEach(card => {
         const scanned = AvailState.scanResults.filter(r => r.card === card);
@@ -616,10 +665,20 @@ function exportToCSV() {
             card: card, holder: '---', status: 'No Encontrado', balanceNIO: '---', balanceUSD: '---', date: '---', file: '---'
         };
         
+        const invCard = inventoryCards.find(c => {
+            const num = String(c.cardNumber || '').trim();
+            return num.endsWith(card) || num === card;
+        });
+
+        const respName = invCard ? (invCard.holderName || '') : (row.holder && !row.holder.toLowerCase().startsWith('placa:') ? row.holder : '');
+        const respCode = invCard ? (invCard.holderCode || '') : '';
+        const plate = invCard ? (invCard.vehiclePlate || '') : (row.holder && row.holder.toLowerCase().startsWith('placa:') ? row.holder : '');
+        const reg = invCard ? (invCard.vehicleReg || '') : '';
+
         let valNIO = row.balanceNIO !== undefined && row.balanceNIO !== null ? row.balanceNIO : '---';
         let valUSD = row.balanceUSD !== undefined && row.balanceUSD !== null ? row.balanceUSD : '---';
         
-        const line = `**** ${row.card},"${row.holder}",${row.status},${valNIO},${valUSD},${row.date},"${row.file}"`;
+        const line = `**** ${row.card},"${respName}","${respCode}","${plate}","${reg}",${row.status},${valNIO},${valUSD},${row.date},"${row.file}"`;
         csvContent += line + "\n";
     });
 
