@@ -551,9 +551,26 @@ function compileFinalResults() {
             tr.style.opacity = '0.75';
         }
 
+        let displayHolder = row.holder;
+        if (window.CardInventoryState && window.CardInventoryState.cards) {
+            const invCard = window.CardInventoryState.cards.find(c => c.cardNumber.endsWith(row.card));
+            if (invCard) {
+                let subtitle = '';
+                if (invCard.type === 'combustible') {
+                    subtitle = `Placa: ${invCard.vehiclePlate || '---'} | Circulación: ${invCard.vehicleReg || '---'}`;
+                } else {
+                    subtitle = `Código: ${invCard.holderCode || '---'}`;
+                }
+                displayHolder = `
+                    <div style="font-weight: 600;">${invCard.holderName || '---'}</div>
+                    <div class="text-muted" style="font-size: 0.75rem;">${subtitle}</div>
+                `;
+            }
+        }
+
         tr.innerHTML = `
             <td class="font-medium">**** ${row.card}</td>
-            <td>${row.holder}</td>
+            <td>${displayHolder}</td>
             <td>${statusBadge}</td>
             <td class="text-right font-medium color-info">${balanceDisplay}</td>
             <td>${row.date}</td>
