@@ -292,9 +292,14 @@
                                 <span id="count-selected-tx">0</span> transacciones seleccionadas
                             </span>
                             <span id="sum-selected-tx" style="font-size: 0.9rem; font-weight: 500; color: var(--text-main);">Total: C$ 0.00 / $ 0.00</span>
-                            <button id="btn-bulk-reimbursement" class="btn btn-warning btn-sm" style="margin-left: auto;">
-                                <i data-lucide="user-x"></i>Cargar Seleccionadas a Empleado
-                            </button>
+                            <div style="margin-left: auto; display: flex; gap: 0.5rem;">
+                                <button id="btn-bulk-shared-invoice" class="btn btn-primary btn-sm" title="Vincular una misma factura o soporte compartido a todas las transacciones seleccionadas">
+                                    <i data-lucide="share-2"></i>Asociar Factura Compartida
+                                </button>
+                                <button id="btn-bulk-reimbursement" class="btn btn-warning btn-sm">
+                                    <i data-lucide="user-x"></i>Cargar Seleccionadas a Empleado
+                                </button>
+                            </div>
                         </div>
                         <div class="table-card">
                             <table class="table" id="table-unresolved">

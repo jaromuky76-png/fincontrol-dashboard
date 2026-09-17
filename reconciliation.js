@@ -1210,7 +1210,9 @@ function extractRUC(text, textNorm) {
 function classifyAndExtractDocument(text, fileName) {
     const textLower = text.toLowerCase();
     const textNorm = normalizeTextForClassification(text);
-    const fileNorm = normalizeTextForClassification(fileName);
+    // Isolate basename to prevent parent folder in zip (e.g. "FACTURA EC SEPT26/") from poisoning classification
+    const baseFileName = (fileName || '').split(/[\/\\]/).pop();
+    const fileNorm = normalizeTextForClassification(baseFileName);
     
     // 1. SCORING SYSTEM FOR CLASSIFICATION
     let retentionScore = 0;
@@ -1219,12 +1221,19 @@ function classifyAndExtractDocument(text, fileName) {
     
     // --- Retention/Exemption Heuristics (using regex to tolerate OCR typos) ---
     const hasConstancia = /constancia\s+(?:de\s+)?retenci[o0]n/i.test(textNorm);
-    const hasRetencionMunicipal = /retenci[o0]n\s+(?:de\s+)?municip[a1]l/i.test(textNorm) || /retenci[o0]n\s+municip[a1]l/i.test(textNorm) || /municipal\s+de\s+managu[a1]/i.test(textNorm);
+    const hasConstanciaNoRetencion = /constancia\s+(?:de\s+)?no\s+retenci[o0]n/i.test(textNorm) || /no\s+retenci[o0]n\s+(?:en\s+la\s+fuente)?/i.test(textNorm) || /exoneraci[o0]n/i.test(textNorm);
+    const hasBuenGobierno = /buen\s+gobierno/i.test(textNorm) || /gobierno\s+de\s+reconciliaci[o0]n/i.test(textNorm);
+    const hasDgiOfficial = /direcci[o0]n\s+general\s+de\s+ingresos/i.test(textNorm) || /\bdgi\b/i.test(textNorm);
+    const hasAlmaOfficial = /alcald[ií]a\s+(?:de\s+)?managua/i.test(textNorm) || /\balma\b/i.test(textNorm);
+
+    const hasRetencionMunicipal = /retenci[o0]n\s+(?:de\s+)?municip[a1]l/i.test(textNorm) || /retenci[o0]n\s+municip[a1]l/i.test(textNorm) || /municipal\s+de\s+managu[a1]/i.test(textNorm) || /alcaldia\s+de\s+managua/i.test(textNorm);
     const hasImpuestoRenta = /impuesto[s]?\s+sobre\s+l[a1]\s+rent[a1]/i.test(textNorm) || /impuesto[s]?\s+sobre\s+rent[a1]/i.test(textNorm) || /retenci[o0]n\s+impuesto/i.test(textNorm);
     const hasDecreto = /decreto\s+31\s*[-–]?\s*90/i.test(textNorm);
     const hasExemptionHeader = /exenci[o0]n\s+(?:de\s+)?impuesto/i.test(textNorm) || /constancia\s+(?:de\s+)?exenci[o0]n/i.test(textNorm) || /resoluci[o0]n\s+(?:de\s+)?exenci[o0]n/i.test(textNorm);
     
     if (hasConstancia) retentionScore += 15;
+    if (hasConstanciaNoRetencion) retentionScore += 30;
+    if (hasBuenGobierno) retentionScore += 15;
     if (hasRetencionMunicipal) retentionScore += 15;
     if (hasImpuestoRenta) retentionScore += 12;
     if (hasDecreto) retentionScore += 10;
@@ -1260,22 +1269,21 @@ function classifyAndExtractDocument(text, fileName) {
         retentionScore += 3;
     }
     
-    // Filename indicators
-    if (fileNorm.includes("retencion") || fileNorm.includes("constancia") || fileNorm.includes("exencion")) {
-        retentionScore += 20;
+    // Filename indicators (using isolated basename)
+    if (fileNorm.includes("retencion") || fileNorm.includes("constancia") || fileNorm.includes("exencion") || fileNorm.includes("exoneracion")) {
+        retentionScore += 25;
     }
     
     // --- Purchase Order (Orden de Compra / OC) Heuristics ---
     const hasOrdenCompra = /orden\s+(?:de\s+)?compra/i.test(textNorm) || /purchase\s+order/i.test(textNorm) || /^(?:.*\n)?\s*orden\s+no\b/im.test(textNorm);
     const hasPedidoCompra = /pedido\s+(?:de\s+)?compra/i.test(textNorm);
+    const hasOcPrefixInFileName = /(?:^|[^a-z0-9])(?:oc|o[-_ ]?c|orden[-_ ]?de[-_ ]?compra|purchase[-_ ]?order)(?:[^a-z0-9]|$)/i.test(baseFileName);
+    const hasSilvaIssuer = /silva\s+internacional/i.test(textNorm) && (hasOcPrefixInFileName || hasOrdenCompra || /orden\s+de\s+compra/i.test(textNorm));
     
     if (hasOrdenCompra) purchaseOrderScore += 30;
     if (hasPedidoCompra) purchaseOrderScore += 15;
-    
-    // Strict filename check for purchase order
-    if (/(?:^|[^a-z0-9])(?:orden[-_ ]?de[-_ ]?compra|purchase[-_ ]?order)(?:[^a-z0-9]|$)/i.test(fileName)) {
-        purchaseOrderScore += 25;
-    }
+    if (hasOcPrefixInFileName) purchaseOrderScore += 35;
+    if (hasSilvaIssuer) purchaseOrderScore += 35;
 
     // --- Invoice Heuristics ---
     const hasFacturaContado = /factur[a1]\s+contad[o0]/i.test(textNorm);
@@ -1300,51 +1308,57 @@ function classifyAndExtractDocument(text, fileName) {
     if (hasInvoiceTable) invoiceScore += 10;
     if (hasReciboCaja) invoiceScore += 10;
     
-    // Filename indicators
-    if (fileNorm.includes("factura") || fileNorm.includes("invoice") || fileNorm.includes("compra") || fileNorm.includes("recibo") || fileNorm.includes("ticket") || fileNorm.includes("voucher")) {
+    // Filename indicators (on basename only!)
+    if (fileNorm.includes("factura") || fileNorm.includes("invoice") || fileNorm.includes("recibo") || fileNorm.includes("ticket") || fileNorm.includes("voucher")) {
         invoiceScore += 20;
     }
     
     // --- Decision Logic ---
     let docType = 'invoice';
-    if (purchaseOrderScore > invoiceScore && purchaseOrderScore > retentionScore && purchaseOrderScore >= 25) {
+    if (purchaseOrderScore > invoiceScore && purchaseOrderScore > retentionScore && purchaseOrderScore >= 20) {
         docType = 'orden_compra';
     } else if (retentionScore > invoiceScore && retentionScore >= 8) {
-        const isExemption = hasExemptionHeader || textNorm.includes("exencion") || textNorm.includes("exento") || fileNorm.includes("exencion");
+        const isNoRetencionDGI = hasConstanciaNoRetencion || ((hasBuenGobierno || hasDgiOfficial) && /no\s+retenci|exoneraci|exenci/i.test(textNorm));
+        const isExemption = isNoRetencionDGI || hasExemptionHeader || textNorm.includes("exencion") || textNorm.includes("exento") || fileNorm.includes("exencion") || fileNorm.includes("exoneracion");
         
-        if (isExemption && !hasConstancia) {
+        if (isNoRetencionDGI) {
+            docType = 'exencion_dgi';
+        } else if (isExemption && !hasConstancia) {
             const mentionsDGI = /dgi|renta|impuesto\s+sobre|hacienda/i.test(textNorm) || fileNorm.includes("dgi");
-            const mentionsALMA = /alma|alcaldia|municipal|alcald[ií]a/i.test(textNorm) || fileNorm.includes("alma") || fileNorm.includes("municipal");
+            const mentionsALMA = /alma|alcaldia|municipal|alcald[ií]a/i.test(textNorm) || fileNorm.includes("alma") || fileNorm.includes("municipal") || hasRetencionMunicipal;
             if (mentionsDGI && !mentionsALMA) {
                 docType = 'exencion_dgi';
             } else if (mentionsALMA && !mentionsDGI) {
                 docType = 'exencion_alma';
             } else {
-                docType = 'exencion';
+                docType = 'exencion_dgi';
             }
-        } else if (isMunicipal) {
+        } else if (hasRetencionMunicipal) {
             docType = 'retencion_municipal';
         } else {
             docType = 'retencion_ir';
         }
     }
     
-    // Guess currency: default to NIO unless there's an explicit USD keyword/symbol
+    // Guess currency: default to NIO unless there's an explicit USD keyword/symbol or international US commerce
     let currency = 'NIO';
+    const isUsVendor = /gestioo|generator\s*magic|gosq\.com|mi\s+us|fl\s+us|stripe|apple\.com|google|amazon|github|cloudflare|digitalocean|paypal/i.test(textLower) ||
+                       /gestioo|generator\s*magic|gosq\.com/i.test(baseFileName.toLowerCase());
+    const hasExplicitUSD = /\$|usd|u\.s\.d|dollars|dolares|dólares/i.test(textLower) || baseFileName.toLowerCase().includes('usd');
     const hasNIO = /c\s*\$|c\s*s\s*\$|cordoba|córdoba|cór/i.test(textLower) || 
                     /\bruc\b/i.test(textLower) ||
                     /\biva\b/i.test(textLower) ||
                     /retencion|retención/i.test(textLower) ||
                     /alcaldia|alcaldía/i.test(textLower) ||
-                    fileName.toLowerCase().includes('nio') || 
-                    fileName.toLowerCase().includes('cordoba') || 
-                    fileName.toLowerCase().includes('cs');
-    const hasUSD = /\b(usd|dolar|dólar|dollar|dolares|dólares|dollars)\b/i.test(textLower) || 
-                    /\bus\s*\$/i.test(textLower) || 
-                    /u\.s\.\s*\$/i.test(textLower) ||
-                    fileName.toLowerCase().includes('usd');
-    if (hasUSD && !hasNIO) {
+                    baseFileName.toLowerCase().includes('nio') || 
+                    baseFileName.toLowerCase().includes('cordoba');
+
+    if (isUsVendor) {
         currency = 'USD';
+    } else if (hasExplicitUSD && !hasNIO) {
+        currency = 'USD';
+    } else {
+        currency = 'NIO';
     }
     
     // Extract referenced invoice number from retentions (e.g. "# 18805")
@@ -1634,6 +1648,17 @@ function checkAmountMatch(txAmount, txCurrency, invoice, allowCrossCurrency = fa
     if (Math.abs(invoiceAmount - txAmount) < 0.05) {
         return true;
     }
+
+    // Scenario 1b: Subtotal match (invoice extracted amount is subtotal before 15% IVA)
+    if (Math.abs((invoiceAmount * 1.15) - txAmount) < 0.10) {
+        invoice.extractedSubtotal = invoiceAmount;
+        invoice.extractedAmount = Math.round(invoiceAmount * 1.15 * 100) / 100;
+        return true;
+    }
+    if (invoice.extractedSubtotal && Math.abs((invoice.extractedSubtotal * 1.15) - txAmount) < 0.10) {
+        invoice.extractedAmount = Math.round(invoice.extractedSubtotal * 1.15 * 100) / 100;
+        return true;
+    }
     
     // Scenario 2: Net of retenciones (NIO only)
     if (txCurrency === 'NIO') {
@@ -1759,7 +1784,10 @@ function runMatchingAlgorithm() {
             });
 
             if (bestInvoice) {
-                if (minDiff <= maxDaysDiff || minDiff === Infinity) {
+                // When business name AND exact amount match, allow an extended date tolerance (up to 15 days)
+                // to account for browser print timestamps (e.g. printed days after transaction)
+                const effectiveTolerance = Math.max(maxDaysDiff, 15);
+                if (minDiff <= effectiveTolerance || minDiff === Infinity) {
                     tx.matched = true;
                     tx.invoices = [bestInvoice];
                     bestInvoice.matched = true;
@@ -1800,7 +1828,8 @@ function runMatchingAlgorithm() {
             });
 
             if (bestInvoice) {
-                if (minDiff <= maxDaysDiff || minDiff === Infinity) {
+                const effectiveTolerance = Math.max(maxDaysDiff, 15);
+                if (minDiff <= effectiveTolerance || minDiff === Infinity) {
                     tx.matched = true;
                     tx.invoices = [bestInvoice];
                     bestInvoice.matched = true;
@@ -2180,6 +2209,8 @@ function renderReconciliationUI() {
     if (bulkBar) bulkBar.classList.add('hidden');
 
     const unresolvedList = ReconState.transactions.filter(t => !t.matched && t.type === 'charge');
+    const unassignedCount = ReconState.invoices.filter(i => !i.matched && (i.docType === 'invoice' || !i.docType)).length;
+
     if (unresolvedList.length === 0) {
         tbodyUnresolved.innerHTML = `<tr><td colspan="8" class="text-center text-muted" style="padding: 2rem;">No hay transacciones pendientes de respaldo.</td></tr>`;
     } else {
@@ -2196,8 +2227,13 @@ function renderReconciliationUI() {
                 <td class="text-right font-medium">${amtDolares}</td>
                 <td><span class="badge badge-danger"><i data-lucide="x"></i>Falta Respaldo</span></td>
                 <td class="text-center">
-                    <div style="display: flex; gap: 0.5rem; justify-content: center; align-items: center;">
-                        <button class="btn btn-secondary btn-sm btn-upload-invoice-action" data-id="${tx.id}">
+                    <div style="display: flex; gap: 0.4rem; justify-content: center; align-items: center; flex-wrap: wrap;">
+                        ${unassignedCount > 0 ? `
+                        <button class="btn btn-primary btn-sm btn-quick-pick-orphan-action" data-id="${tx.id}" style="font-weight: 600; font-size: 0.78rem;" title="Vincular una de las ${unassignedCount} facturas ya cargadas en el lote">
+                            <i data-lucide="link-2"></i>Asociar Factura (${unassignedCount})
+                        </button>
+                        ` : ''}
+                        <button class="btn btn-secondary btn-sm btn-upload-invoice-action" data-id="${tx.id}" title="Subir nuevo archivo de factura desde disco">
                             <i data-lucide="upload"></i>Subir Factura
                         </button>
                         <button class="btn btn-warning btn-sm btn-mark-reimbursement-action" data-id="${tx.id}" title="Cargar a empleado por falta de respaldo">
@@ -2652,6 +2688,17 @@ function bindTableActionButtons() {
         });
     });
 
+    // 1a. Quick pick orphan/available invoice action
+    document.querySelectorAll('.btn-quick-pick-orphan-action').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const txId = e.currentTarget.dataset.id;
+            const tx = ReconState.transactions.find(t => t.id === txId);
+            if (tx) {
+                openUploadModalForTx(tx, false, false, null, false, false, true);
+            }
+        });
+    });
+
     // 1b. Mark as reimbursement (charge to employee) action
     document.querySelectorAll('.btn-mark-reimbursement-action').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -3017,6 +3064,24 @@ function bindTableActionButtons() {
         });
     });
 
+    // Bulk Shared Invoice Button click
+    const btnBulkSharedInvoice = document.getElementById('btn-bulk-shared-invoice');
+    if (btnBulkSharedInvoice) {
+        btnBulkSharedInvoice.addEventListener('click', () => {
+            const checkedBoxes = document.querySelectorAll('.check-tx-unresolved:checked');
+            const selectedTxs = [];
+            checkedBoxes.forEach(cb => {
+                const txId = cb.dataset.id;
+                const tx = ReconState.transactions.find(t => t.id === txId);
+                if (tx) selectedTxs.push(tx);
+            });
+            
+            if (selectedTxs.length > 0) {
+                openUploadModalForTx(selectedTxs, false, false, null, false, true, true);
+            }
+        });
+    }
+
     // Bulk Reimbursement Button click
     const btnBulkReimbursement = document.getElementById('btn-bulk-reimbursement');
     if (btnBulkReimbursement) {
@@ -3215,17 +3280,33 @@ function initModalListeners() {
                 window.showToast(`Comprobante de reembolso "${doc.name}" vinculado`, 'success');
             } else {
                 doc.docType = 'invoice';
-                if (!targetTx.invoices) targetTx.invoices = [];
-                targetTx.invoices.push(doc);
-                targetTx.matched = true;
-                targetTx.isManual = true;
-                targetTx.isReimbursement = false;
-                if (!doc.extractedAmount) doc.extractedAmount = targetTx.amount;
-                if (!doc.extractedDateStr) {
-                    doc.extractedDateStr = targetTx.dateStr;
-                    doc.extractedDate = targetTx.date;
+                const targets = (ReconState.uploadIsSharedInvoice && ReconState.targetTxGroup && ReconState.targetTxGroup.length > 0)
+                    ? ReconState.targetTxGroup
+                    : [targetTx];
+
+                targets.forEach(txItem => {
+                    if (!txItem.invoices) txItem.invoices = [];
+                    if (!txItem.invoices.some(i => i.name === doc.name)) {
+                        txItem.invoices.push(doc);
+                    }
+                    txItem.matched = true;
+                    txItem.isManual = true;
+                    txItem.isReimbursement = false;
+                });
+
+                doc.matched = true;
+                doc.isManual = true;
+                if (targets.length > 1) {
+                    doc.isShared = true;
+                    window.showToast(`Factura "${doc.name}" vinculada a ${targets.length} transacciones seleccionadas`, 'success');
+                } else {
+                    if (!doc.extractedAmount) doc.extractedAmount = targetTx.amount;
+                    if (!doc.extractedDateStr) {
+                        doc.extractedDateStr = targetTx.dateStr;
+                        doc.extractedDate = targetTx.date;
+                    }
+                    window.showToast(`Factura "${doc.name}" asignada exitosamente`, 'success');
                 }
-                window.showToast(`Factura "${doc.name}" asignada exitosamente`, 'success');
             }
             
             closeModal(reconElements.modalUpload);
@@ -3558,7 +3639,7 @@ function saveTxFromModal() {
     renderReconciliationUI();
 }
 
-function openUploadModalForTx(txOrGroup, isReimbursement = false, isRetention = false, retentionType = null, isPurchaseOrder = false) {
+function openUploadModalForTx(txOrGroup, isReimbursement = false, isRetention = false, retentionType = null, isPurchaseOrder = false, isSharedInvoice = false, focusOrphan = false) {
     const isGroup = Array.isArray(txOrGroup);
     const tx = isGroup ? txOrGroup[0] : txOrGroup;
     
@@ -3568,6 +3649,7 @@ function openUploadModalForTx(txOrGroup, isReimbursement = false, isRetention = 
     ReconState.uploadIsRetention = isRetention;
     ReconState.uploadRetentionType = retentionType;
     ReconState.uploadIsPurchaseOrder = isPurchaseOrder;
+    ReconState.uploadIsSharedInvoice = isSharedInvoice;
     
     // Customize modal headers depending on whether it's a reimbursement, retention, or normal invoice
     const modalTitle = document.querySelector('#modal-upload-invoice h3');
@@ -3599,6 +3681,14 @@ function openUploadModalForTx(txOrGroup, isReimbursement = false, isRetention = 
             modalInstruction.textContent = isGroup ? 'Subir comprobante de depósito o transferencia para reembolsar el grupo de transacciones:' : 'Subir comprobante de depósito o transferencia para reembolsar a la empresa:';
         }
         if (dropZoneText) dropZoneText.textContent = 'Arrastra el comprobante (imagen o PDF) o haz clic aquí';
+    } else if (isSharedInvoice) {
+        if (modalTitle) {
+            modalTitle.textContent = isGroup ? 'Asociar Factura Compartida (Grupo)' : 'Asociar Factura Compartida';
+        }
+        if (modalInstruction) {
+            modalInstruction.textContent = isGroup ? `Vincular factura compartida a las ${txOrGroup.length} transacciones seleccionadas:` : 'Vincular factura compartida a la transacción:';
+        }
+        if (dropZoneText) dropZoneText.textContent = 'Arrastra la factura compartida (imagen o PDF) o haz clic aquí';
     } else {
         if (modalTitle) modalTitle.textContent = 'Subir Respaldo de Factura';
         if (modalInstruction) modalInstruction.textContent = 'Subir factura de respaldo para la transacción:';
@@ -3686,6 +3776,12 @@ function openUploadModalForTx(txOrGroup, isReimbursement = false, isRetention = 
                 selectOrphan.appendChild(opt);
             });
             containerPickOrphan.classList.remove('hidden');
+            if (focusOrphan) {
+                setTimeout(() => {
+                    containerPickOrphan.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    selectOrphan.focus();
+                }, 100);
+            }
         } else {
             containerPickOrphan.classList.add('hidden');
         }
@@ -3896,15 +3992,29 @@ async function processSingleInvoiceUpload() {
         } else {
             // Default "Subir Factura" action: Always link as the main invoice support so the transaction is reconciled!
             newDoc.docType = 'invoice';
-            if (!targetTx.invoices) targetTx.invoices = [];
-            targetTx.matched = true;
-            targetTx.isReimbursement = false;
-            targetTx.reimbursementDoc = null;
-            targetTx.invoices.push(newDoc);
-            targetTx.isManual = true;
+            const targets = (ReconState.uploadIsSharedInvoice && ReconState.targetTxGroup && ReconState.targetTxGroup.length > 0)
+                ? ReconState.targetTxGroup
+                : [targetTx];
+
+            targets.forEach(txItem => {
+                if (!txItem.invoices) txItem.invoices = [];
+                if (!txItem.invoices.some(i => i.name === newDoc.name)) {
+                    txItem.invoices.push(newDoc);
+                }
+                txItem.matched = true;
+                txItem.isReimbursement = false;
+                txItem.reimbursementDoc = null;
+                txItem.isManual = true;
+            });
+
             newDoc.isManual = true;
             newDoc.matched = true;
-            window.showToast(`Factura "${newDoc.name}" cargada y vinculada exitosamente`, 'success');
+            if (targets.length > 1) {
+                newDoc.isShared = true;
+                window.showToast(`Factura compartida "${newDoc.name}" cargada y vinculada a ${targets.length} transacciones`, 'success');
+            } else {
+                window.showToast(`Factura "${newDoc.name}" cargada y vinculada exitosamente`, 'success');
+            }
         }
         ReconState.invoices.push(newDoc);
 
