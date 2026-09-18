@@ -1318,22 +1318,22 @@ function classifyAndExtractDocument(text, fileName) {
     if (purchaseOrderScore > invoiceScore && purchaseOrderScore > retentionScore && purchaseOrderScore >= 20) {
         docType = 'orden_compra';
     } else if (retentionScore > invoiceScore && retentionScore >= 8) {
-        const isNoRetencionDGI = hasConstanciaNoRetencion || ((hasBuenGobierno || hasDgiOfficial) && /no\s+retenci|exoneraci|exenci/i.test(textNorm));
-        const isExemption = isNoRetencionDGI || hasExemptionHeader || textNorm.includes("exencion") || textNorm.includes("exento") || fileNorm.includes("exencion") || fileNorm.includes("exoneracion");
+        const isAlmaOfficial = hasAlmaOfficial || /alcald[ií]a|alma|arbitrios|impuesto\s+municipal|imi\b/i.test(textNorm) || fileNorm.includes("alma") || fileNorm.includes("municipal");
+        const isDgiOfficialDoc = hasDgiOfficial || /dgi|ingresos|hacienda|rentas?\s+de\s+actividades|grandes\s+contribuyentes|lct\b/i.test(textNorm) || fileNorm.includes("dgi");
         
-        if (isNoRetencionDGI) {
-            docType = 'exencion_dgi';
-        } else if (isExemption && !hasConstancia) {
-            const mentionsDGI = /dgi|renta|impuesto\s+sobre|hacienda/i.test(textNorm) || fileNorm.includes("dgi");
-            const mentionsALMA = /alma|alcaldia|municipal|alcald[ií]a/i.test(textNorm) || fileNorm.includes("alma") || fileNorm.includes("municipal") || hasRetencionMunicipal;
-            if (mentionsDGI && !mentionsALMA) {
+        const isExemption = hasConstanciaNoRetencion || hasExemptionHeader || textNorm.includes("exencion") || textNorm.includes("exento") || fileNorm.includes("exencion") || fileNorm.includes("exoneracion");
+        
+        if (isExemption) {
+            if (isAlmaOfficial && !isDgiOfficialDoc) {
+                docType = 'exencion_alma';
+            } else if (isDgiOfficialDoc && !isAlmaOfficial) {
                 docType = 'exencion_dgi';
-            } else if (mentionsALMA && !mentionsDGI) {
+            } else if (hasRetencionMunicipal || /alcald[ií]a|alma/i.test(textNorm)) {
                 docType = 'exencion_alma';
             } else {
                 docType = 'exencion_dgi';
             }
-        } else if (hasRetencionMunicipal) {
+        } else if (hasRetencionMunicipal || isAlmaOfficial) {
             docType = 'retencion_municipal';
         } else {
             docType = 'retencion_ir';
@@ -1363,9 +1363,9 @@ function classifyAndExtractDocument(text, fileName) {
     
     // Extract referenced invoice number from retentions (e.g. "# 18805")
     let invoiceRef = null;
-    const invMatch = text.match(/(?:facturas?|recibos?|factura n[o°\.]|factura #|#)\s*(?:#|no\.)?\s*(\d{4,10})/i);
+    const invMatch = text.match(/(?:facturas?|recibos?|factura n[o°\.]|factura #|#)\s*(?:#|no\.)?\s*([A-Za-z0-9\-]{4,22})/i);
     if (invMatch) {
-        invoiceRef = invMatch[1];
+        invoiceRef = invMatch[1].trim();
     }
     
     let baseAmount = null;
@@ -1399,10 +1399,12 @@ function classifyAndExtractDocument(text, fileName) {
         date = details.date;
         dateStr = details.dateStr;
         
-        // Invoice own number
-        const ownInvMatch = text.match(/(?:factura n[o°\.]|factura #|no\.|factura|#)\s*(?:#|no\.)?\s*(\d{4,10})/i);
+        // Invoice own number (supporting letters and hyphens: e.g. TMGA-FA-16787, MGA-FA-232473, AED06CE6-0072, 55627)
+        const ownInvMatch = text.match(/(?:factura\s*(?:n[o°\.]|#|numero)?|n[uú]mero\s+de\s+factura|invoice\s*(?:#|number|for\s+order\s*#)?|order\s*#)\s*[:#\s]*([A-Za-z0-9\-]{4,22})/i) ||
+                            text.match(/(?:factura n[o°\.]|factura #|no\.|factura|#)\s*(?:#|no\.)?\s*([A-Za-z0-9\-]{4,22})/i) ||
+                            text.match(/#(\d{4,10})/i);
         if (ownInvMatch) {
-            invoiceRef = ownInvMatch[1];
+            invoiceRef = ownInvMatch[1].trim();
         }
         
         // Extract Vendor RUC
@@ -1417,10 +1419,16 @@ function classifyAndExtractDocument(text, fileName) {
         date = details.date;
         dateStr = details.dateStr;
         
-        // Extracción de número de OC
-        const poMatch = text.match(/(?:orden\s+(?:de\s+)?compra|purchase\s+order|o\s*[\.\/]?\s*c)\s*(?:n[o°\.]|#|numero)?\s*(\d{3,10})/i);
-        if (poMatch) {
-            purchaseOrderRef = poMatch[1];
+        // Extracción de número de OC desde nombre de archivo (ej. "OC T39 9231512 160926.pdf" -> 9231512) o texto
+        const poFileMatch = baseFileName.match(/(?:oc|orden[-_ ]?compra)[-_ ]*(?:[a-z0-9]+[-_ ])?(\d{5,10})/i);
+        if (poFileMatch) {
+            purchaseOrderRef = poFileMatch[1];
+        } else {
+            const poMatch = text.match(/(?:orden\s+(?:de\s+)?compra|purchase\s+order|o\s*[\.\/]?\s*c|bodega)\s*(?:n[o°\.]|#|numero)?[\s\S]{0,30}?(\d{5,10})/i) ||
+                            text.match(/(?:orden\s+(?:de\s+)?compra|purchase\s+order|o\s*[\.\/]?\s*c)\s*(?:n[o°\.]|#|numero)?\s*(\d{3,10})/i);
+            if (poMatch) {
+                purchaseOrderRef = poMatch[1];
+            }
         }
     }
 
@@ -1456,42 +1464,72 @@ function extractInvoiceDetails(text, fileName) {
         }
     }
 
-    const dateRegexes = [
-        /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/g, // 25/05/2026 or 25-05-2026
-        /(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s+de\s+(\d{4})/gi
-    ];
+    const monthMap = {
+        enero: 0, febrero: 1, marzo: 2, abril: 3, mayo: 4, junio: 5,
+        julio: 6, agosto: 7, septiembre: 8, setiembre: 8, octubre: 9, noviembre: 10, diciembre: 11,
+        ene: 0, feb: 1, mar: 2, abr: 3, may: 4, jun: 5,
+        jul: 6, ago: 7, sep: 8, set: 8, oct: 9, nov: 10, dic: 11,
+        jan: 0, apr: 3, aug: 7, dec: 11
+    };
 
     let foundDate = null;
     let foundDateStr = "";
 
-    for (const rx of dateRegexes) {
-        rx.lastIndex = 0; // reset regex state
-        let match;
-        while ((match = rx.exec(text)) !== null) {
-            let d, m, y;
-            if (match[2].match(/^[a-zA-Z]/i)) {
-                const months = {
-                    enero: 0, febrero: 1, marzo: 2, abril: 3, mayo: 4, junio: 5,
-                    julio: 6, agosto: 7, septiembre: 8, octubre: 9, noviembre: 10, diciembre: 11
-                };
-                m = months[match[2].toLowerCase()];
-                d = parseInt(match[1], 10);
-                y = parseInt(match[3], 10);
-            } else {
-                d = parseInt(match[1], 10);
-                m = parseInt(match[2], 10) - 1;
-                y = parseInt(match[3], 10);
-                if (y < 100) y += 2000;
-            }
-
-            // Validate date is real and the year is close to the statement's transaction year (within 1 year tolerance)
+    // Pattern 1: Month name or abbreviation (Spanish & English): e.g. 09 SEP 2026, 25 AGO 2026, 11th Sep 2026, 28 de agosto de 2026
+    const rxTextDate = /(\d{1,2})(?:st|nd|rd|th)?\s*(?:de\s+)?([a-zA-Z]{3,12})\.?\s*(?:de\s+)?(\d{2,4})/gi;
+    let matchText;
+    while ((matchText = rxTextDate.exec(text)) !== null) {
+        const d = parseInt(matchText[1], 10);
+        const monKey = matchText[2].toLowerCase().substring(0, 3);
+        if (monthMap[monKey] !== undefined) {
+            const m = monthMap[monKey];
+            let y = parseInt(matchText[3], 10);
+            if (y < 100) y += 2000;
             if (d >= 1 && d <= 31 && m >= 0 && m <= 11 && Math.abs(y - targetYear) <= 1) {
                 foundDate = new Date(y, m, d);
                 foundDateStr = `${d}/${m+1}/${y}`;
                 break;
             }
         }
-        if (foundDate) break;
+    }
+
+    // Pattern 2: Numeric date dd/mm/yyyy or dd-mm-yyyy
+    if (!foundDate) {
+        const rxNumeric = /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/g;
+        let matchNum;
+        while ((matchNum = rxNumeric.exec(text)) !== null) {
+            let d = parseInt(matchNum[1], 10);
+            let m = parseInt(matchNum[2], 10) - 1;
+            let y = parseInt(matchNum[3], 10);
+            if (y < 100) y += 2000;
+            // Swap if month > 12 (mm/dd format)
+            if (m > 11 && d <= 12) {
+                const tmp = d;
+                d = m + 1;
+                m = tmp - 1;
+            }
+            if (d >= 1 && d <= 31 && m >= 0 && m <= 11 && Math.abs(y - targetYear) <= 1) {
+                foundDate = new Date(y, m, d);
+                foundDateStr = `${d}/${m+1}/${y}`;
+                break;
+            }
+        }
+    }
+
+    // Pattern 3: Table format Dia Mes Año (e.g. Dia Mes Año \n 09 09 26)
+    if (!foundDate) {
+        const rxTable = /(?:dia|fecha)[\s\S]{0,30}?mes[\s\S]{0,30}?a[nñ]o[\s\S]{0,30}?(\d{1,2})\s+(\d{1,2})\s+(\d{2,4})/i;
+        const matchTable = text.match(rxTable);
+        if (matchTable) {
+            const d = parseInt(matchTable[1], 10);
+            const m = parseInt(matchTable[2], 10) - 1;
+            let y = parseInt(matchTable[3], 10);
+            if (y < 100) y += 2000;
+            if (d >= 1 && d <= 31 && m >= 0 && m <= 11 && Math.abs(y - targetYear) <= 1) {
+                foundDate = new Date(y, m, d);
+                foundDateStr = `${d}/${m+1}/${y}`;
+            }
+        }
     }
 
     if (foundDate) {
@@ -1511,28 +1549,34 @@ function extractInvoiceDetails(text, fileName) {
     });
 
     let foundAmounts = [];
-    totalLines.forEach(line => {
-        const matches = line.match(/([\d,]+\.\d{2})/g);
-        if (matches) {
-            matches.forEach(m => {
-                const val = parseFloat(m.replace(/,/g, ''));
-                if (!isNaN(val) && val > 0) {
-                    foundAmounts.push(val);
-                }
+    const pushParsedAmounts = (lineStr) => {
+        // Dot decimals: 123.45 or 1,234.56
+        const dotMatches = lineStr.match(/(?:\$|c\$|us\$)?\s*(\d{1,3}(?:,\d{3})*\.\d{2}|\b\d+\.\d{2})\b/gi);
+        if (dotMatches) {
+            dotMatches.forEach(m => {
+                const val = parseFloat(m.replace(/[\$c\s]/gi, '').replace(/,/g, ''));
+                if (!isNaN(val) && val > 0) foundAmounts.push(val);
             });
         }
-    });
+        // Comma decimals: 123,45 or 1.234,56
+        const commaMatches = lineStr.match(/(?:\$|c\$|us\$)?\s*(\d{1,3}(?:\.\d{3})*,\d{2}|\b\d+,\d{2})\b/gi);
+        if (commaMatches) {
+            commaMatches.forEach(m => {
+                const val = parseFloat(m.replace(/[\$c\s]/gi, '').replace(/\./g, '').replace(',', '.'));
+                if (!isNaN(val) && val > 0) foundAmounts.push(val);
+            });
+        }
+    };
+
+    totalLines.forEach(line => pushParsedAmounts(line));
 
     if (foundAmounts.length > 0) {
         amount = Math.max(...foundAmounts);
     } else {
-        // Fallback to highest float found in entire document
-        const allMatches = text.match(/([\d,]+\.\d{2})/g);
-        if (allMatches) {
-            const vals = allMatches.map(m => parseFloat(m.replace(/,/g, ''))).filter(v => !isNaN(v) && v > 0);
-            if (vals.length > 0) {
-                amount = Math.max(...vals);
-            }
+        // Fallback to highest float in entire document
+        pushParsedAmounts(text);
+        if (foundAmounts.length > 0) {
+            amount = Math.max(...foundAmounts);
         }
     }
 
@@ -1542,11 +1586,11 @@ function extractInvoiceDetails(text, fileName) {
         cleanName = cleanName.replace(/\b202\d\b/g, ''); // remove the year (e.g. 2026)
         cleanName = cleanName.replace(/\(\d+\)/g, ''); // skip sequence numbers like (1), (2)
         
-        const fileMatch = cleanName.match(/(\d+(?:\.\d{2})?)/);
+        const fileMatch = cleanName.match(/(\d+(?:[\.,]\d{2})?)/);
         if (fileMatch) {
-            const parsedAmt = parseFloat(fileMatch[1]);
-            // Only use if it looks like a reasonable amount (not a single digit index, e.g. > 9 or with decimals)
-            if (parsedAmt > 9 || fileMatch[1].includes('.')) {
+            const rawVal = fileMatch[1].replace(',', '.');
+            const parsedAmt = parseFloat(rawVal);
+            if (parsedAmt > 9 || fileMatch[1].includes('.') || fileMatch[1].includes(',')) {
                 amount = parsedAmt;
             }
         }
@@ -1562,13 +1606,18 @@ function extractInvoiceDetails(text, fileName) {
     });
     let foundSubtotals = [];
     subtotalLines.forEach(line => {
-        const matches = line.match(/([\d,]+\.\d{2})/g);
-        if (matches) {
-            matches.forEach(m => {
-                const val = parseFloat(m.replace(/,/g, ''));
-                if (!isNaN(val) && val > 0) {
-                    foundSubtotals.push(val);
-                }
+        const dotMatches = line.match(/(?:\$|c\$|us\$)?\s*(\d{1,3}(?:,\d{3})*\.\d{2}|\b\d+\.\d{2})\b/gi);
+        if (dotMatches) {
+            dotMatches.forEach(m => {
+                const val = parseFloat(m.replace(/[\$c\s]/gi, '').replace(/,/g, ''));
+                if (!isNaN(val) && val > 0) foundSubtotals.push(val);
+            });
+        }
+        const commaMatches = line.match(/(?:\$|c\$|us\$)?\s*(\d{1,3}(?:\.\d{3})*,\d{2}|\b\d+,\d{2})\b/gi);
+        if (commaMatches) {
+            commaMatches.forEach(m => {
+                const val = parseFloat(m.replace(/[\$c\s]/gi, '').replace(/\./g, '').replace(',', '.'));
+                if (!isNaN(val) && val > 0) foundSubtotals.push(val);
             });
         }
     });
@@ -1607,7 +1656,10 @@ function checkBusinessNameMatch(txDescription, invoice) {
         { keys: ['puma'], match: ['puma', 'puma energy'] },
         { keys: ['uno'], match: ['estacion uno', 'petronic', 'uno nicaragua'] },
         { keys: ['dilansa'], match: ['dilansa', 'distribuidora agricola'] },
-        { keys: ['disagro'], match: ['disagro', 'distribuidora agricola superior'] }
+        { keys: ['disagro'], match: ['disagro', 'distribuidora agricola superior'] },
+        { keys: ['mcgregor', 'casa mcgregor'], match: ['mcgregor', 'casa mcgregor', 'casa comercial mcgregor'] },
+        { keys: ['gestioo', 'creative universe', 'software taller'], match: ['gestioo', 'creative universe', 'software taller'] },
+        { keys: ['generator magic', 'gosq.com'], match: ['generator magic', 'gosq.com', 'generac'] }
     ];
 
     for (const item of aliases) {
@@ -1920,6 +1972,25 @@ function runMatchingAlgorithm() {
         }
     });
 
+    // 1b. PURCHASE ORDER (OC) AUTO-MATCHING
+    const unassignedPOs = ReconState.invoices.filter(i => i.docType === 'orden_compra' && !i.matched);
+    unassignedPOs.forEach(ocDoc => {
+        const candidateTx = ReconState.transactions.find(tx => {
+            if (tx.purchaseOrderDoc) return false;
+            const matchAmt = ocDoc.extractedAmount && Math.abs(tx.amount - ocDoc.extractedAmount) < 0.15;
+            const matchVendor = checkBusinessNameMatch(tx.description, ocDoc);
+            const matchRef = ocDoc.purchaseOrderRef && tx.purchaseOrderRef && (ocDoc.purchaseOrderRef === tx.purchaseOrderRef);
+            return matchRef || (matchAmt && matchVendor);
+        });
+        if (candidateTx) {
+            candidateTx.purchaseOrderDoc = ocDoc;
+            ocDoc.matched = true;
+            if (ocDoc.purchaseOrderRef && !candidateTx.purchaseOrderRef) {
+                candidateTx.purchaseOrderRef = ocDoc.purchaseOrderRef;
+            }
+        }
+    });
+
     // 2. RETENTIONS MATCHING & TAX AUDITING
     ReconState.transactions.forEach(tx => {
         if (!tx.matched || !tx.invoices || tx.invoices.length === 0) return;
@@ -1986,9 +2057,19 @@ function runMatchingAlgorithm() {
                     tx.retentionIRDoc.matched = true;
                     tx.retentionsIRValid = true;
                 } else {
-                    // Try auto-match IR doc
+                    // Try auto-match IR doc or DGI Exemption
                     const foundIR = ReconState.invoices.find(doc => {
-                        if (doc.matched || (doc.docType !== 'retencion_ir' && doc.docType !== 'exencion_dgi' && doc.docType !== 'exencion')) return false;
+                        if (doc.docType !== 'retencion_ir' && doc.docType !== 'exencion_dgi' && doc.docType !== 'exencion') return false;
+                        
+                        // For DGI Exemption (Constancia de No Retención IR): applies at vendor/provider level!
+                        if (doc.docType === 'exencion_dgi' || doc.docType === 'exencion') {
+                            const vendorMatch = checkBusinessNameMatch(tx.description, doc) || 
+                                                (inv.providerRuc && doc.text && doc.text.includes(inv.providerRuc)) ||
+                                                (doc.text && /casa\s+mcgregor|mcgregor/i.test(doc.text) && /mcgregor/i.test(tx.description));
+                            return vendorMatch;
+                        }
+
+                        if (doc.matched) return false;
                         const matchesInvoiceRef = invoiceRef && doc.invoiceRef && (invoiceRef === doc.invoiceRef);
                         const matchesBase = doc.baseAmount && (Math.abs(doc.baseAmount - estSubtotal) < 15.0);
                         const matchesWithheld = doc.withheldAmount && (Math.abs(doc.withheldAmount - (expectedIRRate * estSubtotal)) < 5.0);
@@ -2019,9 +2100,19 @@ function runMatchingAlgorithm() {
                         tx.retentionMunicipalDoc.matched = true;
                         tx.retentionsMunicipalValid = true;
                     } else {
-                        // Try auto-match Municipal doc
+                        // Try auto-match Municipal doc or ALMA Exemption
                         const foundMunicipal = ReconState.invoices.find(doc => {
-                            if (doc.matched || (doc.docType !== 'retencion_municipal' && doc.docType !== 'exencion_alma' && doc.docType !== 'exencion')) return false;
+                            if (doc.docType !== 'retencion_municipal' && doc.docType !== 'exencion_alma' && doc.docType !== 'exencion') return false;
+                            
+                            // For ALMA Exemption (Constancia de No Retención IMI Municipal): applies at vendor/provider level!
+                            if (doc.docType === 'exencion_alma' || doc.docType === 'exencion') {
+                                const vendorMatch = checkBusinessNameMatch(tx.description, doc) || 
+                                                    (inv.providerRuc && doc.text && doc.text.includes(inv.providerRuc)) ||
+                                                    (doc.text && /casa\s+mcgregor|mcgregor/i.test(doc.text) && /mcgregor/i.test(tx.description));
+                                return vendorMatch;
+                            }
+
+                            if (doc.matched) return false;
                             const matchesInvoiceRef = invoiceRef && doc.invoiceRef && (invoiceRef === doc.invoiceRef);
                             const matchesBase = doc.baseAmount && (Math.abs(doc.baseAmount - estSubtotal) < 15.0);
                             const matchesWithheld = doc.withheldAmount && (Math.abs(doc.withheldAmount - (expectedMunicipalRate * estSubtotal)) < 3.0);
