@@ -4922,7 +4922,7 @@ async function saveReconciliation() {
             purchaseOrderRef: doc.purchaseOrderRef || null,
             providerRuc: doc.providerRuc || null,
             hasSinsaRuc: doc.hasSinsaRuc || false,
-            base64: doc.base64 || null
+            base64: doc.base64 || doc.imageSrc || null
         };
     });
 
@@ -5699,24 +5699,48 @@ async function generatePdfReport() {
         const startX = 15;
         const startY = 28;
 
-        // Section 5: Support Documents (Invoices and Retentions) - COLLAGE
+        // Section 5: Support Documents (Invoices, Purchase Orders, Retenciones, Exenciones) - COLLAGE
         const supportDocsMap = new Map();
-        resolvedTx.forEach(tx => {
-            if (tx.invoices) {
-                tx.invoices.forEach(docItem => {
-                    if (docItem && (docItem.name || docItem.imageSrc)) {
-                        supportDocsMap.set(docItem.name || docItem.imageSrc, docItem);
-                    }
-                });
+        const addDocToSupportMap = (docItem) => {
+            if (!docItem) return;
+            const key = docItem.name || docItem.imageSrc || docItem.base64;
+            if (key && !supportDocsMap.has(key)) {
+                supportDocsMap.set(key, docItem);
+            }
+        };
+
+        const activeTxList = ReconState.transactions.filter(t => !t.isReimbursement);
+        activeTxList.forEach(tx => {
+            if (tx.invoices && Array.isArray(tx.invoices)) {
+                tx.invoices.forEach(addDocToSupportMap);
+            }
+            if (tx.invoice) {
+                addDocToSupportMap(tx.invoice);
+            }
+            if (tx.purchaseOrderDoc) {
+                addDocToSupportMap(tx.purchaseOrderDoc);
             }
             if (tx.retentionIRDoc) {
-                supportDocsMap.set(tx.retentionIRDoc.name || tx.retentionIRDoc.imageSrc, tx.retentionIRDoc);
+                addDocToSupportMap(tx.retentionIRDoc);
             }
             if (tx.retentionMunicipalDoc) {
-                supportDocsMap.set(tx.retentionMunicipalDoc.name || tx.retentionMunicipalDoc.imageSrc, tx.retentionMunicipalDoc);
+                addDocToSupportMap(tx.retentionMunicipalDoc);
+            }
+            if (tx.exemptionDGIDoc) {
+                addDocToSupportMap(tx.exemptionDGIDoc);
+            }
+            if (tx.exemptionALMADoc) {
+                addDocToSupportMap(tx.exemptionALMADoc);
             }
             if (tx.exemptionDoc) {
-                supportDocsMap.set(tx.exemptionDoc.name || tx.exemptionDoc.imageSrc, tx.exemptionDoc);
+                addDocToSupportMap(tx.exemptionDoc);
+            }
+        });
+
+        // Also check any matched or manual document in ReconState.invoices
+        (ReconState.invoices || []).forEach(docItem => {
+            if (docItem && (docItem.matched || docItem.isManual) && docItem.docType !== 'reimbursement_receipt') {
+                addDocToSupportMap(docItem);
             }
         });
         const supportDocs = Array.from(supportDocsMap.values());
@@ -5736,9 +5760,9 @@ async function generatePdfReport() {
                     doc.setFontSize(10);
                     const pageNum = Math.floor(i / (cols * rows)) + 1;
                     if (i === 0) {
-                        doc.text('5. ANEXO - DOCUMENTOS DE SOPORTE (FACTURAS Y RETENCIONES)', 15, 13);
+                        doc.text('5. ANEXO - DOCUMENTOS DE SOPORTE (FACTURAS, OC, RETENCIONES Y EXONERACIONES)', 15, 13);
                     } else {
-                        doc.text(`5. ANEXO - DOCUMENTOS DE SOPORTE (FACTURAS Y RETENCIONES) - CONTINUACIÓN ${pageNum}`, 15, 13);
+                        doc.text(`5. ANEXO - DOCUMENTOS DE SOPORTE (FACTURAS, OC, RETENCIONES Y EXONERACIONES) - CONTINUACIÓN ${pageNum}`, 15, 13);
                     }
                 }
                 
@@ -5759,18 +5783,43 @@ async function generatePdfReport() {
                 
                 // Document type short label
                 let docTypeLabel = 'Soporte';
-                if (docItem.docType === 'invoice') docTypeLabel = 'Factura';
-                else if (docItem.docType === 'retencion_ir') docTypeLabel = 'Retención IR';
-                else if (docItem.docType === 'retencion_municipal') docTypeLabel = 'Retención ALMA';
-                else if (docItem.docType === 'exencion') docTypeLabel = 'Exención';
+                if (docItem.docType === 'invoice') {
+                    docTypeLabel = 'Factura';
+                } else if (docItem.docType === 'orden_compra' || (docItem.purchaseOrderRef && !docItem.invoiceRef)) {
+                    docTypeLabel = 'Orden Compra (OC)';
+                } else if (docItem.docType === 'retencion_ir') {
+                    docTypeLabel = 'Retención IR (2%)';
+                } else if (docItem.docType === 'retencion_municipal') {
+                    docTypeLabel = 'Retención ALMA (1%)';
+                } else if (docItem.docType === 'exencion_dgi') {
+                    docTypeLabel = 'Exoneración DGI';
+                } else if (docItem.docType === 'exencion_alma') {
+                    docTypeLabel = 'Exoneración ALMA';
+                } else if (docItem.docType === 'exencion') {
+                    docTypeLabel = 'Exoneración';
+                } else if (docItem.docType === 'reimbursement_receipt') {
+                    docTypeLabel = 'Comprobante Reembolso';
+                }
+                
+                let extraRef = '';
+                if (docItem.invoiceRef) {
+                    extraRef = ` #${docItem.invoiceRef}`;
+                } else if (docItem.purchaseOrderRef) {
+                    extraRef = ` #${docItem.purchaseOrderRef}`;
+                }
+                let slotLabel = `#${i + 1}: ${docTypeLabel}${extraRef}`;
+                if (slotLabel.length > 28) {
+                    slotLabel = slotLabel.substring(0, 27) + '…';
+                }
                 
                 doc.setTextColor(71, 85, 105);
                 doc.setFont('helvetica', 'bold');
                 doc.setFontSize(6.5);
-                doc.text(`#${i + 1}: ${docTypeLabel}`, x + 3, y + 6);
+                doc.text(slotLabel, x + 3, y + 6);
                 
                 const isPdf = docItem.name && docItem.name.replace(/\s*\(Pág\.\s*\d+\)$/i, "").toLowerCase().endsWith('.pdf');
-                const hasImage = docItem.imageSrc && docItem.imageSrc.trim() !== "";
+                const imageSource = docItem.imageSrc || docItem.base64;
+                const hasImage = imageSource && imageSource.trim() !== "";
                 
                 if (isPdf && !hasImage) {
                     // PDF placeholder box in collage grid
@@ -5802,7 +5851,7 @@ async function generatePdfReport() {
                     doc.text('PDF', x + 25, y + 43);
                 } else if (hasImage) {
                     try {
-                        const imgData = await getImageDataUrl(docItem.imageSrc);
+                        const imgData = await getImageDataUrl(imageSource);
                         if (imgData && imgData.dataUrl) {
                             const maxW = colWidth - 4;
                             const maxH = rowHeight - 12;
@@ -5880,9 +5929,22 @@ async function generatePdfReport() {
 
         // Section 6: Reimbursement Payments - COLLAGE
         const reimbursementDocsMap = new Map();
+        const addReimbursementDoc = (docItem) => {
+            if (!docItem) return;
+            const key = docItem.name || docItem.imageSrc || docItem.base64;
+            if (key && !reimbursementDocsMap.has(key)) {
+                reimbursementDocsMap.set(key, docItem);
+            }
+        };
+
         reimbursementTx.forEach(tx => {
-            if (tx.reimbursementDoc && (tx.reimbursementDoc.name || tx.reimbursementDoc.imageSrc)) {
-                reimbursementDocsMap.set(tx.reimbursementDoc.name || tx.reimbursementDoc.imageSrc, tx.reimbursementDoc);
+            if (tx.reimbursementDoc) {
+                addReimbursementDoc(tx.reimbursementDoc);
+            }
+        });
+        (ReconState.invoices || []).forEach(docItem => {
+            if (docItem && (docItem.docType === 'reimbursement_receipt' || (docItem.name && docItem.name.toLowerCase().includes('reembolso'))) && (docItem.matched || docItem.isManual)) {
+                addReimbursementDoc(docItem);
             }
         });
         const reimbursementDocs = Array.from(reimbursementDocsMap.values());
@@ -5929,7 +5991,8 @@ async function generatePdfReport() {
                 doc.text(`#${i + 1}: Reembolso`, x + 3, y + 6);
                 
                 const isPdf = docItem.name && docItem.name.replace(/\s*\(Pág\.\s*\d+\)$/i, "").toLowerCase().endsWith('.pdf');
-                const hasImage = docItem.imageSrc && docItem.imageSrc.trim() !== "";
+                const imageSource = docItem.imageSrc || docItem.base64;
+                const hasImage = imageSource && imageSource.trim() !== "";
                 
                 if (isPdf && !hasImage) {
                     // PDF placeholder box in collage grid
@@ -5961,7 +6024,7 @@ async function generatePdfReport() {
                     doc.text('PDF', x + 25, y + 43);
                 } else if (hasImage) {
                     try {
-                        const imgData = await getImageDataUrl(docItem.imageSrc);
+                        const imgData = await getImageDataUrl(imageSource);
                         if (imgData && imgData.dataUrl) {
                             const maxW = colWidth - 4;
                             const maxH = rowHeight - 12;
