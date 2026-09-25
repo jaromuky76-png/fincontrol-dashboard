@@ -1726,11 +1726,14 @@ function checkAmountMatch(txAmount, txCurrency, invoice, allowCrossCurrency = fa
 }
 
 function runMatchingAlgorithm() {
-    // Reset matches and retenciones on transactions, preserving manual matches
+    // Reset matches and retenciones on transactions, preserving manual and existing matches
     ReconState.transactions.forEach(tx => {
         if (tx.isManual && tx.invoices && tx.invoices.length > 0) {
             tx.matched = true;
         } else if (tx.isManual && tx.isReimbursement) {
+            tx.matched = true;
+        } else if (tx.matched && tx.invoices && tx.invoices.length > 0) {
+            // Preserve already-matched transactions from previous run or loaded history
             tx.matched = true;
         } else {
             tx.matched = false;
@@ -1744,46 +1747,41 @@ function runMatchingAlgorithm() {
         tx.retentionsIRValid = true;
         tx.retentionsMunicipalValid = true;
 
-        // Preserve manually linked retenciones/exemptions
-        if (tx.retentionIRDoc && tx.retentionIRDoc.isManual) {
+        // Preserve linked retenciones/exemptions
+        if (tx.retentionIRDoc) {
             tx.hasRetencionIR = true;
         } else {
             tx.hasRetencionIR = false;
-            tx.retentionIRDoc = null;
         }
 
-        if (tx.retentionMunicipalDoc && tx.retentionMunicipalDoc.isManual) {
+        if (tx.retentionMunicipalDoc) {
             tx.hasRetencionMunicipal = true;
         } else {
             tx.hasRetencionMunicipal = false;
-            tx.retentionMunicipalDoc = null;
         }
 
-        if (tx.exemptionDGIDoc && tx.exemptionDGIDoc.isManual) {
+        if (tx.exemptionDGIDoc) {
             tx.hasExemptionDGI = true;
         } else {
             tx.hasExemptionDGI = false;
-            tx.exemptionDGIDoc = null;
         }
 
-        if (tx.exemptionALMADoc && tx.exemptionALMADoc.isManual) {
+        if (tx.exemptionALMADoc) {
             tx.hasExemptionALMA = true;
         } else {
             tx.hasExemptionALMA = false;
-            tx.exemptionALMADoc = null;
         }
 
-        if (tx.exemptionDoc && tx.exemptionDoc.isManual) {
+        if (tx.exemptionDoc) {
             tx.isExempt = true;
         } else {
             tx.isExempt = false;
-            tx.exemptionDoc = null;
         }
     });
 
-    // Reset matches on documents, preserving manual ones
+    // Reset matches on documents, preserving manual and linked ones
     ReconState.invoices.forEach(doc => {
-        const isLinkedToManual = ReconState.transactions.some(t => t.isManual && t.invoices && t.invoices.includes(doc));
+        const isLinkedToInvoice = ReconState.transactions.some(t => t.invoices && t.invoices.includes(doc));
         const isLinkedToRetention = ReconState.transactions.some(t => 
             t.retentionIRDoc === doc || 
             t.retentionMunicipalDoc === doc || 
@@ -1792,13 +1790,12 @@ function runMatchingAlgorithm() {
             t.exemptionALMADoc === doc ||
             t.purchaseOrderDoc === doc
         );
-        const isLinkedToReimbursement = ReconState.transactions.some(t => t.isManual && t.reimbursementDoc === doc);
+        const isLinkedToReimbursement = ReconState.transactions.some(t => t.reimbursementDoc === doc);
         
-        if (doc.isManual && (isLinkedToManual || isLinkedToRetention || isLinkedToReimbursement)) {
+        if (doc.isManual || isLinkedToInvoice || isLinkedToRetention || isLinkedToReimbursement) {
             doc.matched = true;
         } else {
             doc.matched = false;
-            doc.isManual = false;
         }
     });
 
@@ -2003,27 +2000,12 @@ function runMatchingAlgorithm() {
         tx.retentionsIRValid = true;
         tx.retentionsMunicipalValid = true;
 
-        // Preserve manually linked retenciones/exemptions
-        if (tx.retentionIRDoc && tx.retentionIRDoc.isManual) {
-            tx.hasRetencionIR = true;
-        } else {
-            tx.hasRetencionIR = false;
-            tx.retentionIRDoc = null;
-        }
-
-        if (tx.retentionMunicipalDoc && tx.retentionMunicipalDoc.isManual) {
-            tx.hasRetencionMunicipal = true;
-        } else {
-            tx.hasRetencionMunicipal = false;
-            tx.retentionMunicipalDoc = null;
-        }
-
-        if (tx.exemptionDoc && tx.exemptionDoc.isManual) {
-            tx.isExempt = true;
-        } else {
-            tx.isExempt = false;
-            tx.exemptionDoc = null;
-        }
+        // Maintain linked retenciones/exemptions
+        if (tx.retentionIRDoc) tx.hasRetencionIR = true;
+        if (tx.retentionMunicipalDoc) tx.hasRetencionMunicipal = true;
+        if (tx.exemptionDoc) tx.isExempt = true;
+        if (tx.exemptionDGIDoc) tx.hasExemptionDGI = true;
+        if (tx.exemptionALMADoc) tx.hasExemptionALMA = true;
 
         // Check if this is a fuel station transaction (PUMA / UNO) — no retentions required
         const isFuelStation = /\bPUMA\b|\bUNO\b/i.test(tx.description);
@@ -4025,6 +4007,7 @@ async function processSingleInvoiceUpload() {
         // Link with the transaction
         if (ReconState.uploadIsPurchaseOrder) {
             targetTx.purchaseOrderDoc = newDoc;
+            targetTx.isManual = true;
             newDoc.docType = 'orden_compra';
             newDoc.matched = true;
             newDoc.isManual = true;
@@ -4051,6 +4034,7 @@ async function processSingleInvoiceUpload() {
                 window.showToast('Comprobante de depósito asociado y reembolso registrado', 'success');
             }
         } else if (ReconState.uploadIsRetention) {
+            targetTx.isManual = true;
             const rType = ReconState.uploadRetentionType || docDetails.docType || 'exencion';
             docDetails.docType = rType;
             newDoc.docType = rType;
@@ -5161,10 +5145,10 @@ async function loadSavedReconciliation(id) {
     ReconState.invoices = record.invoices.map(doc => {
         return {
             name: doc.name,
-            imageSrc: doc.base64 || '',
-            base64: doc.base64 || '',
+            imageSrc: doc.base64 || doc.imageSrc || '',
+            base64: doc.base64 || doc.imageSrc || '',
             blob: doc.blob || null,
-            text: doc.text,
+            text: doc.text || '',
             docType: doc.docType,
             invoiceRef: doc.invoiceRef,
             baseAmount: doc.baseAmount,
@@ -5173,8 +5157,8 @@ async function loadSavedReconciliation(id) {
             extractedSubtotal: doc.extractedSubtotal || null,
             extractedDateStr: doc.extractedDateStr,
             extractedDate: doc.extractedDate ? new Date(doc.extractedDate) : null,
-            matched: doc.matched,
-            isManual: doc.isManual,
+            matched: !!doc.matched,
+            isManual: true,
             lowQuality: doc.lowQuality,
             confidence: doc.confidence,
             currency: doc.currency || 'NIO',
@@ -5202,6 +5186,15 @@ async function loadSavedReconciliation(id) {
         const linkedReimbursement = tx.reimbursementDocName ? ReconState.invoices.find(i => i.name === tx.reimbursementDocName) : null;
         const linkedPO = tx.purchaseOrderDocName ? ReconState.invoices.find(i => i.name === tx.purchaseOrderDocName) : null;
 
+        if (linkedPO) { linkedPO.matched = true; linkedPO.isManual = true; }
+        if (linkedIR) { linkedIR.matched = true; linkedIR.isManual = true; }
+        if (linkedMunicipal) { linkedMunicipal.matched = true; linkedMunicipal.isManual = true; }
+        if (linkedExemptionDGI) { linkedExemptionDGI.matched = true; linkedExemptionDGI.isManual = true; }
+        if (linkedExemptionALMA) { linkedExemptionALMA.matched = true; linkedExemptionALMA.isManual = true; }
+        if (linkedExemption) { linkedExemption.matched = true; linkedExemption.isManual = true; }
+        if (linkedReimbursement) { linkedReimbursement.matched = true; linkedReimbursement.isManual = true; }
+        linkedInvoices.forEach(inv => { inv.matched = true; inv.isManual = true; });
+
         return {
             id: tx.id,
             dateStr: tx.dateStr,
@@ -5209,18 +5202,18 @@ async function loadSavedReconciliation(id) {
             description: tx.description,
             amount: tx.amount,
             type: tx.type,
-            matched: tx.matched,
+            matched: !!tx.matched,
             reference: tx.reference,
             currency: tx.currency || 'NIO',
-            isManual: tx.isManual,
+            isManual: true,
             isReimbursement: tx.isReimbursement || false,
             requiresRetentions: tx.requiresRetentions,
-            hasRetencionIR: tx.hasRetencionIR,
-            hasRetencionMunicipal: tx.hasRetencionMunicipal,
+            hasRetencionIR: tx.hasRetencionIR || !!linkedIR,
+            hasRetencionMunicipal: tx.hasRetencionMunicipal || !!linkedMunicipal,
             hasExemptionDGI: tx.hasExemptionDGI || !!linkedExemptionDGI,
             hasExemptionALMA: tx.hasExemptionALMA || !!linkedExemptionALMA,
-            isExempt: tx.isExempt,
-            retentionsValid: tx.retentionsValid,
+            isExempt: tx.isExempt || !!linkedExemption,
+            retentionsValid: tx.retentionsValid !== undefined ? tx.retentionsValid : true,
             retentionsIRValid: tx.retentionsIRValid !== undefined ? tx.retentionsIRValid : true,
             retentionsMunicipalValid: tx.retentionsMunicipalValid !== undefined ? tx.retentionsMunicipalValid : true,
             invoices: linkedInvoices,
@@ -5737,9 +5730,11 @@ async function generatePdfReport() {
             }
         });
 
-        // Also check any matched or manual document in ReconState.invoices
+        // Also check any matched or manual document, or any support document in ReconState.invoices
         (ReconState.invoices || []).forEach(docItem => {
-            if (docItem && (docItem.matched || docItem.isManual) && docItem.docType !== 'reimbursement_receipt') {
+            if (!docItem || docItem.docType === 'reimbursement_receipt') return;
+            const isSupportType = ['orden_compra', 'retencion_ir', 'retencion_municipal', 'exencion_dgi', 'exencion_alma', 'exencion'].includes(docItem.docType) || !!docItem.purchaseOrderRef;
+            if (docItem.matched || docItem.isManual || isSupportType) {
                 addDocToSupportMap(docItem);
             }
         });
