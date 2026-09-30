@@ -1,0 +1,31 @@
+.git
+.github
+.agents
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.tmp
+~$*
+node_modules
+.vscode
+.idea
+*.bat
+*.PDF
+*.pdf
+GUIA_DESPLIEGUE_CLOUD_RUN.md
+PROJECT_STATE.md
+scratch/
+.gemini/
+.system_generated/
+_scripts_historicos/
+FACTURA EC SEPT26/
+VENTAS/
+CONSOLIDADO DE VENTAS/
+
+# Ignorar archivos temporales y reportes pasados pesados en FORMATO
+FORMATO/CS/*
+!FORMATO/CS/REPORTE_COSTO_SERVICIOS_CS_JULIO_2026_FINAL.xlsx
+FORMATO/MAESTROS/*
+!FORMATO/MAESTROS/REPORTE_COSTO_SERVICIOS_MAESTROS_JULIO_2026_FINAL.xlsx

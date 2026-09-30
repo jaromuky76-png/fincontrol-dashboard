@@ -17,7 +17,8 @@
 
     // ─── Estado global del módulo ──────────────────────────────────────────
     let activeTab = 'resumen';   // 'resumen' | 'maestros-int' | 'maestros-ext' | 'cs-int' | 'cs-ext'
-    let data = null;             // Objeto window.REPORTE_CONTABLE_DATA
+    let data = null;
+    let miscelaneosList = [];             // Objeto window.REPORTE_CONTABLE_DATA
     let searchTerms = { 'maestros-int': '', 'maestros-ext': '', 'cs-int': '', 'cs-ext': '' };
 
     // Chart instances
@@ -36,6 +37,37 @@
             'rgba(34,197,94,0.85)'
         ]
     };
+
+    function getApiUrl() {
+        const saved = localStorage.getItem('FINCONTROL_API_URL');
+        if (saved && saved.trim()) return saved.trim().replace(/\/+$/, '');
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.protocol === 'file:') {
+            return 'http://127.0.0.1:8081';
+        }
+        return (window.FINCONTROL_CLOUD_URL || 'https://fincontrol-api-654834985201.us-central1.run.app').replace(/\/+$/, '');
+    }
+
+    function downloadBase64File(base64Data, fileName) {
+        try {
+            const byteCharacters = atob(base64Data);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+        } catch (e) {
+            console.error('Error descargando Base64:', e);
+            window.location.href = `FORMATO/CS/${fileName}`;
+        }
+    }
 
     // ─── Inicialización ────────────────────────────────────────────────────
     document.addEventListener('DOMContentLoaded', () => {
@@ -64,12 +96,250 @@
                 }, 100);
             });
         }
+
+        const btnProcesar = document.getElementById('btn-procesar-archivos-acc');
+        if (btnProcesar) {
+            btnProcesar.addEventListener('click', async () => {
+                const mes = document.getElementById('acc-select-mes').value;
+                if (!mes) {
+                    showToast('Por favor, selecciona un mes para procesar', 'error');
+                    return;
+                }
+                const anio = '2026';
+                const modo = document.getElementById('acc-select-modo').value;
+
+                btnProcesar.disabled = true;
+                btnProcesar.style.opacity = '0.7';
+
+                const progressContainer = document.getElementById('container-acc-progress');
+                const progressBarFill = document.getElementById('acc-progress-bar-fill');
+                const progressPercent = document.getElementById('acc-progress-percent');
+                const progressStatus = document.getElementById('acc-progress-status-text');
+
+                if (progressContainer) progressContainer.classList.remove('hidden');
+                if (progressBarFill) progressBarFill.style.width = '25%';
+                if (progressPercent) progressPercent.textContent = '25%';
+                if (progressStatus) progressStatus.textContent = `Generando reportes para ${mes} ${anio}... (Esto puede tomar hasta 1 minuto)`;
+
+                try {
+                    if (progressBarFill) progressBarFill.style.width = '60%';
+                    if (progressPercent) progressPercent.textContent = '60%';
+
+                    const apiUrl = getApiUrl();
+                    const payload = {
+                        mes: mes,
+                        anio: anio,
+                        modo: modo,
+                        ventas_b64: window.ventasB64 || null,
+                        ventas_filename: window.ventasFilename || null,
+                        ot_cs_b64: window.otB64 || null,
+                        ot_cs_filename: window.otFilename || null
+                    };
+
+                    console.log(`[FINCONTROL] Enviando peticion a ${apiUrl}/api/procesar`);
+                    const response = await fetch(`${apiUrl}/api/procesar`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(payload)
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.status === 'success') {
+                        if (progressBarFill) progressBarFill.style.width = '100%';
+                        if (progressPercent) progressPercent.textContent = '100%';
+                        if (progressStatus) progressStatus.textContent = '¡Reportes generados con éxito! Datos cargados en Dashboard.';
+                        if (typeof showToast === 'function') showToast('Procesamiento completado con éxito.', 'success');
+                        
+                        if (data.data) {
+                            window.REPORTE_CONTABLE_DATA = data.data;
+                        }
+
+                        // Almacenar binarios en Base64 para descarga directa en el navegador
+                        if (data.excel_cs_b64) {
+                            window.currentExcelCSB64 = data.excel_cs_b64;
+                            window.currentExcelCSFilename = data.excel_cs_filename;
+                        }
+                        if (data.excel_maestros_b64) {
+                            window.currentExcelMB64 = data.excel_maestros_b64;
+                            window.currentExcelMFilename = data.excel_maestros_filename;
+                        }
+                        
+                        miscelaneosList = [];
+                        if (window.REPORTE_CONTABLE_DATA && window.REPORTE_CONTABLE_DATA.csInterno && window.REPORTE_CONTABLE_DATA.csInterno.registros) {
+                            var rawMisc = window.REPORTE_CONTABLE_DATA.csInterno.registros.filter(function(r) {
+                                return String(r.rms || '').trim() === '136245365' && String(r.ot || '').trim() !== '57000';
+                            });
+                            if (rawMisc.length > 0) {
+                                miscelaneosList = rawMisc.map(function(r) {
+                                    return {
+                                        rms: r.rms, ot: r.ot, desc: r.desc, ceco: r.ceco,
+                                        fechaFin: r.fechaFin || '', estadoOT: r.estadoOT || '',
+                                        pv_usd: r.montoUSD || 6.14, pv_nio: r.montoNIO || 224.85,
+                                        hs: r.horas || 1.5, pers: 1, viaticos: 0.00
+                                    };
+                                });
+                            }
+                        }
+                        renderMiscelaneosGrid();
+                        tryLoadData();
+                        
+                        var btnPreviewLocal = document.getElementById('btn-previsualizar-reporte');
+                        if (btnPreviewLocal) {
+                            btnPreviewLocal.disabled = false;
+                            btnPreviewLocal.style.opacity = '1';
+                            btnPreviewLocal.style.cursor = 'pointer';
+                        }
+                        const btnDownloadLocal = document.getElementById('btn-descargar-reporte-oficial');
+                        if (btnDownloadLocal) {
+                            btnDownloadLocal.disabled = false;
+                            btnDownloadLocal.style.opacity = '1';
+                            btnDownloadLocal.style.cursor = 'pointer';
+                        }
+                        btnProcesar.disabled = false;
+                        btnProcesar.style.opacity = '1';
+                    } else {
+                        if (progressContainer) progressContainer.classList.add('hidden');
+                        if (progressBarFill) progressBarFill.style.width = '0%';
+                        if (typeof showToast === 'function') showToast('Hubo un problema en el servidor Python: ' + data.message, 'error');
+                        if (progressStatus) progressStatus.textContent = 'Error: ' + data.message;
+                        console.error('[ACCOUNTING] Error del API:', data.output);
+                        btnProcesar.disabled = false;
+                        btnProcesar.style.opacity = '1';
+                    }
+                } catch (e) {
+                    if (progressContainer) progressContainer.classList.add('hidden');
+                    if (progressBarFill) progressBarFill.style.width = '0%';
+                    if (typeof showToast === 'function') showToast('Error de conexión con el backend de Python (Asegúrate de ejecutar start_fincontrol.bat)', 'error');
+                    if (progressStatus) progressStatus.textContent = 'Error de conexión. ' + e.message;
+                    btnProcesar.disabled = false;
+                    btnProcesar.style.opacity = '1';
+                }
+            });
+        }
+
+        
+        const btnPreview = document.getElementById('btn-previsualizar-reporte');
+        const modalPreview = document.getElementById('modal-preview-reporte');
+        const btnCerrarPreview = document.getElementById('btn-cerrar-modal-preview');
+
+        if (btnPreview && modalPreview && btnCerrarPreview) {
+            btnPreview.addEventListener('click', () => {
+                if (btnPreview.disabled) return;
+                
+                document.getElementById('preview-mes-title').textContent = document.getElementById('acc-select-mes')?.value || 'MES ACTUAL';
+                
+                if (window.REPORTE_CONTABLE_DATA) {
+                    const d = window.REPORTE_CONTABLE_DATA;
+                    document.getElementById('prev-kpi-total-nio').textContent = 'C$ ' + fmtNum(d.csInterno?.totalNIO || 0);
+                    document.getElementById('prev-kpi-total-usd').textContent = '$ ' + fmtUSD(d.csInterno?.totalUSD || 0);
+                    document.getElementById('prev-kpi-ots-taller').textContent = d.csInterno?.registros?.length || 0;
+                    document.getElementById('prev-kpi-ots-misc').textContent = miscelaneosList.length;
+                    
+                    const tbody = document.querySelector('#panel-sheet-interno table tbody');
+                    if (tbody && d.csInterno?.registros) {
+                        tbody.innerHTML = d.csInterno.registros.map((r, i) => `
+                            <tr>
+                                <td>${i+1}</td>
+                                <td>${r.ot}</td>
+                                <td>${r.rms}</td>
+                                <td>${r.desc}</td>
+                                <td>${r.ceco}</td>
+                                <td>${r.estadoOT}</td>
+                                <td class="text-right">C$ ${fmtNum(r.montoNIO || 0)}</td>
+                                <td class="text-right">$ ${fmtUSD(r.montoUSD || 0)}</td>
+                                <td class="text-right">${r.horas || 1}</td>
+                            </tr>
+                        `).join('');
+                    }
+                    
+                    document.getElementById('badge-count-interno').textContent = d.csInterno?.registros?.length || 0;
+                    document.getElementById('badge-count-clientes').textContent = '0';
+                    document.getElementById('badge-count-miscelaneos').textContent = miscelaneosList.length;
+                }
+                
+                modalPreview.classList.remove('hidden');
+            });
+
+            btnCerrarPreview.addEventListener('click', () => {
+                modalPreview.classList.add('hidden');
+            });
+        }
+
+        const btnDownload = document.getElementById('btn-descargar-reporte-oficial');
+        if (btnDownload) {
+            btnDownload.addEventListener('click', () => {
+                if (btnDownload.disabled) return;
+                const mes = document.getElementById('acc-select-mes')?.value || 'SEPTIEMBRE';
+                const anio = '2026';
+                const defaultName = `REPORTE_COSTO_SERVICIOS_CS_${mes}_${anio}_FINAL_FINCONTROL.xlsx`;
+
+                if (window.currentExcelCSB64) {
+                    if (typeof showToast === 'function') showToast('Descargando reporte oficial generado...', 'info');
+                    downloadBase64File(window.currentExcelCSB64, window.currentExcelCSFilename || defaultName);
+                    if (typeof showToast === 'function') showToast('Reporte Contable (.xlsx) descargado con éxito.', 'success');
+                } else {
+                    if (typeof showToast === 'function') showToast('Descargando reporte contable...', 'info');
+                    setTimeout(() => {
+                        window.location.href = `FORMATO/CS/${defaultName}`;
+                        if (typeof showToast === 'function') showToast('Reporte Contable (.xlsx) descargado', 'success');
+                    }, 500);
+                }
+            });
+        }
+
+        const btnGrabarMisc = document.getElementById('btn-grabar-miscelaneos');
+        if (btnGrabarMisc) {
+            btnGrabarMisc.addEventListener('click', () => {
+                if (typeof showToast === 'function') showToast('Valores de Misceláneos guardados correctamente en la sesión.', 'success');
+            });
+        }
+
+        const btnLimpiar = document.getElementById('btn-limpiar-formulario-acc');
+        if (btnLimpiar) {
+            btnLimpiar.addEventListener('click', () => {
+                document.getElementById('acc-select-mes').value = '';
+                miscelaneosList = [];
+                renderMiscelaneosGrid();
+
+                const progressContainer = document.getElementById('container-acc-progress');
+                const progressBarFill = document.getElementById('acc-progress-bar-fill');
+                const progressPercent = document.getElementById('acc-progress-percent');
+                if (progressContainer) progressContainer.classList.add('hidden');
+                if (progressBarFill) progressBarFill.style.width = '0%';
+                if (progressPercent) progressPercent.textContent = '0%';
+
+                if (btnDownload) {
+                    btnDownload.disabled = true;
+                    btnDownload.style.opacity = '0.6';
+                    btnDownload.style.cursor = 'not-allowed';
+                }
+
+                if (typeof showToast === 'function') showToast('Formulario e interfaz de misceláneos limpiados.', 'info');
+            });
+        }
+
     });
 
     function tryLoadData() {
-        if (typeof window.REPORTE_CONTABLE_DATA !== 'undefined') {
+        if (typeof window.REPORTE_CONTABLE_DATA !== 'undefined' && window.REPORTE_CONTABLE_DATA) {
             data = window.REPORTE_CONTABLE_DATA;
             renderAll();
+            
+            // Enable buttons since data is loaded
+            var btnPreviewLocal = document.getElementById('btn-previsualizar-reporte');
+            if (btnPreviewLocal) {
+                btnPreviewLocal.disabled = false;
+                btnPreviewLocal.style.opacity = '1';
+                btnPreviewLocal.style.cursor = 'pointer';
+            }
+            const btnDownloadLocal = document.getElementById('btn-descargar-reporte-oficial');
+            if (btnDownloadLocal) {
+                btnDownloadLocal.disabled = false;
+                btnDownloadLocal.style.opacity = '1';
+                btnDownloadLocal.style.cursor = 'pointer';
+            }
+            
         } else {
             renderEmptyState();
         }
@@ -169,6 +439,24 @@
         renderTableForTab('cs-int');
         renderTableForTab('cs-ext');
         renderChartsForTab(activeTab);
+
+        miscelaneosList = [];
+        if (data && data.csInterno && data.csInterno.registros) {
+            var rawMisc = data.csInterno.registros.filter(function(r) {
+                return String(r.rms || '').trim() === '136245365' && String(r.ot || '').trim() !== '57000';
+            });
+            if (rawMisc.length > 0) {
+                miscelaneosList = rawMisc.map(function(r) {
+                    return {
+                        rms: r.rms, ot: r.ot, desc: r.desc, ceco: r.ceco,
+                        fechaFin: r.fechaFin || '', estadoOT: r.estadoOT || '',
+                        pv_usd: r.montoUSD || 6.14, pv_nio: r.montoNIO || 224.85,
+                        hs: r.horas || 1.5, pers: 1, viaticos: 0.00
+                    };
+                });
+            }
+        }
+        renderMiscelaneosGrid();
     }
 
     function renderEmptyState() {
@@ -605,6 +893,110 @@
     }
 
     // ─── Utilities ─────────────────────────────────────────────────────────
+    
+    function renderMiscelaneosGrid() {
+        const tbody = document.getElementById('tbody-miscelaneos');
+        if (!tbody) return;
+
+        const cntBadge = document.getElementById('cnt-total-miscelaneos');
+        if (cntBadge) cntBadge.textContent = miscelaneosList.length + ' OTs Misceláneas';
+
+        const tc = parseFloat(document.getElementById('acc-input-tc')?.value || '36.62');
+        const tarifaMO = 80.208333;
+        
+        // Group and sort by month
+        const monthOrder = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"];
+        
+        miscelaneosList.sort((a, b) => {
+            const getMonthIdx = (estado) => {
+                let s = (estado || '').toUpperCase();
+                for(let i=0; i<monthOrder.length; i++) {
+                    if (s.includes(monthOrder[i])) return i;
+                }
+                return 99; // Unknown
+            };
+            return getMonthIdx(a.estadoOT) - getMonthIdx(b.estadoOT);
+        });
+
+        let html = '';
+        let currentGroup = '';
+
+        miscelaneosList.forEach((item, idx) => {
+            const pv_nio = item.pv_usd * tc;
+            const costoMO = item.hs * item.pers * tarifaMO;
+            const cargasSoc = costoMO * 0.4949; // CORRECTED PERCENTAGE
+            const costoTotalNIO = costoMO + cargasSoc + (item.viaticos || 0);
+            const costoTotalUSD = costoTotalNIO / tc;
+
+            let estado_clean = esc(item.estadoOT) || 'SIN MES DEFINIDO';
+
+            if (estado_clean !== currentGroup) {
+                currentGroup = estado_clean;
+                html += `
+                <tr style="background-color: rgba(14, 165, 233, 0.15);">
+                    <td colspan="12" style="padding: 0.5rem 1rem; font-weight: bold; color: var(--color-primary); border-left: 4px solid var(--color-primary);">
+                        <i data-lucide="folder-open" style="width: 16px; height: 16px; display: inline-block; vertical-align: text-bottom; margin-right: 6px;"></i>
+                        Segmento de OTs provenientes de: ${currentGroup}
+                    </td>
+                </tr>`;
+            }
+
+            html += `
+                <tr>
+                    <td><strong>${esc(item.ot)}</strong></td>
+                    <td>${esc(item.desc)}</td>
+                    <td>${esc(item.fechaFin) || '<span style="color:var(--color-warning);">Sin Fecha</span>'}</td>
+                    <td><span class="badge badge-outline">${estado_clean}</span></td>
+                    <td><span class="badge badge-secondary">${esc(item.ceco)}</span></td>
+                    <td class="text-right">
+                        <input type="number" step="0.01" class="form-control form-control-sm text-right input-misc-pv-usd" data-idx="${idx}" value="${item.pv_usd.toFixed(2)}" style="width:100px; font-weight:600; display:inline-block;">
+                    </td>
+                    <td class="text-right" id="misc-pv-nio-${idx}">C$ ${fmtNum(pv_nio)}</td>
+                    <td class="text-right">
+                        <input type="number" step="0.5" class="form-control form-control-sm text-right input-misc-hs" data-idx="${idx}" value="${item.hs}" style="width:80px; display:inline-block;">
+                    </td>
+                    <td class="text-right">
+                        <input type="number" step="1" class="form-control form-control-sm text-right input-misc-pers" data-idx="${idx}" value="${item.pers}" style="width:75px; display:inline-block;">
+                    </td>
+                    <td class="text-right">
+                        <input type="number" step="10" class="form-control form-control-sm text-right input-misc-viaticos" data-idx="${idx}" value="${item.viaticos.toFixed(2)}" style="width:100px; display:inline-block;">
+                    </td>
+                    <td class="text-right" id="misc-tot-nio-${idx}" style="font-weight:700; color:var(--color-success);">C$ ${fmtNum(costoTotalNIO)}</td>
+                    <td class="text-right" id="misc-tot-usd-${idx}" style="font-weight:700; color:var(--color-success);">$ ${fmtUSD(costoTotalUSD)}</td>
+                </tr>
+            `;
+        });
+
+        tbody.innerHTML = html;
+
+        if (typeof lucide !== 'undefined' && lucide.createIcons) {
+            lucide.createIcons();
+        }
+
+        tbody.querySelectorAll('input').forEach(input => {
+            input.addEventListener('input', (e) => {
+                const idx = parseInt(e.target.getAttribute('data-idx'));
+                const item = miscelaneosList[idx];
+
+                if (e.target.classList.contains('input-misc-pv-usd')) item.pv_usd = parseFloat(e.target.value) || 0;
+                if (e.target.classList.contains('input-misc-hs')) item.hs = parseFloat(e.target.value) || 0;
+                if (e.target.classList.contains('input-misc-pers')) item.pers = parseFloat(e.target.value) || 0;
+                if (e.target.classList.contains('input-misc-viaticos')) item.viaticos = parseFloat(e.target.value) || 0;
+
+                const currentTC = parseFloat(document.getElementById('acc-input-tc')?.value || '36.62');
+                const calcNIO = item.pv_usd * currentTC;
+                const calcMO = item.hs * item.pers * tarifaMO;
+                const calcCargas = calcMO * 0.4949; // CORRECTED PERCENTAGE
+                const calcTotNIO = calcMO + calcCargas + item.viaticos;
+                const calcTotUSD = calcTotNIO / currentTC;
+
+                document.getElementById(`misc-pv-nio-${idx}`).textContent = `C$ ${fmtNum(calcNIO)}`;
+                document.getElementById(`misc-tot-nio-${idx}`).textContent = `C$ ${fmtNum(calcTotNIO)}`;
+                document.getElementById(`misc-tot-usd-${idx}`).textContent = `$ ${fmtUSD(calcTotUSD)}`;
+            });
+        });
+    }
+
     function destroyChart(key) {
         if (charts[key]) { charts[key].destroy(); delete charts[key]; }
     }
@@ -627,3 +1019,155 @@
     }
 
 })();
+
+
+// ==========================================
+// LÓGICA DE LA CALCULADORA FLOTANTE
+// ==========================================
+document.addEventListener('DOMContentLoaded', () => {
+    // ---- MODO ESTÁNDAR ----
+    const calcDisplay = document.getElementById('widget-calc-display');
+    const calcExpression = document.getElementById('widget-calc-expression');
+
+    function evalExpression() {
+        if (!calcDisplay) return;
+        try {
+            const rawExp = calcDisplay.value;
+            if (!rawExp) return;
+            let exp = rawExp.replace(/[^0-9+\-*/().% ]/g, ''); // sanitize for safety
+            
+            // Reemplazar % por /100
+            exp = exp.replace(/%/g, '/100');
+            
+            const res = String(new Function('return ' + exp)());
+            if (calcExpression) calcExpression.textContent = rawExp + ' =';
+            calcDisplay.value = res;
+        } catch (e) {
+            if (calcExpression) calcExpression.textContent = calcDisplay.value + ' =';
+            calcDisplay.value = 'Error';
+        }
+    }
+
+    document.querySelectorAll('.widget-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            if (!calcDisplay) return;
+            const val = e.target.getAttribute('data-val');
+            
+            if (val === 'C') {
+                calcDisplay.value = '0';
+                if (calcExpression) calcExpression.textContent = '';
+            } else if (val === 'DEL') {
+                if (calcDisplay.value === 'Error') {
+                    calcDisplay.value = '0';
+                } else if (calcDisplay.value.length > 1) {
+                    calcDisplay.value = calcDisplay.value.slice(0, -1);
+                } else {
+                    calcDisplay.value = '0';
+                }
+            } else if (val === '=') {
+                evalExpression();
+            } else if (val === 'USD') {
+                // If it's an expression, evaluate it first
+                evalExpression();
+                if (calcDisplay.value !== 'Error') {
+                    const tc = parseFloat(document.getElementById('acc-input-tc')?.value || '36.62');
+                    const parsed = parseFloat(calcDisplay.value) || 0;
+                    calcDisplay.value = (parsed / tc).toFixed(2);
+                    if (calcExpression) calcExpression.textContent = 'USD (TC ' + tc + ') =';
+                }
+            } else {
+                if (calcDisplay.value === '0' || calcDisplay.value === 'Error') {
+                    if (['+', '-', '*', '/', '%', ')'].includes(val)) {
+                        calcDisplay.value = '0' + val;
+                    } else if (val === '.') {
+                        calcDisplay.value = '0.';
+                    } else {
+                        calcDisplay.value = val;
+                    }
+                } else {
+                    calcDisplay.value += val;
+                }
+            }
+        });
+    });
+
+    if (calcDisplay) {
+        calcDisplay.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                evalExpression();
+            }
+        });
+    }
+
+    // ---- MODO MO (MANO DE OBRA) ----
+    const tcInputGlob = document.getElementById('acc-input-tc');
+    const calcMoHoras = document.getElementById('calc-mo-horas');
+    const calcMoPersonas = document.getElementById('calc-mo-personas');
+    const calcMoViaticos = document.getElementById('calc-mo-viaticos');
+    const calcMoTc = document.getElementById('calc-mo-tc');
+
+    function updateCalcMO() {
+        if (!calcMoHoras) return;
+        const horas = parseFloat(calcMoHoras.value) || 0;
+        const personas = parseFloat(calcMoPersonas.value) || 0;
+        const viaticos = parseFloat(calcMoViaticos.value) || 0;
+        const tc = parseFloat(calcMoTc.value) || parseFloat(tcInputGlob?.value || '36.62');
+        
+        const tarifaMO = 80.208333;
+        const costoMO = horas * personas * tarifaMO;
+        // 49.49% is the correct Cargas Sociales percentage, replacing the visual 28.08% label
+        const cargasSoc = costoMO * 0.4949; 
+        const totalNIO = costoMO + cargasSoc + viaticos;
+        const totalUSD = totalNIO / tc;
+        
+        const fmtNio = (num) => 'C$ ' + num.toLocaleString('es-NI', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        const fmtUsd = (num) => '$ ' + num.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
+        const resMo = document.getElementById('calc-res-mo-directo');
+        const resCargas = document.getElementById('calc-res-cargas');
+        const resViaticos = document.getElementById('calc-res-viaticos-val');
+        const resTotNio = document.getElementById('calc-res-total-nio');
+        const resTotUsd = document.getElementById('calc-res-total-usd');
+
+        if(resMo) resMo.textContent = fmtNio(costoMO);
+        if(resCargas) resCargas.textContent = fmtNio(cargasSoc);
+        if(resViaticos) resViaticos.textContent = fmtNio(viaticos);
+        if(resTotNio) resTotNio.textContent = fmtNio(totalNIO);
+        if(resTotUsd) resTotUsd.textContent = fmtUsd(totalUSD);
+    }
+
+    [calcMoHoras, calcMoPersonas, calcMoViaticos, calcMoTc].forEach(input => {
+        if (input) input.addEventListener('input', updateCalcMO);
+    });
+    if (tcInputGlob && calcMoTc) {
+        tcInputGlob.addEventListener('input', () => {
+            calcMoTc.value = tcInputGlob.value;
+            updateCalcMO();
+        });
+    }
+
+    // Inicializar valores de MO
+    updateCalcMO();
+
+    // ---- TAB SWITCHER ----
+    const tabStd = document.getElementById('calc-tab-standard');
+    const tabMo = document.getElementById('calc-tab-mo');
+    const modeStd = document.getElementById('calc-mode-standard');
+    const modeMo = document.getElementById('calc-mode-mo');
+    
+    if (tabStd && tabMo) {
+        tabStd.addEventListener('click', () => {
+            tabStd.classList.replace('btn-secondary', 'btn-primary');
+            tabMo.classList.replace('btn-primary', 'btn-secondary');
+            modeStd.classList.remove('hidden');
+            modeMo.classList.add('hidden');
+        });
+        tabMo.addEventListener('click', () => {
+            tabMo.classList.replace('btn-secondary', 'btn-primary');
+            tabStd.classList.replace('btn-primary', 'btn-secondary');
+            modeMo.classList.remove('hidden');
+            modeStd.classList.add('hidden');
+        });
+    }
+});
