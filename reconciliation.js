@@ -104,7 +104,11 @@ const reconElements = {
     inputSaveYear: document.getElementById('input-save-year'),
     inputSaveNumber: document.getElementById('input-save-number'),
     tbodyHistory: document.querySelector('#table-history tbody'),
-    textareaNotes: document.getElementById('textarea-reconciliation-notes')
+    textareaNotes: document.getElementById('textarea-reconciliation-notes'),
+    selectReconActiveCard: document.getElementById('select-recon-active-card'),
+    badgeReconCardStatus: document.getElementById('badge-recon-card-status'),
+    btnQuickManageCorpCards: document.getElementById('btn-quick-manage-corp-cards'),
+    reconCardSubtitle: document.getElementById('recon-card-subtitle')
 };
 
 // --- DATABASE PERSISTENCE (INDEXEDDB) ---
@@ -234,6 +238,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initModalListeners();
     initTabControls();
     initNewReconciliationListeners();
+    initReconCardSelector();
     await migrateLocalStorageToIndexedDB();
     renderSavedReconciliationsList();
 });
@@ -312,14 +317,23 @@ function initFileListeners() {
 }
 
 function handlePdfSelection(file) {
-    if (!file || file.type !== 'application/pdf') {
-        window.showToast('Por favor selecciona un archivo PDF válido', 'error');
+    if (!file) return;
+    const fileName = (file.name || '').toLowerCase();
+    const isPdf = file.type === 'application/pdf' || fileName.endsWith('.pdf');
+    const isHtml = file.type === 'text/html' || fileName.endsWith('.html') || fileName.endsWith('.htm');
+
+    if (!isPdf && !isHtml) {
+        window.showToast('Por favor selecciona un archivo PDF (Banpro) o HTML (BAC) válido', 'error');
         return;
     }
     ReconState.pdfFile = file;
-    reconElements.pdfFileInfo.textContent = `${file.name} (${formatBytes(file.size)})`;
+    ReconState.statementFile = file;
+    ReconState.statementType = isHtml ? 'html' : 'pdf';
+
+    const typeBadge = isHtml ? 'HTML BAC' : 'PDF Banpro';
+    reconElements.pdfFileInfo.textContent = `${file.name} [${typeBadge}] (${formatBytes(file.size)})`;
     reconElements.pdfFileInfo.style.color = 'var(--color-success)';
-    window.showToast('Estado de cuenta PDF cargado', 'success');
+    window.showToast(`Estado de cuenta ${typeBadge} cargado`, 'success');
     checkProcessButton();
 }
 
@@ -456,11 +470,22 @@ async function processFiles() {
         ReconState.invoices = [];
         ReconState.transactions = [];
 
-        // 1. READ PDF STATE & COLUMNS
-        addLog('Leyendo archivo PDF y extrayendo transacciones con monedas...', 'info');
-        const pdfData = await readFileAsArrayBuffer(ReconState.pdfFile);
-        await parseTransactionsWithCoordinates(pdfData);
-        addLog(`Se detectaron ${ReconState.transactions.length} transacciones en el PDF.`, 'success');
+        // 1. READ BANK STATEMENT (PDF BANPRO OR HTML BAC)
+        const fileName = (ReconState.pdfFile && ReconState.pdfFile.name) ? ReconState.pdfFile.name.toLowerCase() : '';
+        const isHtml = ReconState.statementType === 'html' || fileName.endsWith('.html') || fileName.endsWith('.htm') || (ReconState.pdfFile && ReconState.pdfFile.type.includes('html'));
+
+        if (isHtml) {
+            updateProgress(8, 'Leyendo estado de cuenta HTML (BAC Credomatic)...');
+            addLog('Leyendo archivo HTML de BAC Credomatic y extrayendo movimientos...', 'info');
+            const htmlText = await readFileAsText(ReconState.pdfFile);
+            await parseBacHtmlStatement(htmlText);
+            addLog(`Se detectaron ${ReconState.transactions.length} transacciones en el estado de cuenta HTML de BAC.`, 'success');
+        } else {
+            addLog('Leyendo archivo PDF y extrayendo transacciones con monedas...', 'info');
+            const pdfData = await readFileAsArrayBuffer(ReconState.pdfFile);
+            await parseTransactionsWithCoordinates(pdfData);
+            addLog(`Se detectaron ${ReconState.transactions.length} transacciones en el PDF de Banpro.`, 'success');
+        }
 
         if (ReconState.transactions.length === 0) {
             addLog('No se encontraron transacciones en el estado de cuenta. Habilita la adición manual.', 'warning');
@@ -724,6 +749,15 @@ function readFileAsArrayBuffer(file) {
     });
 }
 
+function readFileAsText(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsText(file, 'utf-8');
+    });
+}
+
 function blobToBase64(blob) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -901,25 +935,57 @@ async function runSmartOCR(worker, imageSrc, fileName = "") {
 
         // Check if Pass 1 yielded a strong extraction
         const details1 = classifyAndExtractDocument(text1, fileName);
-        const hasGoodData = (details1.amount !== null || details1.invoiceRef !== null) && text1.trim().length >= 40 && conf1 >= 50;
+        const hasGoodData = (details1.amount !== null || details1.invoiceRef !== null) && text1.trim().length >= 40 && conf1 >= 55;
 
         if (hasGoodData) {
             return { text: text1, confidence: conf1, preprocessedSrc: preprocessedSrc };
         }
 
-        // Pass 2: Fallback on Grayscale-Normalized Image if Pass 1 had low confidence
+        // Pass 2: Fallback on Grayscale-Normalized Image
         const graySrc = await preprocessImageForOCR(imageSrc, 'grayscale_only');
         const res2 = await worker.recognize(graySrc);
         const text2 = res2.data.text || "";
         const conf2 = res2.data.confidence || 0;
         const details2 = classifyAndExtractDocument(text2, fileName);
 
-        // Pick whichever pass extracted amount/date or higher confidence
-        if ((details2.amount && !details1.amount) || (conf2 > conf1 && text2.trim().length > text1.trim().length)) {
+        if (details2.amount && details2.date && conf2 >= 55) {
             return { text: text2, confidence: conf2, preprocessedSrc: graySrc };
         }
 
-        return { text: text1, confidence: conf1, preprocessedSrc: preprocessedSrc };
+        // Pass 3: Test on original Raw Image (crucial for colored, dot-matrix, thermal, or shadow receipts where binarization degrades text)
+        let text3 = "";
+        let conf3 = 0;
+        try {
+            const res3 = await worker.recognize(imageSrc);
+            text3 = res3.data.text || "";
+            conf3 = res3.data.confidence || 0;
+        } catch (rawPassErr) {
+            console.warn("Pass 3 raw OCR pass error:", rawPassErr);
+        }
+        const details3 = classifyAndExtractDocument(text3, fileName);
+
+        // Score candidates based on information yield (Amount: 50pts, Date: 30pts, Invoice#: 20pts, Merchant match: 20pts, + Confidence)
+        const candidates = [
+            { text: text1, conf: conf1, details: details1, src: preprocessedSrc },
+            { text: text2, conf: conf2, details: details2, src: graySrc },
+            { text: text3, conf: conf3, details: details3, src: imageSrc }
+        ];
+
+        candidates.sort((a, b) => {
+            const score = (c) => {
+                let s = (c.conf || 0) * 0.4;
+                if (c.details.amount) s += 50;
+                if (c.details.date) s += 30;
+                if (c.details.invoiceRef) s += 20;
+                if (c.details.hasSinsaRuc) s += 15;
+                if (c.text.trim().length >= 40) s += 10;
+                return s;
+            };
+            return score(b) - score(a);
+        });
+
+        const best = candidates[0];
+        return { text: best.text, confidence: best.conf, preprocessedSrc: best.src };
     } catch (ocrErr) {
         console.error("Smart OCR error:", ocrErr);
         // Direct fallback to raw
@@ -1003,6 +1069,10 @@ async function parseTransactionsWithCoordinates(pdfData) {
     const pdf = await loadingTask.promise;
     let idCounter = 1;
     
+    // Explicitly track active bank and card for reconciliation
+    ReconState.statementBank = 'BANPRO';
+    ReconState.statementCardDigits = (window.AppState && window.AppState.settings) ? window.AppState.settings.reconCard : '9155';
+
     // Default fiscal year from statement text if detected
     let statementYear = new Date().getFullYear();
     
@@ -1054,19 +1124,37 @@ async function parseTransactionsWithCoordinates(pdfData) {
             
             if (trimmed.length < 10) return;
             
-            // BANPRO purchase line regex: Reference (10-25 digits) | Date (MM/DD) | Description | Amount
-            const banproRegex = /^(\d{10,25})\s+(\d{1,2}[\/\-]\d{1,2})\s+(.+?)\s+([\-\+]?\$?\s*[\d,]+\.\d{2})(?:\s*(?:CR|DR|\-))?\s*$/i;
-            
-            const match = trimmed.match(banproRegex);
-            if (match) {
-                const refNum = match[1];
-                const dateStr = match[2];
-                const desc = match[3].trim();
-                const amountVal = match[4];
-                
+            // BANPRO purchase line regexes:
+            // 1) Reference (alphanumeric 4-32) + Date (MM/DD or DD/MM with optional year) + Description + Amount
+            const banproRegexWithRef = /^([A-Za-z0-9]{4,32})\s+(\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?)\s+(.+?)\s+([\-\+]?\$?\s*[\d,]+\.\d{2})(?:\s*(?:CR|DR|\-))?\s*$/i;
+            // 2) Date first + Description + Amount (when reference is omitted or separate)
+            const banproRegexDateFirst = /^(\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?)\s+(.+?)\s+([\-\+]?\$?\s*[\d,]+\.\d{2})(?:\s*(?:CR|DR|\-))?\s*$/i;
+
+            let refNum = null;
+            let dateStr = null;
+            let desc = null;
+            let amountVal = null;
+
+            const matchWithRef = trimmed.match(banproRegexWithRef);
+            if (matchWithRef) {
+                refNum = matchWithRef[1];
+                dateStr = matchWithRef[2];
+                desc = matchWithRef[3].trim();
+                amountVal = matchWithRef[4];
+            } else {
+                const matchDateFirst = trimmed.match(banproRegexDateFirst);
+                if (matchDateFirst) {
+                    refNum = 'AUT-' + (idCounter);
+                    dateStr = matchDateFirst[1];
+                    desc = matchDateFirst[2].trim();
+                    amountVal = matchDateFirst[3];
+                }
+            }
+
+            if (desc && amountVal && dateStr) {
                 let cleanAmount = amountVal.replace(/[\$,\s]/g, '');
                 let amount = parseFloat(cleanAmount);
-                if (isNaN(amount)) return;
+                if (isNaN(amount) || amount === 0) return;
                 
                 const descLower = desc.toLowerCase();
                 const isIgnored = descLower.includes('saldo') || 
@@ -1081,14 +1169,8 @@ async function parseTransactionsWithCoordinates(pdfData) {
                                   descLower.includes('interes corriente') ||
                                   descLower.includes('subtotal') ||
                                   descLower.includes('cargo por mora') ||
-                                  descLower.includes('limite') ||
-                                  descLower.includes('límite') ||
-                                  descLower.includes('corte') ||
-                                  descLower.includes('pago limite') ||
-                                  descLower.includes('pago límite') ||
-                                  descLower.includes('fecha limite') ||
-                                  descLower.includes('fecha límite') ||
-                                  descLower.includes('fecha de corte') ||
+                                  /\b(pago\s+l[ií]mite|fecha\s+l[ií]mite|l[ií]mite\s+de\s+cr[eé]dito)\b/i.test(descLower) ||
+                                  /\b(fecha\s+de\s+corte|al\s+corte|corte\s+de\s+cuenta)\b/i.test(descLower) ||
                                   /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/.test(desc) ||
                                   /^\d{1,2}[\/\-]\d{1,2}\s+[uU]\$?/.test(desc);
                                   
@@ -1152,6 +1234,331 @@ async function parseTransactionsWithCoordinates(pdfData) {
             }
         });
     }
+}
+
+// --- HTML STATEMENT PARSER (BAC CREMATIC) ---
+
+async function parseBacHtmlStatement(htmlText) {
+    let idCounter = ReconState.transactions.length + 1;
+    
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlText, 'text/html');
+    
+    let cardAccount = '3939';
+    let statementYear = new Date().getFullYear();
+    let statementMonth = new Date().getMonth() + 1;
+    let clientName = 'SILVA INTERNACIONAL SA';
+    
+    // 1. Extract metadata from document
+    const bodyText = doc.body ? doc.body.textContent : htmlText;
+    
+    // Cut-off date: "Fecha de Corte"
+    const cutOffMatch = bodyText.match(/Fecha de Corte[\s\S]*?(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/i) ||
+                         htmlText.match(/Fecha de Corte[\s\S]*?<td[^>]*>(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/i);
+    if (cutOffMatch) {
+        const day = parseInt(cutOffMatch[1], 10);
+        const month = parseInt(cutOffMatch[2], 10);
+        let year = parseInt(cutOffMatch[3], 10);
+        if (year < 100) year += 2000;
+        statementYear = year;
+        statementMonth = month;
+        console.log(`[BAC Parser] Fecha de Corte detectada: ${day}/${month}/${year}`);
+    }
+    
+    // Account Number
+    const accountMatch = bodyText.match(/N[úu]mero de Cuenta[\s\S]*?(?:X+|\*+)?(\d{4})/i) ||
+                          htmlText.match(/N[úu]mero de Cuenta[\s\S]*?<td[^>]*>([^<]+)/i);
+    if (accountMatch) {
+        const accDigits = (accountMatch[1] || '').match(/(\d{4})/);
+        if (accDigits) cardAccount = accDigits[1];
+    }
+    
+    // Client Name
+    const clientMatch = htmlText.match(/Cliente[\s\S]*?<td[^>]*>([^<]+)/i);
+    if (clientMatch) {
+        clientName = clientMatch[1].replace(/<[^>]+>/g, '').trim();
+    }
+    
+    // Auto-sync bank & card setting to BAC if not already set
+    if (window.AppState && window.AppState.settings) {
+        window.AppState.settings.bank = 'BAC';
+        window.AppState.settings.reconCard = cardAccount;
+        if (typeof window.saveSettingsToStorage === 'function') {
+            window.saveSettingsToStorage();
+        }
+        if (typeof window.updateReconCardUI === 'function') {
+            window.updateReconCardUI();
+        }
+    }
+    
+    // Auto-update month / year in save modal
+    if (reconElements.selectSaveMonth) {
+        reconElements.selectSaveMonth.value = statementMonth;
+    }
+    if (reconElements.inputSaveYear) {
+        reconElements.inputSaveYear.value = statementYear;
+    }
+    
+    // 2. Find transaction table
+    const tables = Array.from(doc.querySelectorAll('table'));
+    let txTable = tables.find(t => {
+        const text = t.textContent;
+        return (/referencia/i.test(text) || /fecha/i.test(text)) && 
+               /concepto/i.test(text) && 
+               (/c[óo]rdobas/i.test(text) || /d[óo]lares/i.test(text));
+    });
+    
+    if (!txTable && tables.length >= 2) {
+        txTable = tables[1];
+    }
+    
+    if (!txTable) {
+        addLog('No se encontró la tabla de transacciones de BAC en el archivo HTML.', 'error');
+        return;
+    }
+    
+    const monthMap = {
+        'ENE': 1, 'FEB': 2, 'MAR': 3, 'ABR': 4, 'MAY': 5, 'JUN': 6,
+        'JUL': 7, 'AGO': 8, 'SEP': 9, 'SET': 9, 'OCT': 10, 'NOV': 11, 'DIC': 12
+    };
+
+    let currentSubCard = cardAccount;
+    let currentHolder = clientName;
+    
+    const trElements = Array.from(txTable.querySelectorAll('tr'));
+    
+    trElements.forEach(tr => {
+        const cells = Array.from(tr.querySelectorAll('td, th')).map(c => c.textContent.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim());
+        if (cells.length < 3) return;
+        
+        const colRef = cells[0] || '';
+        const colDate = cells[1] || '';
+        const colDesc = cells[2] || '';
+        const colNIO = cells[3] || '';
+        const colUSD = cells[4] || '';
+        
+        // Check for sub-card marker: "****-****-****-XXXX"
+        const cardHeaderMatch = colDesc.match(/\*{4}-\*{4}-\*{4}-(\d{4})/);
+        if (cardHeaderMatch) {
+            currentSubCard = cardHeaderMatch[1];
+            return;
+        }
+        
+        // Check for cardholder name row
+        if (!colDate && !colRef && !colNIO && !colUSD && colDesc.length > 3) {
+            const descUpper = colDesc.toUpperCase();
+            if (!descUpper.includes('SALDO') && !descUpper.includes('PUNTOS') && !descUpper.includes('DISPONIBLE')) {
+                currentHolder = colDesc;
+                return;
+            }
+        }
+        
+        // Validate date column (must be MES/DD or DD/MES)
+        const dateMatch = colDate.match(/^([A-Za-z]{3})[\/\-](\d{1,2})$/i) || colDate.match(/^(\d{1,2})[\/\-]([A-Za-z]{3})$/i);
+        if (!dateMatch) {
+            return; // Skip summary rows, headers, footers
+        }
+        
+        let mStr, dStr;
+        if (isNaN(parseInt(dateMatch[1], 10))) {
+            mStr = dateMatch[1].toUpperCase();
+            dStr = dateMatch[2];
+        } else {
+            dStr = dateMatch[1];
+            mStr = dateMatch[2].toUpperCase();
+        }
+        const monthNum = monthMap[mStr] || statementMonth;
+        const dayNum = parseInt(dStr, 10);
+        const dateObj = new Date(statementYear, monthNum - 1, dayNum);
+        const formattedDateStr = `${String(dayNum).padStart(2, '0')}/${String(monthNum).padStart(2, '0')}/${statementYear}`;
+        
+        // Amount and Currency determination
+        let amount = 0;
+        let currency = 'NIO';
+        let isCredit = false;
+        
+        if (colUSD && colUSD !== '$' && colUSD !== '.00') {
+            currency = 'USD';
+            if (colUSD.endsWith('-')) isCredit = true;
+            const cleanNum = colUSD.replace(/[\$,\s\-]/g, '');
+            amount = parseFloat(cleanNum);
+        } else if (colNIO && colNIO !== 'C$' && colNIO !== '.00') {
+            currency = 'NIO';
+            if (colNIO.endsWith('-')) isCredit = true;
+            const cleanNum = colNIO.replace(/[C\$,\s\-]/g, '');
+            amount = parseFloat(cleanNum);
+        }
+        
+        if (isNaN(amount) || amount === 0) return;
+        
+        const descUpper = colDesc.toUpperCase();
+        if (descUpper.includes('SU PAGO') || descUpper.includes('BONIFICACION') || descUpper.includes('DEVOLUC')) {
+            isCredit = true;
+        }
+        
+        ReconState.transactions.push({
+            id: 'tx-' + (idCounter++),
+            dateStr: formattedDateStr,
+            date: dateObj,
+            description: colDesc,
+            amount: Math.abs(amount),
+            type: isCredit ? 'credit' : 'charge',
+            matched: false,
+            invoice: null,
+            reference: colRef.replace(/\s+/g, ' ').trim(),
+            currency: currency,
+            cardDigits: currentSubCard || cardAccount,
+            holderName: currentHolder
+        });
+    });
+
+    // Automatically detect the active spending card (the plastic with actual purchases/charges)
+    const chargeCards = [...new Set(ReconState.transactions.filter(t => t.type === 'charge').map(t => t.cardDigits))];
+    const activeSpendingCard = chargeCards.length > 0 ? chargeCards[0] : (ReconState.transactions.some(t => t.cardDigits === '7526') ? '7526' : cardAccount);
+
+    ReconState.statementBank = 'BAC';
+    ReconState.statementCardDigits = activeSpendingCard;
+
+    if (window.AppState && window.AppState.settings) {
+        window.AppState.settings.bank = 'BAC';
+        window.AppState.settings.reconCard = activeSpendingCard;
+        if (typeof window.saveSettingsToStorage === 'function') {
+            window.saveSettingsToStorage();
+        }
+        if (typeof window.updateReconCardUI === 'function') {
+            window.updateReconCardUI();
+        }
+    }
+}
+
+// --- CORPORATE CARD SELECTOR CONTROLLER ---
+
+function initReconCardSelector() {
+    const select = document.getElementById('select-recon-active-card');
+    if (!select) return;
+    
+    window.refreshReconCardSelector = function() {
+        if (!select) return;
+        let corpCards = [];
+        if (typeof window.getCorporateCards === 'function') {
+            corpCards = window.getCorporateCards();
+        } else {
+            corpCards = [
+                { bank: 'BANPRO', cardNumber: '9155', holderName: 'SILVA INTERNACIONAL S.A.', status: 'Activa' },
+                { bank: 'BAC', cardNumber: '7526', holderName: 'MAESTROS-JOSE RAUDES-SILVA INTERNACIONAL S.A.', status: 'Activa' },
+                { bank: 'BAC', cardNumber: '3939', holderName: 'MAESTROS-JOSE RAUDES-SILVA INTERNACIONAL S.A.', status: 'En Reemplazo' }
+            ];
+        }
+        
+        const currentBank = window.AppState?.settings?.bank || 'BANPRO';
+        const currentCard = window.AppState?.settings?.reconCard || '9155';
+        const currentVal = `${currentBank}_${currentCard}`;
+        
+        select.innerHTML = '';
+        corpCards.forEach(c => {
+            const opt = document.createElement('option');
+            const card4 = (c.cardNumber || '').slice(-4);
+            const statusLabel = c.status && c.status !== 'Activa' ? ` [${c.status}]` : '';
+            opt.value = `${c.bank}_${card4}`;
+            opt.textContent = `${c.bank} - ****${card4} (${c.holderName || 'Corporativa'})${statusLabel}`;
+            select.appendChild(opt);
+        });
+        
+        // Ensure current active setting is selected or added
+        if (Array.from(select.options).some(o => o.value === currentVal)) {
+            select.value = currentVal;
+        } else {
+            const opt = document.createElement('option');
+            opt.value = currentVal;
+            opt.textContent = `${currentBank} - ****${currentCard}`;
+            select.appendChild(opt);
+            select.value = currentVal;
+        }
+
+        // Action to register a new corporate card directly
+        const optNew = document.createElement('option');
+        optNew.value = '__NEW_CARD__';
+        optNew.textContent = '+ Registrar Nueva Tarjeta Corporativa...';
+        optNew.style.fontWeight = 'bold';
+        optNew.style.color = 'var(--color-primary)';
+        select.appendChild(optNew);
+        
+        if (typeof window.updateReconCardUI === 'function') {
+            window.updateReconCardUI();
+        }
+    };
+    
+    select.addEventListener('change', (e) => {
+        const val = e.target.value;
+        if (val === '__NEW_CARD__') {
+            if (typeof window.openCardModal === 'function') {
+                window.openCardModal(null);
+                const selectType = document.getElementById('select-inv-card-type');
+                if (selectType) {
+                    selectType.value = 'corporativa';
+                    const groupVehicle = document.getElementById('group-inv-vehicle');
+                    if (groupVehicle) groupVehicle.style.display = 'none';
+                }
+            }
+            window.refreshReconCardSelector();
+            return;
+        }
+        const [bank, cardDigits] = val.split('_');
+        ReconState.statementBank = bank;
+        ReconState.statementCardDigits = cardDigits;
+        if (window.AppState && window.AppState.settings) {
+            window.AppState.settings.bank = bank;
+            window.AppState.settings.reconCard = cardDigits;
+            if (typeof window.saveSettingsToStorage === 'function') {
+                window.saveSettingsToStorage();
+            }
+        }
+        if (typeof window.updateReconCardUI === 'function') {
+            window.updateReconCardUI();
+        }
+        window.showToast(`Tarjeta corporativa cambiada a ${bank} ****${cardDigits}`, 'info');
+    });
+    
+    // Quick Edit Active Card Button
+    const btnEditCard = document.getElementById('btn-edit-active-corp-card');
+    if (btnEditCard) {
+        btnEditCard.addEventListener('click', () => {
+            const currentBank = window.AppState?.settings?.bank || 'BAC';
+            const currentCard = window.AppState?.settings?.reconCard || '7526';
+            let corpCards = (typeof window.getCorporateCards === 'function') ? window.getCorporateCards() : [];
+            let cardToEdit = corpCards.find(c => (c.cardNumber || '').endsWith(currentCard) && c.bank === currentBank);
+            
+            if (!cardToEdit) {
+                cardToEdit = {
+                    id: `card_${currentBank.toLowerCase()}_${currentCard}`,
+                    type: 'corporativa',
+                    bank: currentBank,
+                    cardNumber: currentCard,
+                    holderName: 'MAESTROS-JOSE RAUDES-SILVA INTERNACIONAL S.A.',
+                    holderCode: 'MAESTROS',
+                    status: 'Activa',
+                    notes: 'Tarjeta corporativa'
+                };
+            }
+            if (typeof window.openCardModal === 'function') {
+                window.openCardModal(cardToEdit);
+            }
+        });
+    }
+
+    const btnManage = document.getElementById('btn-quick-manage-corp-cards');
+    if (btnManage) {
+        btnManage.addEventListener('click', () => {
+            const menuSettings = document.getElementById('menu-settings');
+            if (menuSettings) menuSettings.click();
+            setTimeout(() => {
+                const invSection = document.getElementById('form-inv-login') || document.getElementById('inv-unlocked-panel');
+                if (invSection) invSection.scrollIntoView({ behavior: 'smooth' });
+            }, 200);
+        });
+    }
+    
+    window.refreshReconCardSelector();
 }
 
 function normalizeTextForClassification(str) {
@@ -1541,28 +1948,40 @@ function extractInvoiceDetails(text, fileName) {
     const lines = text.split('\n');
     const totalLines = [];
     
-    lines.forEach(line => {
-        // filter lines likely containing total amount
-        if (/total|pagar|neto|importe|monto|net\s+pay|sub-total|efectivo/i.test(line)) {
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (/total|pagar|neto|importe|monto|net\s+pay|sub-total|efectivo|cancelar|saldo|a\s+cobrar|cobrado/i.test(line)) {
             totalLines.push(line);
+            // Also inspect the immediate next line if the number was placed below the label
+            if (i + 1 < lines.length && /\d/.test(lines[i + 1])) {
+                totalLines.push(lines[i + 1]);
+            }
         }
-    });
+    }
 
     let foundAmounts = [];
     const pushParsedAmounts = (lineStr) => {
+        if (!lineStr) return;
+        // Normalize common OCR character confusions in numbers (e.g. .OO -> .00, .O5 -> .05, ,OO -> ,00)
+        const cleanLine = lineStr.replace(/[\.,]([oO0-9])([oO0-9])\b/g, (m, d1, d2) => {
+            const c1 = (d1 === 'o' || d1 === 'O') ? '0' : d1;
+            const c2 = (d2 === 'o' || d2 === 'O') ? '0' : d2;
+            return '.' + c1 + c2;
+        });
+
         // Dot decimals: 123.45 or 1,234.56
-        const dotMatches = lineStr.match(/(?:\$|c\$|us\$)?\s*(\d{1,3}(?:,\d{3})*\.\d{2}|\b\d+\.\d{2})\b/gi);
+        const dotMatches = cleanLine.match(/(?:\$|c\$|us\$|nio)?\s*(\d{1,3}(?:,\d{3})*\.\d{2}|\b\d+\.\d{2})\b/gi);
         if (dotMatches) {
             dotMatches.forEach(m => {
-                const val = parseFloat(m.replace(/[\$c\s]/gi, '').replace(/,/g, ''));
+                const val = parseFloat(m.replace(/[\$c\s|nio|us]/gi, '').replace(/,/g, ''));
                 if (!isNaN(val) && val > 0) foundAmounts.push(val);
             });
         }
         // Comma decimals: 123,45 or 1.234,56
-        const commaMatches = lineStr.match(/(?:\$|c\$|us\$)?\s*(\d{1,3}(?:\.\d{3})*,\d{2}|\b\d+,\d{2})\b/gi);
+        const commaMatches = cleanLine.match(/(?:\$|c\$|us\$|nio)?\s*(\d{1,3}(?:\.\d{3})*,\d{2}|\b\d+,\d{2})\b/gi);
         if (commaMatches) {
             commaMatches.forEach(m => {
-                const val = parseFloat(m.replace(/[\$c\s]/gi, '').replace(/\./g, '').replace(',', '.'));
+                const val = parseFloat(m.replace(/[\$c\s|nio|us]/gi, '').replace(/\./g, '').replace(',', '.'));
                 if (!isNaN(val) && val > 0) foundAmounts.push(val);
             });
         }
@@ -1577,6 +1996,18 @@ function extractInvoiceDetails(text, fileName) {
         pushParsedAmounts(text);
         if (foundAmounts.length > 0) {
             amount = Math.max(...foundAmounts);
+        }
+    }
+
+    // Fallback: cross-reference transactions from statement if amount wasn't isolated
+    if (!amount && window.ReconState && window.ReconState.transactions && window.ReconState.transactions.length > 0) {
+        for (const tx of window.ReconState.transactions) {
+            if (tx.type !== 'charge') continue;
+            const amtStr = tx.amount.toFixed(2);
+            if (text.includes(amtStr)) {
+                amount = tx.amount;
+                break;
+            }
         }
     }
 
@@ -1659,7 +2090,8 @@ function checkBusinessNameMatch(txDescription, invoice) {
         { keys: ['disagro'], match: ['disagro', 'distribuidora agricola superior'] },
         { keys: ['mcgregor', 'casa mcgregor'], match: ['mcgregor', 'casa mcgregor', 'casa comercial mcgregor'] },
         { keys: ['gestioo', 'creative universe', 'software taller'], match: ['gestioo', 'creative universe', 'software taller'] },
-        { keys: ['generator magic', 'gosq.com'], match: ['generator magic', 'gosq.com', 'generac'] }
+        { keys: ['generator magic', 'gosq.com'], match: ['generator magic', 'gosq.com', 'generac'] },
+        { keys: ['cortez', 'sanqui', 'cortez sanqui'], match: ['cortez', 'sanqui', 'cortez sanqui', 'cortez-sanqui', 'sanqui cortez'] }
     ];
 
     for (const item of aliases) {
@@ -1799,7 +2231,9 @@ function runMatchingAlgorithm() {
         }
     });
 
-    const maxDaysDiff = window.AppState.settings.toleranceDays;
+    const maxDaysDiff = (window.AppState && window.AppState.settings && typeof window.AppState.settings.toleranceDays === 'number') 
+        ? window.AppState.settings.toleranceDays 
+        : 5;
 
     // --- PASS 1: Same currency + Business Name + Amount match + Date tolerance ---
     ReconState.transactions.forEach(tx => {
@@ -1833,9 +2267,9 @@ function runMatchingAlgorithm() {
             });
 
             if (bestInvoice) {
-                // When business name AND exact amount match, allow an extended date tolerance (up to 15 days)
-                // to account for browser print timestamps (e.g. printed days after transaction)
-                const effectiveTolerance = Math.max(maxDaysDiff, 15);
+                // When business name AND exact amount match, allow an extended date tolerance (up to 35 days)
+                // to account for international billing cycles or browser print timestamps
+                const effectiveTolerance = Math.max(maxDaysDiff, 35);
                 if (minDiff <= effectiveTolerance || minDiff === Infinity) {
                     tx.matched = true;
                     tx.invoices = [bestInvoice];
@@ -1877,7 +2311,7 @@ function runMatchingAlgorithm() {
             });
 
             if (bestInvoice) {
-                const effectiveTolerance = Math.max(maxDaysDiff, 15);
+                const effectiveTolerance = Math.max(maxDaysDiff, 35);
                 if (minDiff <= effectiveTolerance || minDiff === Infinity) {
                     tx.matched = true;
                     tx.invoices = [bestInvoice];
@@ -1919,7 +2353,9 @@ function runMatchingAlgorithm() {
             });
 
             if (bestInvoice) {
-                if (minDiff <= maxDaysDiff || minDiff === Infinity) {
+                // If unique candidate by amount, allow extended tolerance up to 35 days
+                const effectiveTolerance = (eligibleInvoices.length === 1) ? Math.max(maxDaysDiff, 35) : maxDaysDiff;
+                if (minDiff <= effectiveTolerance || minDiff === Infinity) {
                     tx.matched = true;
                     tx.invoices = [bestInvoice];
                     bestInvoice.matched = true;
@@ -4281,14 +4717,26 @@ function openViewInvoiceModal(invoice, tx = null) {
             reconElements.btnLinkInvoiceManually.setAttribute('disabled', 'true');
         } else {
             reconElements.btnLinkInvoiceManually.removeAttribute('disabled');
+            let autoSelectedTxId = null;
             targetList.forEach(t => {
                 const opt = document.createElement('option');
                 opt.value = t.id;
                 const formattedAmt = t.currency === 'NIO' ? window.formatCurrency(t.amount, 'NIO') : window.formatCurrency(t.amount, 'USD');
                 const statusPrefix = t.matched ? '(Ya vinculada) ' : '(Falta respaldo) ';
                 opt.textContent = `${statusPrefix}${t.dateStr} | ${t.description.substring(0, 30)} | ${formattedAmt}`;
+
+                // Auto-select match if unmatched and merchant or amount matches
+                if (!autoSelectedTxId && !t.matched) {
+                    if (checkBusinessNameMatch(t.description, invoice) || 
+                       (invoice.extractedAmount && Math.abs(t.amount - invoice.extractedAmount) < 0.05)) {
+                        autoSelectedTxId = t.id;
+                    }
+                }
                 reconElements.selectUnresolvedTxForLinking.appendChild(opt);
             });
+            if (autoSelectedTxId) {
+                reconElements.selectUnresolvedTxForLinking.value = autoSelectedTxId;
+            }
         }
     }
 
@@ -4693,6 +5141,46 @@ function initNewReconciliationListeners() {
         });
     }
 
+    // Helper: calculate sequential autoincrement reconciliation number per card and period
+    function updateNextSaveNumber() {
+        const month = parseInt(reconElements.selectSaveMonth ? reconElements.selectSaveMonth.value : '0', 10) || (new Date().getMonth() + 1);
+        const year = parseInt(reconElements.inputSaveYear ? reconElements.inputSaveYear.value : '0', 10) || new Date().getFullYear();
+        const activeBank = ReconState.statementBank || (window.AppState?.settings?.bank || 'BANPRO');
+        const activeCard = ReconState.statementCardDigits || (window.AppState?.settings?.reconCard || '9155');
+
+        const calculate = (saved) => {
+            const forPeriod = saved.filter(r => {
+                const rBank = (r.settings && r.settings.bank) || 'BANPRO';
+                const rCard = (r.settings && r.settings.cardDigits) || '9155';
+                return r.month === month && r.year === year && rBank === activeBank && rCard === activeCard;
+            });
+            let nextNum = 1;
+            if (forPeriod.length > 0) {
+                nextNum = Math.max(...forPeriod.map(r => r.number || 1)) + 1;
+            }
+            if (reconElements.inputSaveNumber) {
+                reconElements.inputSaveNumber.value = String(nextNum);
+            }
+        };
+
+        dbGetAllReconciliations().then(calculate).catch(e => {
+            console.error(e);
+            try {
+                const saved = JSON.parse(localStorage.getItem('fincontrol_saved_recons') || '[]');
+                calculate(saved);
+            } catch (le) {
+                if (reconElements.inputSaveNumber) reconElements.inputSaveNumber.value = '1';
+            }
+        });
+    }
+
+    if (reconElements.selectSaveMonth) {
+        reconElements.selectSaveMonth.addEventListener('change', updateNextSaveNumber);
+    }
+    if (reconElements.inputSaveYear) {
+        reconElements.inputSaveYear.addEventListener('input', updateNextSaveNumber);
+    }
+
     // 2. Open Save Modal button
     if (reconElements.btnSaveRecon) {
         reconElements.btnSaveRecon.addEventListener('click', () => {
@@ -4723,38 +5211,30 @@ function initNewReconciliationListeners() {
             if (reconElements.inputSaveYear) {
                 reconElements.inputSaveYear.value = String(defaultYear);
             }
-            
-            // Calculate next autoincrement reconciliation number for this month/year
-            dbGetAllReconciliations().then(saved => {
-                const forPeriod = saved.filter(r => r.month === defaultMonth && r.year === defaultYear);
-                let nextNum = 1;
-                if (forPeriod.length > 0) {
-                    nextNum = Math.max(...forPeriod.map(r => r.number)) + 1;
-                }
-                if (reconElements.inputSaveNumber) {
-                    reconElements.inputSaveNumber.value = String(nextNum);
-                }
-            }).catch(e => {
-                console.error(e);
-                try {
-                    const saved = JSON.parse(localStorage.getItem('fincontrol_saved_recons') || '[]');
-                    const forPeriod = saved.filter(r => r.month === defaultMonth && r.year === defaultYear);
-                    let nextNum = 1;
-                    if (forPeriod.length > 0) {
-                        nextNum = Math.max(...forPeriod.map(r => r.number)) + 1;
-                    }
-                    if (reconElements.inputSaveNumber) {
-                        reconElements.inputSaveNumber.value = String(nextNum);
-                    }
-                } catch (le) {
-                    console.error(le);
-                    if (reconElements.inputSaveNumber) {
-                        reconElements.inputSaveNumber.value = '1';
-                    }
-                }
-            });
-            
+
+            // Identify active card & bank for modal header badge
+            const activeBank = ReconState.statementBank || (window.AppState?.settings?.bank || 'BANPRO');
+            const activeCard = ReconState.statementCardDigits || (window.AppState?.settings?.reconCard || '9155');
+            let holderName = '';
+            if (typeof window.getCorporateCards === 'function') {
+                const found = window.getCorporateCards().find(c => (c.cardNumber || '').endsWith(activeCard) && c.bank === activeBank);
+                if (found && found.holderName) holderName = found.holderName;
+            }
+            if (!holderName) {
+                holderName = activeBank === 'BAC' ? 'MAESTROS - JOSE RAUDES' : 'SILVA INTERNACIONAL S.A.';
+            }
+
+            const lblCard = document.getElementById('save-recon-card-label');
+            const badgeCard = document.getElementById('save-recon-card-badge');
+            if (lblCard) lblCard.textContent = `${activeBank} - ****${activeCard}`;
+            if (badgeCard) {
+                badgeCard.textContent = holderName;
+                badgeCard.className = activeBank === 'BAC' ? 'badge badge-primary' : 'badge badge-success';
+            }
+
+            updateNextSaveNumber();
             reconElements.modalSaveRecon.classList.add('active');
+            if (window.lucide) window.lucide.createIcons();
         });
     }
 
@@ -4801,6 +5281,8 @@ function clearReconciliation() {
     ReconState.activeInvoiceToLink = null;
     ReconState.activeTxToUnlink = null;
     ReconState.loadedPeriod = null;
+    ReconState.statementBank = (window.AppState && window.AppState.settings) ? window.AppState.settings.bank : 'BANPRO';
+    ReconState.statementCardDigits = (window.AppState && window.AppState.settings) ? window.AppState.settings.reconCard : '9155';
     
     // 2. Reset DOM inputs & styling
     if (reconElements.inputPdf) reconElements.inputPdf.value = '';
@@ -4856,7 +5338,10 @@ async function saveReconciliation() {
         return;
     }
 
-    // Check if a reconciliation with this month, year, and number already exists
+    const currentBank = ReconState.statementBank || (window.AppState?.settings?.bank || 'BANPRO');
+    const currentCard = ReconState.statementCardDigits || (window.AppState?.settings?.reconCard || '9155');
+
+    // Check if a reconciliation with this month, year, and number already exists for this bank & card
     let saved = [];
     try {
         saved = await dbGetAllReconciliations();
@@ -4869,20 +5354,22 @@ async function saveReconciliation() {
         }
     }
 
-    const exists = saved.some(r => r.month === month && r.year === year && r.number === number);
-    if (exists) {
-        if (!confirm(`Ya existe una conciliación guardada para el periodo ${month}/${year} con el número ${number}. ¿Desea sobrescribirla?`)) {
+    const existingRecord = saved.find(r => {
+        const rBank = (r.settings && r.settings.bank) || 'BANPRO';
+        const rCard = (r.settings && r.settings.cardDigits) || '9155';
+        return r.month === month && r.year === year && r.number === number && rBank === currentBank && rCard === currentCard;
+    });
+
+    if (existingRecord) {
+        if (!confirm(`Ya existe la Conciliación #${number} para el periodo ${month}/${year} en la tarjeta ${currentBank} ****${currentCard}. ¿Desea sobrescribirla?`)) {
             return;
         }
-        const existingRecord = saved.find(r => r.month === month && r.year === year && r.number === number);
-        if (existingRecord) {
-            try {
-                await dbDeleteReconciliation(existingRecord.id);
-            } catch (err) {
-                console.error(err);
-            }
-            saved = saved.filter(r => r.id !== existingRecord.id);
+        try {
+            await dbDeleteReconciliation(existingRecord.id);
+        } catch (err) {
+            console.error(err);
         }
+        saved = saved.filter(r => r.id !== existingRecord.id);
     }
 
     // Strip imageSrc from invoices to avoid hitting localStorage size limits, but preserve base64 for IndexedDB
@@ -4947,7 +5434,7 @@ async function saveReconciliation() {
     // Create the reconciliation record
     syncPurchasingItemsFromDOM();
     const record = {
-        id: 'recon-' + Date.now(),
+        id: `recon_${currentBank}_${currentCard}_${year}_${month}_${number}_${Date.now()}`,
         month,
         year,
         number,
@@ -4969,9 +5456,9 @@ async function saveReconciliation() {
         })) : null,
         notes: reconElements.textareaNotes ? reconElements.textareaNotes.value : '',
         settings: {
-            toleranceDays: window.AppState.settings.toleranceDays,
-            cardDigits: window.AppState && window.AppState.settings ? window.AppState.settings.reconCard : '9155',
-            bank: window.AppState && window.AppState.settings ? window.AppState.settings.bank : 'BANPRO'
+            toleranceDays: window.AppState?.settings?.toleranceDays || 5,
+            cardDigits: currentCard,
+            bank: currentBank
         }
     };
 
@@ -5017,8 +5504,67 @@ async function renderSavedReconciliationsList() {
         }
     }
 
+    // Populate and manage filter dropdown
+    const filterSelect = document.getElementById('select-filter-history-card');
+    if (filterSelect) {
+        const currentFilter = filterSelect.value || 'ALL';
+        const cardCombos = new Map();
+
+        // 1. From default & registered corporate cards
+        if (typeof window.getCorporateCards === 'function') {
+            window.getCorporateCards().forEach(c => {
+                const card4 = (c.cardNumber || '').slice(-4);
+                if (card4) {
+                    const key = `${c.bank}_${card4}`;
+                    cardCombos.set(key, { bank: c.bank, card: card4, holder: c.holderName || '' });
+                }
+            });
+        }
+
+        // 2. From saved history records
+        saved.forEach(r => {
+            const b = (r.settings && r.settings.bank) || 'BANPRO';
+            const c = (r.settings && r.settings.cardDigits) || '9155';
+            const key = `${b}_${c}`;
+            if (!cardCombos.has(key)) {
+                cardCombos.set(key, { bank: b, card: c, holder: '' });
+            }
+        });
+
+        // Build filter select options
+        filterSelect.innerHTML = '<option value="ALL">Todas las Tarjetas Corporativas</option>';
+        cardCombos.forEach((item, key) => {
+            const opt = document.createElement('option');
+            opt.value = key;
+            opt.textContent = `${item.bank} ****${item.card}${item.holder ? ' (' + item.holder + ')' : ''}`;
+            filterSelect.appendChild(opt);
+        });
+
+        if (Array.from(filterSelect.options).some(o => o.value === currentFilter)) {
+            filterSelect.value = currentFilter;
+        }
+
+        if (!filterSelect.dataset.listenerBound) {
+            filterSelect.dataset.listenerBound = 'true';
+            filterSelect.addEventListener('change', () => {
+                renderSavedReconciliationsList();
+            });
+        }
+    }
+
+    // Apply card filter if selected
+    let displayRecords = [...saved];
+    if (filterSelect && filterSelect.value && filterSelect.value !== 'ALL') {
+        const [filterBank, filterCard] = filterSelect.value.split('_');
+        displayRecords = displayRecords.filter(r => {
+            const rBank = (r.settings && r.settings.bank) || 'BANPRO';
+            const rCard = (r.settings && r.settings.cardDigits) || '9155';
+            return rBank === filterBank && rCard === filterCard;
+        });
+    }
+
     // Sort by period (year desc, month desc, number desc)
-    saved.sort((a, b) => {
+    displayRecords.sort((a, b) => {
         if (b.year !== a.year) return b.year - a.year;
         if (b.month !== a.month) return b.month - a.month;
         return b.number - a.number;
@@ -5029,12 +5575,13 @@ async function renderSavedReconciliationsList() {
         'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
     ];
 
-    if (saved.length === 0) {
-        reconElements.tbodyHistory.innerHTML = `<tr><td colspan="7" class="text-center text-muted" style="padding: 2rem;">No hay conciliaciones guardadas en el historial.</td></tr>`;
+    if (displayRecords.length === 0) {
+        const filterMsg = (filterSelect && filterSelect.value !== 'ALL') ? ' para la tarjeta seleccionada' : ' en el historial';
+        reconElements.tbodyHistory.innerHTML = `<tr><td colspan="8" class="text-center text-muted" style="padding: 2rem;">No hay conciliaciones guardadas${filterMsg}.</td></tr>`;
         return;
     }
 
-    saved.forEach(record => {
+    displayRecords.forEach(record => {
         const tr = document.createElement('tr');
         
         // Month name
@@ -5042,6 +5589,33 @@ async function renderSavedReconciliationsList() {
         
         // Date saved
         const savedDate = new Date(record.savedAt).toLocaleString();
+
+        // Bank and card details
+        const recBank = (record.settings && record.settings.bank) || 'BANPRO';
+        const recCard = (record.settings && record.settings.cardDigits) || '9155';
+        const isBac = recBank === 'BAC';
+        const bankBadgeClass = isBac ? 'badge-primary' : 'badge-success';
+
+        let holderName = '';
+        if (typeof window.getCorporateCards === 'function') {
+            const foundCard = window.getCorporateCards().find(c => (c.cardNumber || '').endsWith(recCard) && c.bank === recBank);
+            if (foundCard && foundCard.holderName) holderName = foundCard.holderName;
+        }
+        if (!holderName) {
+            holderName = isBac ? 'MAESTROS - JOSE RAUDES' : 'SILVA INTERNACIONAL S.A.';
+        }
+
+        const cardBadge = `
+            <div style="display: flex; flex-direction: column; gap: 3px;">
+                <span class="badge ${bankBadgeClass}" style="font-size: 0.78rem; font-weight: 600; width: fit-content; display: inline-flex; align-items: center; gap: 4px;">
+                    <i data-lucide="credit-card" style="width: 12px; height: 12px;"></i>
+                    ${recBank} ****${recCard}
+                </span>
+                <small class="text-muted" style="font-size: 0.72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 190px;" title="${escapeHtml(holderName)}">
+                    ${escapeHtml(holderName)}
+                </small>
+            </div>
+        `;
 
         // Calculate stats
         const charges = record.transactions.filter(t => t.type === 'charge');
@@ -5082,6 +5656,7 @@ async function renderSavedReconciliationsList() {
 
         tr.innerHTML = `
             <td><strong>${periodStr}</strong></td>
+            <td>${cardBadge}</td>
             <td>Conciliación #${record.number}</td>
             <td><small class="text-muted">${savedDate}</small></td>
             <td class="text-right font-medium">${amountDisplay}</td>
@@ -5257,8 +5832,11 @@ async function loadSavedReconciliation(id) {
     }
 
     // Set file names in UI to indicate history session
+    const restoredBank = record.settings ? (record.settings.bank || 'BANPRO') : 'BANPRO';
+    const restoredCard = record.settings ? (record.settings.cardDigits || '9155') : '9155';
+
     if (reconElements.pdfFileInfo) {
-        reconElements.pdfFileInfo.textContent = `[Historial] Sesión cargada (${record.month}/${record.year})`;
+        reconElements.pdfFileInfo.textContent = `[Historial] ${restoredBank} ****${restoredCard} (${record.month}/${record.year})`;
         reconElements.pdfFileInfo.style.color = 'var(--text-muted)';
     }
     if (reconElements.zipFileInfo) {
@@ -5276,13 +5854,23 @@ async function loadSavedReconciliation(id) {
     if (reconElements.resultsSection) reconElements.resultsSection.classList.remove('hidden');
     if (reconElements.btnClearRecon) reconElements.btnClearRecon.classList.remove('hidden');
 
-    // Store record period metadata on State so PDF generation knows the saved period details
+    // Store record period metadata and settings on State so PDF generation knows the saved period details
     ReconState.loadedPeriod = {
         month: record.month,
         year: record.year,
-        number: record.number
+        number: record.number,
+        settings: record.settings || { bank: restoredBank, cardDigits: restoredCard }
     };
-    ReconState.statementCardDigits = record.settings ? (record.settings.cardDigits || '9155') : '9155';
+    ReconState.statementBank = restoredBank;
+    ReconState.statementCardDigits = restoredCard;
+
+    if (window.AppState && window.AppState.settings) {
+        window.AppState.settings.bank = restoredBank;
+        window.AppState.settings.reconCard = restoredCard;
+        if (typeof window.updateReconCardUI === 'function') {
+            window.updateReconCardUI();
+        }
+    }
 
     // Re-apply matching algorithm so that new rules take effect while preserving matched documents
     runMatchingAlgorithm();
@@ -5293,7 +5881,7 @@ async function loadSavedReconciliation(id) {
     // Switch to first tab in results
     switchReconTab('tab-unresolved');
     
-    window.showToast(`Conciliación #${record.number} de ${record.month}/${record.year} cargada con éxito.`, 'success');
+    window.showToast(`Conciliación #${record.number} (${restoredBank} ****${restoredCard}) de ${record.month}/${record.year} cargada con éxito.`, 'success');
 }
 
 async function deleteSavedReconciliation(id) {
@@ -5410,7 +5998,7 @@ async function generatePdfReport() {
         
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(9);
-        doc.text('AUDITORÍA DE CONCILIACIÓN Y RENDICIÓN DE CUENTAS Tarjeta corporativa ***' + cardDigits, 15, 24);
+        doc.text(`AUDITORÍA DE CONCILIACIÓN Y RENDICIÓN DE CUENTAS - ${bankName} Tarjeta corporativa ***${cardDigits}`, 15, 24);
         
         // Sub-info on header
         doc.setFontSize(8);
@@ -5443,22 +6031,36 @@ async function generatePdfReport() {
             retSummaryText = `${retValidCount} correctas | ${retInvalidCount} con alertas`;
         }
 
+        let cardHolder = '';
+        if (typeof window.getCorporateCards === 'function') {
+            const corpCards = window.getCorporateCards();
+            const found = corpCards.find(c => (c.cardNumber || '').endsWith(cardDigits) && c.bank === bankName);
+            if (found && found.holderName) cardHolder = found.holderName;
+        }
+
+        const infoTableBody = [
+            ['Periodo Contable', `${monthName} / ${year}`],
+            ['Número de Conciliación', `# ${reconNum}`],
+            ['Banco Emisor / Tarjeta', `${bankName} (Terminación **** ${cardDigits})`]
+        ];
+        if (cardHolder) {
+            infoTableBody.push(['Tarjetahabiente / Responsable', cardHolder]);
+        }
+        infoTableBody.push(
+            ['Total Cargos en Estado de Cuenta', `${totalTx} transacciones`],
+            ['Cargos Conciliados con Facturas', `${matchedTx} transacciones (${totalTx > 0 ? Math.round((matchedTx/totalTx)*100) : 0}%)`],
+            ['Cargos para Reembolso (Cargos a Empleado)', `${reimbursementTx.length} transacciones (${window.formatCurrency(sumReimbursementsNIO, 'NIO')} / ${window.formatCurrency(sumReimbursementsUSD, 'USD')})`],
+            ['Cargos sin Respaldo (Faltantes)', `${missingTx} transacciones`],
+            ['Auditoría Fiscal de Retenciones', retSummaryText]
+        );
+
         doc.autoTable({
             startY: 55,
             theme: 'striped',
             styles: { fontSize: 8.5 },
             headStyles: { fillColor: [51, 65, 85] },
             head: [['Detalle', 'Información Registrada']],
-            body: [
-                ['Periodo Contable', `${monthName} / ${year}`],
-                ['Número de Conciliación', `# ${reconNum}`],
-                ['Banco Emisor / Tarjeta', `${bankName} (Terminación **** ${cardDigits})`],
-                ['Total Cargos en Estado de Cuenta', `${totalTx} transacciones`],
-                ['Cargos Conciliados con Facturas', `${matchedTx} transacciones (${totalTx > 0 ? Math.round((matchedTx/totalTx)*100) : 0}%)`],
-                ['Cargos para Reembolso (Cargos a Empleado)', `${reimbursementTx.length} transacciones (${window.formatCurrency(sumReimbursementsNIO, 'NIO')} / ${window.formatCurrency(sumReimbursementsUSD, 'USD')})`],
-                ['Cargos sin Respaldo (Faltantes)', `${missingTx} transacciones`],
-                ['Auditoría Fiscal de Retenciones', retSummaryText]
-            ]
+            body: infoTableBody
         });
 
         let nextY = doc.previousAutoTable.finalY + 12;
@@ -6249,6 +6851,32 @@ function extractInvoiceLineItems(text, fallbackDesc, totalAmount, subtotalAmount
         return items;
     }
 
+    // 8. CREATIVE UNIVERSE LLC / SOFTWARE TALLER / GESTIOO
+    if (upperText.includes('CREATIVE UNIVERSE') || upperText.includes('SOFTWARE TALLER') || upperText.includes('AED06CE6') || upperText.includes('GESTIOO')) {
+        const cost = subtotalAmount || totalAmount || 46.00;
+        items.push({
+            code: 'S/C',
+            description: 'Software Taller (por Suscripción)',
+            quantity: 1,
+            unitCost: cost,
+            totalCost: cost
+        });
+        return items;
+    }
+
+    // 9. ATOMCHAT INC
+    if (upperText.includes('ATOMCHAT') || upperText.includes('021434')) {
+        const cost = subtotalAmount || totalAmount || 36.67;
+        items.push({
+            code: 'S/C',
+            description: 'Plan Team - AtomChat',
+            quantity: 1,
+            unitCost: cost,
+            totalCost: cost
+        });
+        return items;
+    }
+
     // ==========================================
     // --- GENERAL INTELLIGENT TABLE PARSER ---
     // ==========================================
@@ -6379,10 +7007,6 @@ function getPurchasingPendingItems() {
         const isFuel = /\bPUMA\b|\bUNO\b|\bPETRONIC\b|\bGASOLINERA\b|\bESTACION\s+(?:DE\s+)?SERVICIO\b/i.test(tx.description) || !!tx.vehiclePlate;
         if (isFuel) return;
 
-        // Check if software license / subscription (no OC required)
-        const isSoftwareLicense = /\bGESTIOO\b|\bSOFTWARE\b|\bLICENCIA\b|\bMICROSOFT\b|\bGOOGLE\b|\bSUBSCRIPCI[OÓ]N\b|\bADOBE\b|\bZOOM\b|\bCHATGPT\b|\bOPENAI\b|\bCANVA\b|\bHOSTING\b|\bDOMINIO\b/i.test(tx.description);
-        if (isSoftwareLicense) return;
-
         // Check if already has Purchase Order attached
         if (tx.purchaseOrderDoc) return;
 
@@ -6394,6 +7018,10 @@ function getPurchasingPendingItems() {
             vendorName = 'FERRETERIA ROBERTO MORALES CUADRA S.A. (ROMO)';
         } else if (vendorName.includes('SINSA')) {
             vendorName = 'SINSA (SERVICIOS INDUSTRIALES S.A.)';
+        } else if (vendorName.includes('SOFTWARE TALLER') || vendorName.includes('CREATIVE UNIVERSE') || vendorName.includes('GESTIOO')) {
+            vendorName = 'CREATIVE UNIVERSE LLC (SOFTWARE TALLER)';
+        } else if (vendorName.includes('ATOMCHAT')) {
+            vendorName = 'ATOMCHAT INC.';
         }
 
         if (validInvoices.length > 0) {
@@ -6401,24 +7029,39 @@ function getPurchasingPendingItems() {
                 if (processedDocNames.has(inv.name)) return;
                 processedDocNames.add(inv.name);
 
-                const subtotal = inv.extractedSubtotal || (tx.amount / 1.15);
+                // Determine tax rate: USD transactions or invoices without explicit IVA keywords are 0% tax (exterior / exempt)
+                const isUSD = (tx.currency === 'USD' || inv.currency === 'USD');
+                const invText = (inv.text || '');
+                const hasExplicitIVA = /15%|\bIVA\b|\bIMPUESTO\b/i.test(invText);
+                const taxRate = (isUSD || !hasExplicitIVA) ? 0.00 : 0.15;
+
+                const subtotal = inv.extractedSubtotal || (taxRate === 0 ? tx.amount : (tx.amount / (1 + taxRate)));
                 const items = extractInvoiceLineItems(inv.text, vendorName, tx.amount, subtotal);
+
+                let providerRuc = inv.providerRuc || '';
+                if (providerRuc.includes('J0310000001812')) {
+                    providerRuc = ''; // J0310000001812 is Sinsa / Silva Internacional RUC (customer), not provider!
+                }
 
                 list.push({
                     tx: tx,
                     invoice: inv,
                     vendorName: vendorName,
-                    providerRuc: inv.providerRuc || '',
+                    providerRuc: providerRuc,
                     invoiceRef: inv.invoiceRef || '',
                     dateStr: inv.extractedDateStr || tx.dateStr || '',
                     currency: tx.currency || 'NIO',
                     totalAmount: tx.amount,
                     subtotalAmount: Math.round(subtotal * 100) / 100,
+                    taxRate: taxRate,
+                    discountAmount: inv.discountAmount || 0,
                     items: items
                 });
             });
         } else {
-            const subtotal = tx.amount / 1.15;
+            const isUSD = (tx.currency === 'USD');
+            const taxRate = isUSD ? 0.00 : 0.15;
+            const subtotal = taxRate === 0 ? tx.amount : (tx.amount / (1 + taxRate));
             const dummyInv = {
                 name: `Soporte_${tx.id}`,
                 imageSrc: '',
@@ -6438,6 +7081,8 @@ function getPurchasingPendingItems() {
                 currency: tx.currency || 'NIO',
                 totalAmount: tx.amount,
                 subtotalAmount: Math.round(subtotal * 100) / 100,
+                taxRate: taxRate,
+                discountAmount: 0,
                 items: extractInvoiceLineItems('', vendorName, tx.amount, subtotal)
             });
         }
@@ -6564,9 +7209,10 @@ function renderPurchasingReportUI() {
         sumTotal += (parseFloat(item.totalAmount) || 0);
     });
 
+    const activeCurrency = (list.length > 0 && list[0].currency) ? list[0].currency : (ReconState.currentCurrency || 'NIO');
     if (countSpan) countSpan.textContent = list.length;
-    if (subtotalSpan) subtotalSpan.textContent = window.formatCurrency(sumSubtotal, 'NIO');
-    if (totalSpan) totalSpan.textContent = window.formatCurrency(sumTotal, 'NIO');
+    if (subtotalSpan) subtotalSpan.textContent = window.formatCurrency(sumSubtotal, activeCurrency);
+    if (totalSpan) totalSpan.textContent = window.formatCurrency(sumTotal, activeCurrency);
 
     if (list.length === 0) {
         container.innerHTML = `
@@ -6587,32 +7233,53 @@ function renderPurchasingReportUI() {
         const grossSubtotal = (item.items || []).reduce((acc, p) => acc + (p.totalCost || 0), 0);
         const discountVal = parseFloat(item.discountAmount) || 0;
         const netSubtotal = Math.max(0, grossSubtotal - discountVal);
-        const calculatedTotalWithIva = Math.round((netSubtotal * 1.15) * 100) / 100;
+        const taxRate = (typeof item.taxRate === 'number') ? item.taxRate : (item.currency === 'USD' ? 0 : 0.15);
+        const calculatedTax = Math.round(netSubtotal * taxRate * 100) / 100;
+        const calculatedTotal = Math.round((netSubtotal + calculatedTax) * 100) / 100;
         const paidTotal = parseFloat(item.totalAmount) || (item.tx ? item.tx.amount : 0);
-        const diffAmount = Math.abs(calculatedTotalWithIva - paidTotal);
+        const diffAmount = Math.abs(calculatedTotal - paidTotal);
         const isBalanced = diffAmount <= 0.05;
 
-        const balanceBannerHTML = isBalanced ? `
-            <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.45rem 0.85rem; border-radius: 6px; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
-                <div style="display: flex; align-items: center; gap: 6px; color: var(--color-success); font-size: 0.8rem; font-weight: 600;">
-                    <i data-lucide="check-circle-2" style="width: 15px; height: 15px;"></i>
-                    <span>Factura Cuadrada al 100% con IVA</span>
+        let balanceBannerHTML = '';
+        if (isBalanced) {
+            if (taxRate === 0) {
+                balanceBannerHTML = `
+                    <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.45rem 0.85rem; border-radius: 6px; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+                        <div style="display: flex; align-items: center; gap: 6px; color: var(--color-success); font-size: 0.8rem; font-weight: 600;">
+                            <i data-lucide="check-circle-2" style="width: 15px; height: 15px;"></i>
+                            <span>Factura Cuadrada al 100% (Sin IVA / Exterior / Exenta)</span>
+                        </div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted);">
+                            Subtotal: <strong>${window.formatCurrency(grossSubtotal, item.currency)}</strong> | IVA: <strong>${window.formatCurrency(0, item.currency)} (0%)</strong> | Total: <strong>${window.formatCurrency(paidTotal, item.currency)}</strong>
+                        </div>
+                    </div>
+                `;
+            } else {
+                balanceBannerHTML = `
+                    <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.45rem 0.85rem; border-radius: 6px; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+                        <div style="display: flex; align-items: center; gap: 6px; color: var(--color-success); font-size: 0.8rem; font-weight: 600;">
+                            <i data-lucide="check-circle-2" style="width: 15px; height: 15px;"></i>
+                            <span>Factura Cuadrada al 100% con IVA</span>
+                        </div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted);">
+                            Subtotal Bruto: <strong>${window.formatCurrency(grossSubtotal, item.currency)}</strong> | Descuento: <strong>-${window.formatCurrency(discountVal, item.currency)}</strong> | IVA (15%): <strong>${window.formatCurrency(calculatedTax, item.currency)}</strong>
+                        </div>
+                    </div>
+                `;
+            }
+        } else {
+            balanceBannerHTML = `
+                <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.35); padding: 0.55rem 0.85rem; border-radius: 6px; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+                    <div style="display: flex; align-items: center; gap: 8px; color: #fca5a5; font-size: 0.82rem; font-weight: 600;">
+                        <i data-lucide="alert-triangle" style="width: 18px; height: 18px; color: var(--color-danger); flex-shrink: 0;"></i>
+                        <span><strong>Descuadre de ${window.formatCurrency(diffAmount, item.currency)}:</strong> Los productos calculados suman <strong>${window.formatCurrency(calculatedTotal, item.currency)}</strong> vs el Total Pagado de <strong>${window.formatCurrency(paidTotal, item.currency)}</strong>.</span>
+                    </div>
+                    <button type="button" class="btn btn-secondary btn-sm btn-autobalance-invoice" data-item-idx="${idx}" style="font-size: 0.74rem; padding: 3px 9px; color: #fbbf24; border-color: rgba(251, 191, 36, 0.4); background: rgba(251, 191, 36, 0.08);" title="Ajustar el costo unitario automáticamente para cuadrar exactamente">
+                        <i data-lucide="sparkles" style="width: 12px; height: 12px;"></i> Auto-Cuadrar Factura
+                    </button>
                 </div>
-                <div style="font-size: 0.75rem; color: var(--text-muted);">
-                    Subtotal Bruto: <strong>${window.formatCurrency(grossSubtotal, item.currency)}</strong> | Descuento: <strong>-${window.formatCurrency(discountVal, item.currency)}</strong> | IVA (15%): <strong>${window.formatCurrency(netSubtotal * 0.15, item.currency)}</strong>
-                </div>
-            </div>
-        ` : `
-            <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.35); padding: 0.55rem 0.85rem; border-radius: 6px; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
-                <div style="display: flex; align-items: center; gap: 8px; color: #fca5a5; font-size: 0.82rem; font-weight: 600;">
-                    <i data-lucide="alert-triangle" style="width: 18px; height: 18px; color: var(--color-danger); flex-shrink: 0;"></i>
-                    <span><strong>Descuadre de ${window.formatCurrency(diffAmount, item.currency)}:</strong> Los productos con IVA suman <strong>${window.formatCurrency(calculatedTotalWithIva, item.currency)}</strong> vs el Total Pagado de <strong>${window.formatCurrency(paidTotal, item.currency)}</strong>.</span>
-                </div>
-                <button type="button" class="btn btn-secondary btn-sm btn-autobalance-invoice" data-item-idx="${idx}" style="font-size: 0.74rem; padding: 3px 9px; color: #fbbf24; border-color: rgba(251, 191, 36, 0.4); background: rgba(251, 191, 36, 0.08);" title="Ajustar el descuento o costo unitario automáticamente para cuadrar exactamente">
-                    <i data-lucide="sparkles" style="width: 12px; height: 12px;"></i> Auto-Cuadrar Factura
-                </button>
-            </div>
-        `;
+            `;
+        }
 
         const productRowsHTML = item.items.map((prod, pIdx) => `
             <tr data-item-idx="${idx}" data-prod-idx="${pIdx}">
@@ -6675,7 +7342,7 @@ function renderPurchasingReportUI() {
                 ${balanceBannerHTML}
 
                 <!-- Invoice General Fields Grid -->
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 0.65rem; margin-bottom: 0.85rem; background: rgba(0,0,0,0.18); padding: 0.75rem 0.85rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 0.65rem; margin-bottom: 0.85rem; background: rgba(0,0,0,0.18); padding: 0.75rem 0.85rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);">
                     <div>
                         <label style="font-size: 0.72rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 0.2rem;">RUC Proveedor:</label>
                         <input type="text" class="form-control form-control-sm input-purchasing-ruc" data-item-idx="${idx}" value="${escapeHtml(item.providerRuc)}" placeholder="Ej. J0310000001812" style="font-size: 0.8rem; font-family: monospace;">
@@ -6689,7 +7356,14 @@ function renderPurchasingReportUI() {
                         <input type="text" class="form-control form-control-sm input-purchasing-date" data-item-idx="${idx}" value="${escapeHtml(item.dateStr || '')}" placeholder="DD/MM/AAAA" style="font-size: 0.8rem;">
                     </div>
                     <div>
-                        <label style="font-size: 0.72rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 0.2rem;">Descuento (C$ / $):</label>
+                        <label style="font-size: 0.72rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 0.2rem;">Régimen IVA:</label>
+                        <select class="form-control form-control-sm select-purchasing-tax" data-item-idx="${idx}" style="font-size: 0.8rem; height: 31px;">
+                            <option value="0" ${taxRate === 0 ? 'selected' : ''}>0% IVA (Exterior / Exenta)</option>
+                            <option value="0.15" ${taxRate > 0 ? 'selected' : ''}>15% IVA (Local)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-size: 0.72rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 0.2rem;">Descuento (${item.currency === 'USD' ? '$' : 'C$'}):</label>
                         <input type="number" step="0.01" class="form-control form-control-sm input-purchasing-discount" data-item-idx="${idx}" value="${(item.discountAmount || 0).toFixed(2)}" placeholder="0.00" style="font-size: 0.8rem; color: #f43f5e; font-weight: 600;">
                     </div>
                     <div>
@@ -6743,13 +7417,26 @@ function renderPurchasingReportUI() {
 function bindPurchasingReportListeners() {
     const list = ReconState.purchasingItems || [];
 
+    // Tax rate selector change
+    document.querySelectorAll('.select-purchasing-tax').forEach(sel => {
+        sel.addEventListener('change', (e) => {
+            const idx = parseInt(e.target.dataset.itemIdx, 10);
+            if (list[idx]) {
+                list[idx].taxRate = parseFloat(e.target.value) || 0;
+                recalcItemSubtotal(idx);
+                renderPurchasingReportUI();
+            }
+        });
+    });
+
     // Auto-balance button click
     document.querySelectorAll('.btn-autobalance-invoice').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const idx = parseInt(e.currentTarget.dataset.itemIdx, 10);
             if (list[idx]) {
                 const paid = list[idx].totalAmount || (list[idx].tx ? list[idx].tx.amount : 0);
-                const targetNet = Math.round((paid / 1.15) * 100) / 100;
+                const taxRate = (typeof list[idx].taxRate === 'number') ? list[idx].taxRate : (list[idx].currency === 'USD' ? 0 : 0.15);
+                const targetNet = taxRate === 0 ? paid : (Math.round((paid / (1 + taxRate)) * 100) / 100);
                 const gross = (list[idx].items || []).reduce((acc, p) => acc + (p.totalCost || 0), 0);
                 
                 if (gross > targetNet) {
@@ -7008,9 +7695,10 @@ function recalcItemSubtotal(itemIdx) {
     const gross = list[itemIdx].items.reduce((acc, p) => acc + (p.totalCost || 0), 0);
     const discount = parseFloat(list[itemIdx].discountAmount) || 0;
     const netSubtotal = Math.max(0, gross - discount);
+    const taxRate = (typeof list[itemIdx].taxRate === 'number') ? list[itemIdx].taxRate : (list[itemIdx].currency === 'USD' ? 0 : 0.15);
     
     list[itemIdx].subtotalAmount = Math.round(netSubtotal * 100) / 100;
-    list[itemIdx].totalAmount = Math.round((netSubtotal * 1.15) * 100) / 100;
+    list[itemIdx].totalAmount = Math.round((netSubtotal * (1 + taxRate)) * 100) / 100;
 
     const subtotalInp = document.querySelector(`.input-purchasing-subtotal[data-item-idx="${itemIdx}"]`);
     if (subtotalInp) subtotalInp.value = (list[itemIdx].subtotalAmount).toFixed(2);
@@ -7039,8 +7727,9 @@ function updatePurchasingSummaryTotals() {
         sumSubtotal += (parseFloat(item.subtotalAmount) || 0);
         sumTotal += (parseFloat(item.totalAmount) || 0);
     });
-    if (subtotalSpan) subtotalSpan.textContent = window.formatCurrency(sumSubtotal, 'NIO');
-    if (totalSpan) totalSpan.textContent = window.formatCurrency(sumTotal, 'NIO');
+    const activeCurrency = (list.length > 0 && list[0].currency) ? list[0].currency : (ReconState.currentCurrency || 'NIO');
+    if (subtotalSpan) subtotalSpan.textContent = window.formatCurrency(sumSubtotal, activeCurrency);
+    if (totalSpan) totalSpan.textContent = window.formatCurrency(sumTotal, activeCurrency);
 }
 
 function syncPurchasingItemsFromDOM() {
@@ -7055,6 +7744,7 @@ function syncPurchasingItemsFromDOM() {
         const rucInp = card.querySelector('.input-purchasing-ruc');
         const invNoInp = card.querySelector('.input-purchasing-invno');
         const dateInp = card.querySelector('.input-purchasing-date');
+        const taxSel = card.querySelector('.select-purchasing-tax');
         const discountInp = card.querySelector('.input-purchasing-discount');
         const subtotalInp = card.querySelector('.input-purchasing-subtotal');
         const totalInp = card.querySelector('.input-purchasing-total');
@@ -7062,6 +7752,7 @@ function syncPurchasingItemsFromDOM() {
         if (rucInp) item.providerRuc = rucInp.value.trim().toUpperCase();
         if (invNoInp) item.invoiceRef = invNoInp.value.trim();
         if (dateInp) item.dateStr = dateInp.value.trim();
+        if (taxSel) item.taxRate = parseFloat(taxSel.value) || 0;
         if (discountInp) item.discountAmount = parseFloat(discountInp.value) || 0;
         if (subtotalInp) item.subtotalAmount = parseFloat(subtotalInp.value) || item.subtotalAmount;
         if (totalInp) item.totalAmount = parseFloat(totalInp.value) || item.totalAmount;
@@ -7127,94 +7818,108 @@ async function generatePurchasingPDFReport() {
 
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF('p', 'mm', 'a4');
-    const cardDigits = ReconState.statementCardDigits || '1180';
+    const cardDigits = ReconState.statementCardDigits || (window.AppState && window.AppState.settings ? window.AppState.settings.reconCard : '7526');
     
-    // Header bar
-    doc.setFillColor(15, 23, 42); // slate-900
-    doc.rect(0, 0, 210, 30, 'F');
+    // Corporate Header Bar (SILVA INTERNACIONAL S.A. Green: #008040 / RGB: 0, 128, 64)
+    doc.setFillColor(0, 128, 64);
+    doc.rect(0, 0, 210, 32, 'F');
 
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.text('SILVA INTERNACIONAL S.A. - DEPARTAMENTO DE ADQUISICIONES', 15, 11);
+    doc.setFontSize(13);
+    doc.text('SILVA INTERNACIONAL S.A. - DEPARTAMENTO DE ADQUISICIONES', 15, 12);
 
     doc.setFontSize(9.5);
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(245, 158, 11);
-    doc.text('SOLICITUD DE ÓRDENES DE COMPRA (GENERACIÓN DE OC)', 15, 18);
+    doc.setTextColor(220, 252, 231);
+    doc.text('SOLICITUD DE ÓRDENES DE COMPRA (GENERACIÓN DE OC)', 15, 19);
 
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(203, 213, 225);
-    doc.text(`Tarjeta Corporativa: ***${cardDigits} | Fecha Solicitud: ${new Date().toLocaleDateString()} | Facturas Pendientes: ${list.length}`, 15, 25);
+    doc.setTextColor(240, 253, 244);
+    doc.text(`Tarjeta Corporativa: ***${cardDigits} | Fecha Solicitud: ${new Date().toLocaleDateString()} | Facturas Pendientes: ${list.length}`, 15, 26);
 
-    let nextY = 36;
+    let nextY = 38;
 
     // Resumen Ejecutivo
-    doc.setTextColor(15, 23, 42);
+    doc.setTextColor(0, 128, 64);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9.5);
+    doc.setFontSize(10);
     doc.text('1. RESUMEN DE FACTURAS PAGADAS PENDIENTES DE OC', 15, nextY);
-    nextY += 3.5;
+    doc.setDrawColor(0, 128, 64);
+    doc.setLineWidth(0.3);
+    doc.line(15, nextY + 1.5, 195, nextY + 1.5);
+    nextY += 4.5;
 
-    const summaryRows = list.map((item, idx) => [
-        idx + 1,
-        item.dateStr,
-        item.vendorName,
-        item.providerRuc || 'Sin RUC',
-        item.invoiceRef ? `F.${item.invoiceRef}` : 'Sin N°',
-        window.formatCurrency(item.subtotalAmount, item.currency),
-        (item.discountAmount > 0 ? `-${window.formatCurrency(item.discountAmount, item.currency)}` : 'C$0.00'),
-        window.formatCurrency(item.totalAmount, item.currency)
-    ]);
+    const summaryRows = list.map((item, idx) => {
+        const ivaAmt = item.totalAmount - item.subtotalAmount;
+        const isExempt = (item.taxRate === 0 || Math.abs(ivaAmt) <= 0.05);
+        const ivaStr = isExempt 
+            ? (item.currency === 'USD' ? '$0.00 (Exento)' : 'C$0.00 (Exento)')
+            : window.formatCurrency(ivaAmt, item.currency);
+
+        return [
+            idx + 1,
+            item.dateStr,
+            item.vendorName,
+            item.providerRuc || 'Sin RUC',
+            item.invoiceRef ? `F.${item.invoiceRef}` : 'Sin N°',
+            window.formatCurrency(item.subtotalAmount, item.currency),
+            ivaStr,
+            window.formatCurrency(item.totalAmount, item.currency)
+        ];
+    });
 
     doc.autoTable({
         startY: nextY,
-        head: [['#', 'Fecha', 'Proveedor', 'RUC Proveedor', 'N° Factura', 'Subtotal (Sin IVA)', 'Descuento', 'Total Pagado']],
+        head: [['#', 'Fecha', 'Proveedor', 'RUC Proveedor', 'N° Factura', 'Subtotal (Sin IVA)', 'IVA / Impuesto', 'Total Pagado']],
         body: summaryRows,
         theme: 'grid',
-        headStyles: { fillColor: [245, 158, 11], textColor: [0, 0, 0], fontSize: 7.5, fontStyle: 'bold' },
-        styles: { fontSize: 7, cellPadding: 1.8 },
+        headStyles: { fillColor: [0, 128, 64], textColor: [255, 255, 255], fontSize: 7.5, fontStyle: 'bold' },
+        styles: { fontSize: 7, cellPadding: 2 },
         columnStyles: {
             0: { cellWidth: 7, halign: 'center' },
             1: { cellWidth: 17 },
             2: { cellWidth: 50 },
             3: { cellWidth: 26 },
-            4: { cellWidth: 16 },
+            4: { cellWidth: 18 },
             5: { cellWidth: 22, halign: 'right' },
-            6: { cellWidth: 18, halign: 'right' },
+            6: { cellWidth: 22, halign: 'right' },
             7: { cellWidth: 24, halign: 'right' }
         }
     });
 
-    nextY = doc.lastAutoTable.finalY + 7;
+    nextY = doc.lastAutoTable.finalY + 8;
 
     // Section 2: Detalle de Productos por Proveedor
-    if (nextY > 240) {
+    if (nextY > 230) {
         doc.addPage();
-        nextY = 18;
+        nextY = 20;
     }
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9.5);
-    doc.setTextColor(15, 23, 42);
+    doc.setFontSize(10);
+    doc.setTextColor(0, 128, 64);
     doc.text('2. DETALLE DE LÍNEAS / PRODUCTOS PARA REGISTRO DE OC', 15, nextY);
-    nextY += 4;
+    doc.setDrawColor(0, 128, 64);
+    doc.setLineWidth(0.3);
+    doc.line(15, nextY + 1.5, 195, nextY + 1.5);
+    nextY += 5;
 
     for (let i = 0; i < list.length; i++) {
         const item = list[i];
-        if (nextY > 235) {
+        if (nextY > 230) {
             doc.addPage();
-            nextY = 18;
+            nextY = 20;
         }
 
         // Subheader for item
-        doc.setFillColor(241, 245, 249);
+        doc.setFillColor(240, 248, 240);
         doc.rect(15, nextY, 180, 6.5, 'F');
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(8);
-        doc.setTextColor(30, 41, 59);
-        doc.text(`#${i + 1}: ${item.vendorName} | RUC: ${item.providerRuc || '---'} | Factura: ${item.invoiceRef || '---'} (${item.dateStr})`, 17, nextY + 4.5);
+        doc.setTextColor(0, 100, 50);
+        doc.text(`#${i + 1}: ${item.vendorName} | RUC: ${item.providerRuc || 'Sin RUC'} | Factura: ${item.invoiceRef || '---'} (${item.dateStr})`, 17, nextY + 4.5);
         nextY += 6.5;
 
         const productRows = item.items.map(p => [
@@ -7231,7 +7936,7 @@ async function generatePurchasingPDFReport() {
             body: productRows,
             theme: 'plain',
             headStyles: { fillColor: [226, 232, 240], textColor: [51, 65, 85], fontSize: 7, fontStyle: 'bold' },
-            styles: { fontSize: 6.8, cellPadding: 1.4 },
+            styles: { fontSize: 6.8, cellPadding: 1.6 },
             columnStyles: {
                 0: { cellWidth: 24 },
                 1: { cellWidth: 86 },
@@ -7241,28 +7946,53 @@ async function generatePurchasingPDFReport() {
             }
         });
 
-        nextY = doc.lastAutoTable.finalY + 4;
+        nextY = doc.lastAutoTable.finalY + 5;
     }
 
-    // Section 3: Anexo de Imágenes de Facturas de Respaldo (1 Factura por Página en Alta Resolución)
+    // Signatures block for Purchasing Report
+    if (nextY > 245) {
+        doc.addPage();
+        nextY = 30;
+    } else {
+        nextY += 8;
+    }
+
+    doc.setDrawColor(180, 180, 180);
+    doc.setLineWidth(0.3);
+    doc.line(15, nextY + 12, 85, nextY + 12);
+    doc.line(125, nextY + 12, 195, nextY + 12);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(51, 65, 85);
+    doc.text('Elaborado por (Adquisiciones / Compras)', 15, nextY + 17);
+    doc.text('Revisado y Aprobado (Contabilidad / Gerencia)', 125, nextY + 17);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(100, 116, 139);
+    doc.text('Firma y Fecha', 15, nextY + 21);
+    doc.text('Firma y Fecha', 125, nextY + 21);
+
+    // Section: Anexos de Imágenes de Facturas de Respaldo (1 Factura por Página en Alta Resolución)
     for (let i = 0; i < list.length; i++) {
         const item = list[i];
         const inv = item.invoice;
 
         doc.addPage();
         
-        // Header band
-        doc.setFillColor(15, 23, 42); // slate-900
+        // Corporate Header band
+        doc.setFillColor(0, 128, 64);
         doc.rect(0, 0, 210, 22, 'F');
         
         doc.setTextColor(255, 255, 255);
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9.5);
-        doc.text(`3. ANEXO DE FACTURA #${i + 1} DE ${list.length} - ${item.vendorName}`, 15, 9);
+        doc.setFontSize(10);
+        doc.text(`ANEXO DE FACTURA #${i + 1} DE ${list.length} - ${item.vendorName}`, 15, 9);
         
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(8);
-        doc.setTextColor(245, 158, 11);
+        doc.setTextColor(220, 252, 231);
         doc.text(`RUC: ${item.providerRuc || 'Sin RUC'} | Factura N°: ${item.invoiceRef || 'Sin N°'} | Fecha: ${item.dateStr} | Monto Total: ${window.formatCurrency(item.totalAmount, item.currency)} (Sin IVA: ${window.formatCurrency(item.subtotalAmount, item.currency)})`, 15, 16);
 
         // Document Canvas / Image Container Box
@@ -7335,7 +8065,7 @@ function exportPurchasingExcel() {
         return;
     }
 
-    const cardDigits = ReconState.statementCardDigits || '1180';
+    const cardDigits = ReconState.statementCardDigits || (window.AppState && window.AppState.settings ? window.AppState.settings.reconCard : '7526');
     const requestDate = new Date().toLocaleDateString();
     const wb = XLSX.utils.book_new();
 
@@ -7371,6 +8101,7 @@ function exportPurchasingExcel() {
 
     list.forEach((item, idx) => {
         const discount = parseFloat(item.discountAmount) || 0;
+        const taxRate = (typeof item.taxRate === 'number') ? item.taxRate : (item.currency === 'USD' ? 0 : 0.15);
         
         // Group Header Banner (Merged A to I)
         const headerTitle = `FACTURA #${idx + 1}: ${item.vendorName.toUpperCase()}   |   RUC: ${item.providerRuc || 'Sin RUC'}   |   N° FACTURA: ${item.invoiceRef ? `F.${item.invoiceRef}` : 'Sin N°'}   |   FECHA: ${item.dateStr}`;
@@ -7386,8 +8117,8 @@ function exportPurchasingExcel() {
             "Costo Unit. (Sin IVA)",
             "Subtotal Línea (Sin IVA)",
             "Descuento",
-            "IVA (15%)",
-            "Total Línea (Con IVA)",
+            "IVA / Impuesto",
+            "Total Línea",
             "Moneda"
         ]);
         curRow++;
@@ -7399,6 +8130,8 @@ function exportPurchasingExcel() {
             const unit = prod.unitCost || 0;
             const subtotal = prod.totalCost || (qty * unit);
             invGrossSubtotal += subtotal;
+            const lineTax = Math.round(subtotal * taxRate * 100) / 100;
+            const lineTotal = Math.round((subtotal + lineTax) * 100) / 100;
 
             aoaDetails.push([
                 prod.code || 'S/C',
@@ -7407,8 +8140,8 @@ function exportPurchasingExcel() {
                 parseFloat(unit.toFixed(2)),
                 parseFloat(subtotal.toFixed(2)),
                 0.00,
-                parseFloat((subtotal * 0.15).toFixed(2)),
-                parseFloat((subtotal * 1.15).toFixed(2)),
+                lineTax,
+                lineTotal,
                 item.currency || 'NIO'
             ]);
             curRow++;
@@ -7416,12 +8149,13 @@ function exportPurchasingExcel() {
 
         // Invoice Totals Row
         const invNetSubtotal = Math.max(0, invGrossSubtotal - discount);
-        const invIva = Math.round(invNetSubtotal * 0.15 * 100) / 100;
+        const invIva = Math.round(invNetSubtotal * taxRate * 100) / 100;
         const invTotal = parseFloat((item.totalAmount || (invNetSubtotal + invIva)).toFixed(2));
+        const currSym = item.currency === 'USD' ? '$' : 'C$';
 
         aoaDetails.push([
             `TOTAL FACTURA #${idx + 1}`,
-            `Subtotal Bruto: C$ ${invGrossSubtotal.toFixed(2)}  |  Descuento: -C$ ${discount.toFixed(2)}  |  Subtotal Neto: C$ ${invNetSubtotal.toFixed(2)}`,
+            `Subtotal Bruto: ${currSym} ${invGrossSubtotal.toFixed(2)}  |  Descuento: -${currSym} ${discount.toFixed(2)}  |  Subtotal Neto: ${currSym} ${invNetSubtotal.toFixed(2)}`,
             "",
             "",
             parseFloat(invGrossSubtotal.toFixed(2)),
@@ -7482,7 +8216,7 @@ function exportPurchasingExcel() {
         "Subtotal Bruto (Sin IVA)",
         "Descuento",
         "Subtotal Neto (Sin IVA)",
-        "Total Pagado (Con IVA)",
+        "Total Pagado",
         "Moneda",
         "Referencia Bancaria"
     ]);
@@ -7497,7 +8231,8 @@ function exportPurchasingExcel() {
         const gross = (item.items || []).reduce((acc, p) => acc + (p.totalCost || 0), 0) || item.subtotalAmount;
         const discount = parseFloat(item.discountAmount) || 0;
         const net = parseFloat((item.subtotalAmount || (gross - discount)).toFixed(2));
-        const total = parseFloat((item.totalAmount || (net * 1.15)).toFixed(2));
+        const taxRate = (typeof item.taxRate === 'number') ? item.taxRate : (item.currency === 'USD' ? 0 : 0.15);
+        const total = parseFloat((item.totalAmount || (net * (1 + taxRate))).toFixed(2));
 
         grandGross += gross;
         grandDiscount += discount;
@@ -7569,19 +8304,20 @@ function exportPurchasingExcel() {
         "Costo Unitario (Sin IVA)",
         "Subtotal Línea (Sin IVA)",
         "Descuento",
-        "IVA (15%)",
-        "Total Línea (Con IVA)",
+        "IVA / Impuesto",
+        "Total Línea",
         "Moneda",
         "Referencia Bancaria"
     ]);
 
     let rowCounter = 1;
     list.forEach((item, idx) => {
+        const taxRate = (typeof item.taxRate === 'number') ? item.taxRate : (item.currency === 'USD' ? 0 : 0.15);
         (item.items || []).forEach(prod => {
             const qty = prod.quantity || 1;
             const unit = prod.unitCost || 0;
             const subtotal = prod.totalCost || (qty * unit);
-            const iva = Math.round(subtotal * 0.15 * 100) / 100;
+            const iva = Math.round(subtotal * taxRate * 100) / 100;
             const totalWithIva = Math.round((subtotal + iva) * 100) / 100;
 
             aoaFlat.push([
