@@ -93,22 +93,48 @@
 
             <!-- View 1: Rendición de Cuentas -->
             <section id="view-reconciliation" class="content-view hidden">
+                <!-- Corporate Card Selection Bar -->
+                <div class="card" style="margin-bottom: 1.25rem; padding: 0.85rem 1.25rem; background: var(--bg-card); border-left: 4px solid var(--color-primary);">
+                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+                        <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                            <label for="select-recon-active-card" style="font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0;">
+                                <i data-lucide="credit-card" class="icon-primary" style="width: 18px; height: 18px;"></i>
+                                <span>Tarjeta Corporativa a Conciliar:</span>
+                            </label>
+                            <select id="select-recon-active-card" class="form-control" style="width: auto; min-width: 290px; font-weight: 500; font-size: 0.85rem; padding: 0.35rem 0.75rem;">
+                                <!-- Options populated dynamically from Corporate Cards -->
+                            </select>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                            <span id="badge-recon-card-status" class="badge badge-success" style="font-size: 0.75rem; padding: 0.3rem 0.65rem;">
+                                <i data-lucide="check-circle" style="width: 12px; height: 12px; display: inline-block; vertical-align: middle;"></i> Tarjeta Activa
+                            </span>
+                            <button type="button" id="btn-edit-active-corp-card" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.6rem;" title="Editar datos o número de esta tarjeta">
+                                <i data-lucide="edit-3" style="width: 13px; height: 13px;"></i> Editar Tarjeta
+                            </button>
+                            <button type="button" id="btn-quick-manage-corp-cards" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.6rem;" title="Gestionar todas las tarjetas en Inventario">
+                                <i data-lucide="settings" style="width: 13px; height: 13px;"></i> Inventario
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- File Upload Cards -->
                 <div class="grid-2">
                     <div class="card upload-card" id="card-statement">
                         <div class="card-header">
                             <div class="card-title">
                                 <i data-lucide="file-text" class="icon-primary"></i>
-                                <span>1. Estado de Cuenta (PDF)</span>
+                                <span>1. Estado de Cuenta (PDF Banpro / HTML BAC)</span>
                             </div>
-                            <span class="card-subtitle">Tarjeta corporativa BANPRO 9155</span>
+                            <span class="card-subtitle" id="recon-card-subtitle">Tarjeta corporativa BANPRO 9155</span>
                         </div>
                         <div class="card-body">
                             <div class="drop-zone" id="drop-pdf">
                                 <i data-lucide="upload-cloud" class="drop-icon"></i>
-                                <p class="drop-text">Arrastra el archivo PDF del estado de cuenta o haz clic aquí</p>
+                                <p class="drop-text">Arrastra el archivo PDF (Banpro) o HTML (BAC) del estado de cuenta o haz clic aquí</p>
                                 <span class="file-info" id="pdf-file-info">Ningún archivo seleccionado</span>
-                                <input type="file" id="input-pdf" accept=".pdf" class="hidden-input">
+                                <input type="file" id="input-pdf" accept=".pdf,.html,.htm,text/html" class="hidden-input">
                             </div>
                         </div>
                     </div>
@@ -432,12 +458,22 @@
 
                 <!-- Saved Reconciliations History -->
                 <div class="card" id="card-history-section" style="margin-top: 2rem;">
-                    <div class="card-header">
-                        <div class="card-title">
-                            <i data-lucide="history" class="icon-primary"></i>
-                            <span>Historial de Conciliaciones Guardadas</span>
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+                        <div>
+                            <div class="card-title">
+                                <i data-lucide="history" class="icon-primary"></i>
+                                <span>Historial de Conciliaciones Guardadas</span>
+                            </div>
+                            <span class="card-subtitle" style="margin-left: 2rem; margin-top: 0.25rem;">Consulta o recupera conciliaciones archivadas anteriormente en este navegador.</span>
                         </div>
-                        <span class="card-subtitle" style="margin-left: 2rem; margin-top: 0.25rem;">Consulta o recupera conciliaciones archivadas anteriormente en este navegador.</span>
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <label for="select-filter-history-card" style="font-size: 0.85rem; font-weight: 500; color: var(--text-muted); white-space: nowrap;">
+                                <i data-lucide="filter" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle;"></i> Filtrar:
+                            </label>
+                            <select id="select-filter-history-card" class="form-control" style="width: auto; min-width: 220px; font-size: 0.85rem; padding: 0.35rem 0.65rem;">
+                                <option value="ALL">Todas las Tarjetas Corporativas</option>
+                            </select>
+                        </div>
                     </div>
                     <div class="card-body">
                         <div class="table-card">
@@ -445,6 +481,7 @@
                                 <thead>
                                     <tr>
                                         <th>Periodo (Mes/Año)</th>
+                                        <th>Banco / Tarjeta</th>
                                         <th>No. Conciliación</th>
                                         <th>Fecha Guardado</th>
                                         <th class="text-right">Monto Total Cargos</th>
@@ -682,8 +719,11 @@
                                     <button type="button" class="btn btn-success btn-sm" id="btn-export-inv-pdf">
                                         <i data-lucide="file-text"></i> Reporte PDF
                                     </button>
-                                    <button type="button" class="btn btn-secondary btn-sm" id="btn-export-inv-csv">
+                                    <button type="button" class="btn btn-secondary btn-sm" id="btn-export-inv-csv" title="Exportar inventario de tarjetas en formato Excel (.xlsx)">
                                         <i data-lucide="download"></i> Exportar Excel
+                                    </button>
+                                    <button type="button" class="btn btn-secondary btn-sm" id="btn-export-inv-vehicles" title="Descargar unidades vehiculares sin tarjetas en Excel (.xlsx)">
+                                        <i data-lucide="truck"></i> Unidades Vehiculares (.xlsx)
                                     </button>
                                     <button type="button" class="btn btn-danger btn-sm" id="btn-lock-inv" title="Bloquear sesión de inventario">
                                         <i data-lucide="lock"></i> Bloquear
@@ -1663,6 +1703,18 @@
             </div>
             <div class="card-body">
                 <form id="form-save-recon">
+                    <!-- Tarjeta Destino Identificada -->
+                    <div style="background-color: var(--color-surface-hover, #f8fafc); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+                        <div style="display: flex; align-items: center; gap: 0.65rem;">
+                            <i data-lucide="credit-card" class="icon-primary" style="width: 22px; height: 22px;"></i>
+                            <div>
+                                <span style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; display: block; letter-spacing: 0.5px;">Tarjeta a Guardar</span>
+                                <strong id="save-recon-card-label" style="font-size: 0.95rem; color: var(--text-main);">BANPRO - ****9155</strong>
+                            </div>
+                        </div>
+                        <span id="save-recon-card-badge" class="badge badge-success" style="font-size: 0.75rem; white-space: nowrap;">SILVA INTERNACIONAL</span>
+                    </div>
+
                     <div class="form-group" style="margin-bottom: 1.25rem;">
                         <label for="select-save-month" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Mes:</label>
                         <select id="select-save-month" class="form-control" required style="width: 100%;">
@@ -1687,6 +1739,7 @@
                     <div class="form-group" style="margin-bottom: 1.5rem;">
                         <label for="input-save-number" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Número de Conciliación:</label>
                         <input type="number" id="input-save-number" class="form-control" required min="1" step="1" style="width: 100%;">
+                        <small class="text-muted" style="font-size: 0.75rem; display: block; margin-top: 0.25rem;">Numeración secuencial independiente por tarjeta en el periodo seleccionado.</small>
                     </div>
                     <div class="modal-footer text-right">
                         <button type="button" class="btn btn-secondary" id="btn-cancel-modal-save-recon">Cancelar</button>
@@ -2204,9 +2257,9 @@
     <script src="datos_costeo.js?v=1.0"></script>
     <script src="datos_reporte_contable.js?v=1.0" onerror="console.log('datos_reporte_contable.js aún no generado');"></script>
     <script src="datos_mayo_2026.js?v=1.0"></script>
-    <script src="accounting.js?v=3.1"></script>
-    <script src="app.js?v=2.0"></script>
-    <script src="reconciliation.js?v=2.2"></script>
-    <script src="availability.js?v=2.0"></script>
+    <script src="accounting.js?v=3.2"></script>
+    <script src="app.js?v=2.4"></script>
+    <script src="reconciliation.js?v=2.6"></script>
+    <script src="availability.js?v=2.1"></script>
 </body>
 </html>

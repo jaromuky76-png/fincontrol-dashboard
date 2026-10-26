@@ -71,6 +71,11 @@ function loadSettings() {
             const parsed = JSON.parse(savedSettings);
             // Merge defaults with parsed values to prevent missing properties (like reconCard or bank)
             AppState.settings = { ...AppState.settings, ...parsed };
+            // Auto-transition replaced BAC plastic 3939 to new active plastic 7526
+            if (AppState.settings.bank === 'BAC' && AppState.settings.reconCard === '3939') {
+                AppState.settings.reconCard = '7526';
+                saveSettingsToStorage();
+            }
         } catch (e) {
             console.error('Error loading settings from localStorage, using defaults', e);
         }
@@ -82,6 +87,98 @@ function loadSettings() {
 function saveSettingsToStorage() {
     localStorage.setItem('fincontrol_settings', JSON.stringify(AppState.settings));
 }
+window.saveSettingsToStorage = saveSettingsToStorage;
+
+// Default known Corporate Cards (differentiated from fuel cards)
+const DEFAULT_CORP_CARDS = [
+    {
+        id: 'card_banpro_9155',
+        type: 'corporativa',
+        bank: 'BANPRO',
+        cardNumber: '9155',
+        holderName: 'SILVA INTERNACIONAL S.A.',
+        holderCode: 'EMP-001',
+        status: 'Activa',
+        notes: 'Tarjeta corporativa Banpro Nicaragua'
+    },
+    {
+        id: 'card_bac_7526',
+        type: 'corporativa',
+        bank: 'BAC',
+        cardNumber: '7526',
+        holderName: 'MAESTROS-JOSE RAUDES-SILVA INTERNACIONAL S.A.',
+        holderCode: 'MAESTROS',
+        status: 'Activa',
+        notes: 'Nuevo plástico corporativo BAC Mastercard Business (reemplaza a 3939)'
+    },
+    {
+        id: 'card_bac_3939',
+        type: 'corporativa',
+        bank: 'BAC',
+        cardNumber: '3939',
+        holderName: 'MAESTROS-JOSE RAUDES-SILVA INTERNACIONAL S.A.',
+        holderCode: 'MAESTROS',
+        status: 'En Reemplazo',
+        notes: 'Plástico anterior cancelado/pagado en su totalidad. Reemplazado por 7526.'
+    }
+];
+window.DEFAULT_CORP_CARDS = DEFAULT_CORP_CARDS;
+
+window.getCorporateCards = function() {
+    let list = (CardInventoryState.cards || []).filter(c => c.type === 'corporativa');
+    const combined = [...list];
+    DEFAULT_CORP_CARDS.forEach(defCard => {
+        if (!combined.some(c => (c.cardNumber || '').endsWith(defCard.cardNumber) && c.bank === defCard.bank)) {
+            combined.push(defCard);
+        }
+    });
+    return combined;
+};
+
+window.updateReconCardUI = function() {
+    const cardStatementSub = document.getElementById('recon-card-subtitle') || document.querySelector('#card-statement .card-subtitle');
+    const select = document.getElementById('select-recon-active-card');
+    const statusBadge = document.getElementById('badge-recon-card-status');
+    const bank = AppState.settings.bank || 'BANPRO';
+    const card = AppState.settings.reconCard || '9155';
+    
+    // Find cardholder and status if available
+    let holderName = '';
+    let cardStatus = 'Activa';
+    if (typeof window.getCorporateCards === 'function') {
+        const corpCards = window.getCorporateCards();
+        const found = corpCards.find(c => (c.cardNumber || '').endsWith(card) && c.bank === bank);
+        if (found) {
+            if (found.holderName) holderName = found.holderName;
+            if (found.status) cardStatus = found.status;
+        }
+    }
+    
+    if (cardStatementSub) {
+        cardStatementSub.textContent = `Tarjeta corporativa ${bank} ${card}${holderName ? ' (' + holderName + ')' : ''}`;
+    }
+    
+    if (statusBadge) {
+        if (cardStatus === 'Activa') {
+            statusBadge.className = 'badge badge-success';
+            statusBadge.innerHTML = `<i data-lucide="check-circle" style="width: 12px; height: 12px; display: inline-block; vertical-align: middle;"></i> Tarjeta Activa`;
+        } else {
+            statusBadge.className = 'badge badge-warning';
+            statusBadge.innerHTML = `<i data-lucide="alert-circle" style="width: 12px; height: 12px; display: inline-block; vertical-align: middle;"></i> ${cardStatus}`;
+        }
+        if (window.lucide) lucide.createIcons();
+    }
+    
+    if (select) {
+        const val = `${bank}_${card}`;
+        if (Array.from(select.options).some(o => o.value === val)) {
+            select.value = val;
+        }
+    }
+    
+    if (elements.inputReconCard) elements.inputReconCard.value = card;
+    if (elements.selectBank) elements.selectBank.value = bank;
+};
 
 function initSettingsView() {
     // Populate form fields
@@ -93,10 +190,7 @@ function initSettingsView() {
     renderConfigCardBadges();
 
     // Update reconciliation subtitles/cards dynamically on load
-    const cardStatementSub = document.querySelector('#card-statement .card-subtitle');
-    if (cardStatementSub) {
-        cardStatementSub.textContent = `Tarjeta corporativa ${AppState.settings.bank} ${AppState.settings.reconCard}`;
-    }
+    window.updateReconCardUI();
 
     // Bind cards form submit
     elements.formSettingsCards.addEventListener('submit', (e) => {
@@ -144,10 +238,7 @@ function initSettingsView() {
         saveSettingsToStorage();
 
         // Update reconciliation subtitles/cards dynamically
-        const cardStatementSub = document.querySelector('#card-statement .card-subtitle');
-        if (cardStatementSub) {
-            cardStatementSub.textContent = `Tarjeta corporativa ${bankVal} ${reconCardVal}`;
-        }
+        window.updateReconCardUI();
         
         showToast('Preferencias de rendición guardadas correctamente', 'success');
     });
@@ -515,11 +606,26 @@ function initCardInventoryModule() {
         saveInventorySecurity('1234', '¿Palabra Clave o Código Maestro?', 'admin');
     }
 
-    // Preload cards silently in background for availability cross-referencing
+    // Preload cards silently in background for availability cross-referencing & corporate cards
     if (window.dbGetAllInventoryCards) {
-        window.dbGetAllInventoryCards().then(list => {
+        window.dbGetAllInventoryCards().then(async list => {
             if (list && Array.isArray(list)) {
                 CardInventoryState.cards = list;
+                // Ensure default corporate cards (Banpro 9155 and BAC 3939) are seeded
+                for (const defCard of DEFAULT_CORP_CARDS) {
+                    if (!CardInventoryState.cards.some(c => (c.cardNumber || '').endsWith(defCard.cardNumber) && c.bank === defCard.bank)) {
+                        CardInventoryState.cards.push(defCard);
+                        if (window.dbSaveInventoryCard) {
+                            try { await window.dbSaveInventoryCard(defCard); } catch(e) {}
+                        }
+                    }
+                }
+                if (typeof window.refreshReconCardSelector === 'function') {
+                    window.refreshReconCardSelector();
+                }
+                if (typeof window.updateReconCardUI === 'function') {
+                    window.updateReconCardUI();
+                }
             }
         }).catch(err => console.warn('Could not preload inventory cards:', err));
     }
@@ -741,8 +847,19 @@ function initCardInventoryModule() {
                     await window.dbSaveInventoryCard(cardObj);
                 }
                 modalCard.classList.remove('active');
+                if (type === 'corporativa') {
+                    const card4 = cardNumber.slice(-4);
+                    // Sync active settings if bank matches or card matches
+                    if (AppState.settings.reconCard === card4 || AppState.settings.bank === bank) {
+                        AppState.settings.reconCard = card4;
+                        AppState.settings.bank = bank;
+                        saveSettingsToStorage();
+                    }
+                }
                 showToast('Tarjeta de inventario guardada correctamente', 'success');
                 loadAndRenderCardInventory();
+                if (typeof window.refreshReconCardSelector === 'function') window.refreshReconCardSelector();
+                if (typeof window.updateReconCardUI === 'function') window.updateReconCardUI();
             } catch (err) {
                 console.error('Error saving inventory card:', err);
                 showToast('Error al guardar la tarjeta en la base de datos', 'error');
@@ -763,7 +880,10 @@ function initCardInventoryModule() {
         generateCardInventoryPdfReport();
     });
     document.getElementById('btn-export-inv-csv')?.addEventListener('click', () => {
-        exportCardInventoryCSV();
+        exportCardInventoryExcel();
+    });
+    document.getElementById('btn-export-inv-vehicles')?.addEventListener('click', () => {
+        exportVehicleUnitsExcel();
     });
 }
 
@@ -966,6 +1086,7 @@ function renderInventoryTable() {
                     await window.dbDeleteInventoryCard(cardId);
                     showToast('Tarjeta eliminada correctamente', 'info');
                     loadAndRenderCardInventory();
+                    if (typeof window.refreshReconCardSelector === 'function') window.refreshReconCardSelector();
                 }
             }
         });
@@ -1042,6 +1163,7 @@ function openCardModal(cardToEdit) {
 
     modalCard.classList.add('active');
 }
+window.openCardModal = openCardModal;
 
 // Generate Corporate Inventory PDF Report
 function generateCardInventoryPdfReport() {
@@ -1267,40 +1389,315 @@ function generateCardInventoryPdfReport() {
     showToast('Reporte PDF de inventario generado con éxito', 'success');
 }
 
-// Export CSV for Excel
-function exportCardInventoryCSV() {
-    if (CardInventoryState.cards.length === 0) {
+// Determine corporate business unit based on assignment rules
+function getCardBusinessUnit(card) {
+    if (!card) return 'MAESTROS';
+    const name = (card.holderName || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const code = (card.holderCode || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const notes = (card.notes || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const combined = `${name} ${code} ${notes}`;
+
+    // Regla 1 explícita: Suge Suazo -> MAESTROS
+    if (name.includes('suge') || name.includes('suazo')) {
+        return 'MAESTROS';
+    }
+    // Regla 2 explícita: Willmer Osorio -> CENTRO DE SERVICIOS
+    if (name.includes('willmer') || name.includes('wilmer') || name.includes('osorio')) {
+        return 'CENTRO DE SERVICIOS';
+    }
+
+    // Reglas complementarias por coincidencia de palabras clave
+    if (combined.includes('centro de servicio') || combined.includes('centro servicio') || combined.includes('taller') || combined.includes('cs ')) {
+        return 'CENTRO DE SERVICIOS';
+    }
+    if (combined.includes('maestro') || combined.includes('maestros')) {
+        return 'MAESTROS';
+    }
+
+    // Código de trabajo o departamento secundario
+    if (card.holderCode && card.holderCode.trim()) {
+        const uCode = card.holderCode.trim().toUpperCase();
+        if (uCode.includes('CS') || uCode.includes('SERVICIO')) return 'CENTRO DE SERVICIOS';
+        if (uCode.includes('MAE') || uCode.includes('MAESTRO')) return 'MAESTROS';
+        return uCode;
+    }
+
+    return 'MAESTROS';
+}
+window.getCardBusinessUnit = getCardBusinessUnit;
+
+// Export Card Inventory in standard Excel (.xlsx) format
+function exportCardInventoryExcel() {
+    if (!CardInventoryState.cards || CardInventoryState.cards.length === 0) {
         showToast('No hay tarjetas registradas para exportar', 'warning');
         return;
     }
 
-    let csvContent = '\uFEFF'; // UTF-8 BOM
-    csvContent += 'ID,Tipo,Tarjeta,Banco,Responsable,Codigo_Empleado,Placa_Vehiculo,Numero_Circulacion,Estado,Observaciones,Ultima_Actualizacion\n';
+    if (typeof XLSX === 'undefined') {
+        showToast('Biblioteca SheetJS (XLSX) no disponible', 'error');
+        return;
+    }
 
-    CardInventoryState.cards.forEach(c => {
-        const row = [
-            `"${c.id}"`,
-            `"${c.type}"`,
-            `"${c.cardNumber}"`,
-            `"${c.bank}"`,
-            `"${(c.holderName || '').replace(/"/g, '""')}"`,
-            `"${c.holderCode || ''}"`,
-            `"${c.vehiclePlate || ''}"`,
-            `"${c.vehicleReg || ''}"`,
-            `"${c.status || ''}"`,
-            `"${(c.notes || '').replace(/"/g, '""')}"`,
-            `"${c.updatedAt || ''}"`
-        ];
-        csvContent += row.join(',') + '\n';
+    const wb = XLSX.utils.book_new();
+    const curDateStr = new Date().toISOString().slice(0, 10);
+    const curDateFormatted = new Date().toLocaleDateString('es-NI', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+    const totalCards = CardInventoryState.cards.length;
+    const fuelCards = CardInventoryState.cards.filter(c => c.type === 'combustible').length;
+    const corpCards = CardInventoryState.cards.filter(c => c.type === 'corporativa').length;
+    const activeCards = CardInventoryState.cards.filter(c => (c.status || 'Activa') === 'Activa').length;
+
+    // --- SHEET 1: INVENTARIO GENERAL ---
+    const aoa = [];
+    const merges = [];
+    let curRow = 0;
+
+    // Row 1: Header Corporate Title
+    aoa.push(["SILVA INTERNACIONAL S.A."]);
+    merges.push({ s: { r: curRow, c: 0 }, e: { r: curRow, c: 10 } });
+    curRow++;
+
+    // Row 2: Subtitle
+    aoa.push(["INVENTARIO GENERAL DE TARJETAS Y ASIGNACIÓN DE VEHÍCULOS"]);
+    merges.push({ s: { r: curRow, c: 0 }, e: { r: curRow, c: 10 } });
+    curRow++;
+
+    // Row 3: Metadata
+    aoa.push([`Fecha de Emisión: ${curDateFormatted}  |  Total Tarjetas: ${totalCards}  |  Combustible: ${fuelCards}  |  Corporativas: ${corpCards}  |  Activas: ${activeCards}`]);
+    merges.push({ s: { r: curRow, c: 0 }, e: { r: curRow, c: 10 } });
+    curRow++;
+
+    // Row 4: Blank
+    aoa.push([]);
+    curRow++;
+
+    // Row 5: Column Headers
+    aoa.push([
+        "#",
+        "Tipo de Tarjeta",
+        "N° Tarjeta",
+        "Banco Emisor",
+        "Responsable / Asignado",
+        "Unidad de Negocio / Cód.",
+        "Placa Vehículo",
+        "N° Circulación",
+        "Estado",
+        "Observaciones",
+        "Última Actualización"
+    ]);
+    curRow++;
+
+    // Data rows
+    CardInventoryState.cards.forEach((c, idx) => {
+        const typeLabel = c.type === 'combustible' ? 'Combustible' : 'Corporativa';
+        const cardDisplay = c.cardNumber ? String(c.cardNumber) : '';
+        const bankDisplay = c.bank || 'BANPRO';
+        const holderDisplay = c.holderName || 'Sin Asignar';
+        const buOrCode = getCardBusinessUnit(c) + (c.holderCode ? ` (${c.holderCode})` : '');
+        const plateDisplay = c.type === 'combustible' ? (c.vehiclePlate || 'Sin Placa') : 'N/A';
+        const regDisplay = c.type === 'combustible' ? (c.vehicleReg || 'Sin Registro') : 'N/A';
+        const statusDisplay = c.status || 'Activa';
+        const notesDisplay = c.notes || '-';
+        const updatedDisplay = c.updatedAt ? c.updatedAt.slice(0, 19).replace('T', ' ') : curDateStr;
+
+        aoa.push([
+            idx + 1,
+            typeLabel,
+            cardDisplay,
+            bankDisplay,
+            holderDisplay,
+            buOrCode,
+            plateDisplay,
+            regDisplay,
+            statusDisplay,
+            notesDisplay,
+            updatedDisplay
+        ]);
+        curRow++;
     });
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `Inventario_Tarjetas_${new Date().toISOString().slice(0,10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    showToast('Exportación a Excel (CSV) completada', 'success');
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!merges'] = merges;
+    ws['!cols'] = [
+        { wch: 6 },  // A: #
+        { wch: 18 }, // B: Tipo
+        { wch: 22 }, // C: N° Tarjeta
+        { wch: 16 }, // D: Banco
+        { wch: 32 }, // E: Responsable
+        { wch: 26 }, // F: Unidad / Cód
+        { wch: 18 }, // G: Placa
+        { wch: 18 }, // H: Circulación
+        { wch: 14 }, // I: Estado
+        { wch: 35 }, // J: Observaciones
+        { wch: 22 }  // K: Actualización
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, "Inventario de Tarjetas");
+
+    // --- SHEET 2: RESUMEN EJECUTIVO ---
+    const aoaSummary = [];
+    const mergesSummary = [];
+    let sRow = 0;
+
+    aoaSummary.push(["SILVA INTERNACIONAL S.A."]);
+    mergesSummary.push({ s: { r: sRow, c: 0 }, e: { r: sRow, c: 3 } });
+    sRow++;
+
+    aoaSummary.push(["RESUMEN DE CONTROL DE TARJETAS"]);
+    mergesSummary.push({ s: { r: sRow, c: 0 }, e: { r: sRow, c: 3 } });
+    sRow++;
+
+    aoaSummary.push([]);
+    sRow++;
+
+    aoaSummary.push(["Categoría / Métrica", "Cantidad", "% del Total", "Notas"]);
+    sRow++;
+
+    aoaSummary.push(["Total Tarjetas Registradas", totalCards, "100%", ""]);
+    sRow++;
+    aoaSummary.push(["Tarjetas de Combustible (Flota)", fuelCards, totalCards ? `${((fuelCards / totalCards) * 100).toFixed(1)}%` : "0%", "Asignadas a vehículos"]);
+    sRow++;
+    aoaSummary.push(["Tarjetas Corporativas (Compras)", corpCards, totalCards ? `${((corpCards / totalCards) * 100).toFixed(1)}%` : "0%", "Uso administrativo / compras"]);
+    sRow++;
+    aoaSummary.push(["Tarjetas Activas", activeCards, totalCards ? `${((activeCards / totalCards) * 100).toFixed(1)}%` : "0%", "Operando normalmente"]);
+    sRow++;
+    aoaSummary.push(["Tarjetas Bloqueadas / En Reemplazo", totalCards - activeCards, totalCards ? `${(((totalCards - activeCards) / totalCards) * 100).toFixed(1)}%` : "0%", "Requieren gestión"]);
+    sRow++;
+
+    const wsSummary = XLSX.utils.aoa_to_sheet(aoaSummary);
+    wsSummary['!merges'] = mergesSummary;
+    wsSummary['!cols'] = [
+        { wch: 38 },
+        { wch: 14 },
+        { wch: 16 },
+        { wch: 30 }
+    ];
+    XLSX.utils.book_append_sheet(wb, wsSummary, "Resumen Ejecutivo");
+
+    const fileName = `Inventario_Tarjetas_Silva_Internacional_${curDateStr}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+    showToast('Inventario de Tarjetas exportado en Excel (.xlsx) con éxito', 'success');
 }
+window.exportCardInventoryExcel = exportCardInventoryExcel;
+
+// Export Vehicle Units Only (Without cards or banking data)
+function exportVehicleUnitsExcel() {
+    if (!CardInventoryState.cards || CardInventoryState.cards.length === 0) {
+        showToast('No hay registros de inventario disponibles', 'warning');
+        return;
+    }
+
+    if (typeof XLSX === 'undefined') {
+        showToast('Biblioteca SheetJS (XLSX) no disponible', 'error');
+        return;
+    }
+
+    // Filter vehicle units: combustible cards or cards with plate information
+    const vehicleList = CardInventoryState.cards.filter(c => {
+        if (c.type === 'combustible') return true;
+        const plate = (c.vehiclePlate || '').trim().toUpperCase();
+        return plate !== '' && plate !== 'N/A' && plate !== 'N/D' && plate !== 'NO APLICA';
+    });
+
+    if (vehicleList.length === 0) {
+        showToast('No se encontraron unidades vehiculares registradas en el inventario', 'warning');
+        return;
+    }
+
+    // Deduplicate vehicle units to avoid repeating same plate & driver from replaced cards
+    const uniqueVehicles = [];
+    const seenKey = new Set();
+    vehicleList.forEach(c => {
+        const plateNorm = (c.vehiclePlate || '').trim().toUpperCase();
+        const holderNorm = (c.holderName || '').trim().toUpperCase();
+        if (plateNorm && !['N/A', 'N/D', 'NO APLICA'].includes(plateNorm)) {
+            const key = `${plateNorm}_${holderNorm}`;
+            if (seenKey.has(key)) return;
+            seenKey.add(key);
+        }
+        uniqueVehicles.push(c);
+    });
+
+    const wb = XLSX.utils.book_new();
+    const curDateStr = new Date().toISOString().slice(0, 10);
+    const curDateFormatted = new Date().toLocaleDateString('es-NI', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+    const countMaestros = uniqueVehicles.filter(v => getCardBusinessUnit(v) === 'MAESTROS').length;
+    const countCS = uniqueVehicles.filter(v => getCardBusinessUnit(v) === 'CENTRO DE SERVICIOS').length;
+
+    // --- SHEET 1: UNIDADES VEHICULARES (SIN TARJETAS) ---
+    const aoa = [];
+    const merges = [];
+    let curRow = 0;
+
+    // Row 1: Header Corporate Title
+    aoa.push(["SILVA INTERNACIONAL S.A."]);
+    merges.push({ s: { r: curRow, c: 0 }, e: { r: curRow, c: 5 } });
+    curRow++;
+
+    // Row 2: Subtitle
+    aoa.push(["CONTROL Y ASIGNACIÓN DE UNIDADES VEHICULARES"]);
+    merges.push({ s: { r: curRow, c: 0 }, e: { r: curRow, c: 5 } });
+    curRow++;
+
+    // Row 3: Metadata
+    aoa.push([`Fecha de Emisión: ${curDateFormatted}  |  Total Unidades: ${uniqueVehicles.length}  |  MAESTROS: ${countMaestros}  |  CENTRO DE SERVICIOS: ${countCS}`]);
+    merges.push({ s: { r: curRow, c: 0 }, e: { r: curRow, c: 5 } });
+    curRow++;
+
+    // Row 4: Blank
+    aoa.push([]);
+    curRow++;
+
+    // Row 5: Column Headers (Strictly no card numbers or banking data)
+    aoa.push([
+        "#",
+        "Responsable",
+        "Unidad de Negocio",
+        "Placa del Vehículo",
+        "N° Circulación",
+        "Observaciones"
+    ]);
+    curRow++;
+
+    // Data rows
+    uniqueVehicles.forEach((v, idx) => {
+        const respName = v.holderName ? v.holderName.trim() : 'Sin Asignar';
+        const businessUnit = getCardBusinessUnit(v);
+        const plate = v.vehiclePlate ? v.vehiclePlate.trim().toUpperCase() : 'Pendiente / Sin Placa';
+        const regNum = v.vehicleReg ? v.vehicleReg.trim().toUpperCase() : 'N/D';
+        const notes = v.notes ? v.notes.trim() : '-';
+
+        aoa.push([
+            idx + 1,
+            respName,
+            businessUnit,
+            plate,
+            regNum,
+            notes
+        ]);
+        curRow++;
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!merges'] = merges;
+    ws['!cols'] = [
+        { wch: 6 },  // A: #
+        { wch: 35 }, // B: Responsable
+        { wch: 25 }, // C: Unidad de Negocio
+        { wch: 20 }, // D: Placa del Vehículo
+        { wch: 20 }, // E: N° Circulación
+        { wch: 35 }  // F: Observaciones
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, "Unidades Vehiculares");
+
+    const fileName = `Unidades_Vehiculares_Silva_Internacional_${curDateStr}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+    showToast(`Archivo de unidades vehiculares generado con éxito (${uniqueVehicles.length} unidades)`, 'success');
+}
+window.exportVehicleUnitsExcel = exportVehicleUnitsExcel;
+
+// Backward-compatibility fallback
+function exportCardInventoryCSV() {
+    exportCardInventoryExcel();
+}
+window.exportCardInventoryCSV = exportCardInventoryCSV;

@@ -3,7 +3,7 @@ window.REPORTE_CONTABLE_DATA = {
   "mes": "SEPTIEMBRE",
   "mesNum": 9,
   "anio": 2026,
-  "generadoEn": "2026-09-30 11:14:28",
+  "generadoEn": "2026-09-30 14:07:06",
   "maestrosInterno": {
     "registros": [
       {
@@ -466,6 +466,15 @@ window.REPORTE_CONTABLE_DATA = {
         "montoNIO": 0.0
       },
       {
+        "rms": "151580971",
+        "desc": "",
+        "ceco": "SINSA EL PERIODISTA",
+        "ot": "7346",
+        "horas": 1.5,
+        "montoUSD": 0.0,
+        "montoNIO": 0.0
+      },
+      {
         "rms": "101025397",
         "desc": "",
         "ceco": "SINSA CARRETERA MASAYA",
@@ -594,7 +603,7 @@ window.REPORTE_CONTABLE_DATA = {
     ],
     "totalUSD": 208.95,
     "totalNIO": 7651.75,
-    "totalHoras": 85.0,
+    "totalHoras": 86.5,
     "cecoBreakdown": {
       "OutBound": {
         "totalUSD": 0.0,
@@ -618,7 +627,7 @@ window.REPORTE_CONTABLE_DATA = {
       },
       "SINSA EL PERIODISTA": {
         "totalUSD": 0.0,
-        "count": 2
+        "count": 3
       },
       "CECO GENERAL": {
         "totalUSD": 0.0,
@@ -1421,8 +1430,8 @@ window.REPORTE_CONTABLE_DATA = {
         "ceco": "SINSA CARRETERA MASAYA",
         "ot": "57949",
         "horas": 1.0,
-        "montoUSD": 39.95,
-        "montoNIO": 1462.84,
+        "montoUSD": 92.14,
+        "montoNIO": 3374.05,
         "fechaFin": "",
         "estadoOT": "ESTADO DE OT SEPTIEMBRE 26"
       },
@@ -1643,7 +1652,7 @@ window.REPORTE_CONTABLE_DATA = {
         "horas": 1.0,
         "montoUSD": 0.0,
         "montoNIO": 0.0,
-        "fechaFin": "",
+        "fechaFin": "30/09/2026",
         "estadoOT": "ESTADO DE OT SEPTIEMBRE 26"
       },
       {
@@ -2006,7 +2015,7 @@ window.REPORTE_CONTABLE_DATA = {
         "horas": 1.0,
         "montoUSD": 0.0,
         "montoNIO": 0.0,
-        "fechaFin": "",
+        "fechaFin": "30/09/2026",
         "estadoOT": "ESTADO DE OT SEPTIEMBRE 26"
       },
       {
@@ -2232,7 +2241,7 @@ window.REPORTE_CONTABLE_DATA = {
       {
         "rms": "134796307",
         "desc": "DIAGNÓSTICO CALENTADOR COMBUSTIÓN EXTERNA GAS LICUADO DE PASO CS",
-        "ceco": "CENTRO DE SERVICIOS",
+        "ceco": "SINSA RADIAL SANTO DOMINGO",
         "ot": "58045",
         "horas": 1.5,
         "montoUSD": 0.0,
@@ -2336,7 +2345,7 @@ window.REPORTE_CONTABLE_DATA = {
         "horas": 1.0,
         "montoUSD": 0.0,
         "montoNIO": 0.0,
-        "fechaFin": "",
+        "fechaFin": "30/09/2026",
         "estadoOT": "ESTADO DE OT SEPTIEMBRE 26"
       },
       {
@@ -2353,7 +2362,7 @@ window.REPORTE_CONTABLE_DATA = {
       {
         "rms": "136245365",
         "desc": "SERVICIOS MISCELANEOS",
-        "ceco": "CENTRO DE SERVICIOS",
+        "ceco": "SINSA HOME CENTER",
         "ot": "58057",
         "horas": 1.0,
         "montoUSD": 27.85,
@@ -2364,7 +2373,7 @@ window.REPORTE_CONTABLE_DATA = {
       {
         "rms": "136245365",
         "desc": "SERVICIOS MISCELANEOS",
-        "ceco": "CENTRO DE SERVICIOS",
+        "ceco": "DIVISION INDUSTRIA",
         "ot": "58058",
         "horas": 1.0,
         "montoUSD": 20.21,
@@ -2375,7 +2384,7 @@ window.REPORTE_CONTABLE_DATA = {
       {
         "rms": "136245365",
         "desc": "SERVICIOS MISCELANEOS",
-        "ceco": "CENTRO DE SERVICIOS",
+        "ceco": "SINSA LEON",
         "ot": "58059",
         "horas": 1.0,
         "montoUSD": 36.73,
@@ -2397,12 +2406,12 @@ window.REPORTE_CONTABLE_DATA = {
       {
         "rms": "134797271",
         "desc": "MANTENIMIENTO CORRECTIVO SOPLADORA MOTOR 2 TIEMPOS  CS",
-        "ceco": "CENTRO DE SERVICIOS",
+        "ceco": "SINSA CARRETERA MASAYA",
         "ot": "58061",
         "horas": 3.5,
         "montoUSD": 0.0,
         "montoNIO": 0.0,
-        "fechaFin": "",
+        "fechaFin": "30/09/2026",
         "estadoOT": "ESTADO DE OT SEPTIEMBRE 26"
       },
       {
@@ -2468,7 +2477,7 @@ window.REPORTE_CONTABLE_DATA = {
         "horas": 1.0,
         "montoUSD": 0.0,
         "montoNIO": 0.0,
-        "fechaFin": "",
+        "fechaFin": "30/09/2026",
         "estadoOT": "ESTADO DE OT SEPTIEMBRE 26"
       },
       {
@@ -2479,7 +2488,7 @@ window.REPORTE_CONTABLE_DATA = {
         "horas": 1.0,
         "montoUSD": 0.0,
         "montoNIO": 0.0,
-        "fechaFin": "",
+        "fechaFin": "30/09/2026",
         "estadoOT": "ESTADO DE OT SEPTIEMBRE 26"
       },
       {
@@ -2622,7 +2631,7 @@ window.REPORTE_CONTABLE_DATA = {
         "horas": 1.0,
         "montoUSD": 0.0,
         "montoNIO": 0.0,
-        "fechaFin": "",
+        "fechaFin": "30/09/2026",
         "estadoOT": "ESTADO DE OT SEPTIEMBRE 26"
       },
       {
@@ -2633,7 +2642,7 @@ window.REPORTE_CONTABLE_DATA = {
         "horas": 1.0,
         "montoUSD": 0.0,
         "montoNIO": 0.0,
-        "fechaFin": "",
+        "fechaFin": "30/09/2026",
         "estadoOT": "ESTADO DE OT SEPTIEMBRE 26"
       },
       {
@@ -2666,7 +2675,7 @@ window.REPORTE_CONTABLE_DATA = {
         "horas": 1.0,
         "montoUSD": 36.73,
         "montoNIO": 1345.11,
-        "fechaFin": "",
+        "fechaFin": "30/09/2026",
         "estadoOT": "ESTADO DE OT SEPTIEMBRE 26"
       },
       {
@@ -2798,7 +2807,7 @@ window.REPORTE_CONTABLE_DATA = {
         "horas": 1.0,
         "montoUSD": 20.21,
         "montoNIO": 740.0,
-        "fechaFin": "",
+        "fechaFin": "30/09/2026",
         "estadoOT": "ESTADO DE OT SEPTIEMBRE 26"
       },
       {
@@ -2831,7 +2840,7 @@ window.REPORTE_CONTABLE_DATA = {
         "horas": 1.0,
         "montoUSD": 0.0,
         "montoNIO": 0.0,
-        "fechaFin": "",
+        "fechaFin": "30/09/2026",
         "estadoOT": "ESTADO DE OT SEPTIEMBRE 26"
       },
       {
@@ -3583,13 +3592,13 @@ window.REPORTE_CONTABLE_DATA = {
         "estadoOT": "ESTADO DE OT AGOSTO 26"
       }
     ],
-    "totalUSD": 3409.26,
-    "totalNIO": 124847.1,
+    "totalUSD": 3461.45,
+    "totalNIO": 126758.3,
     "totalHoras": 377.0,
     "cecoBreakdown": {
       "SINSA CARRETERA MASAYA": {
-        "totalUSD": 677.1,
-        "count": 49
+        "totalUSD": 729.2900000000001,
+        "count": 50
       },
       "SINSA CHINANDEGA": {
         "totalUSD": 50.66,
@@ -3597,11 +3606,11 @@ window.REPORTE_CONTABLE_DATA = {
       },
       "SINSA RADIAL SANTO DOMINGO": {
         "totalUSD": 119.08000000000001,
-        "count": 9
+        "count": 10
       },
       "SINSA HOME CENTER": {
-        "totalUSD": 124.12,
-        "count": 17
+        "totalUSD": 151.97,
+        "count": 18
       },
       "CANAL VENTA DIGITAL": {
         "totalUSD": 278.69,
@@ -3620,8 +3629,8 @@ window.REPORTE_CONTABLE_DATA = {
         "count": 2
       },
       "DIVISION INDUSTRIA": {
-        "totalUSD": 695.8200000000002,
-        "count": 28
+        "totalUSD": 716.0300000000002,
+        "count": 29
       },
       "SINSA MASAYA": {
         "totalUSD": 67.65,
@@ -3664,8 +3673,8 @@ window.REPORTE_CONTABLE_DATA = {
         "count": 4
       },
       "CENTRO DE SERVICIOS": {
-        "totalUSD": 105.0,
-        "count": 10
+        "totalUSD": 20.21,
+        "count": 5
       },
       "CENTRO DE SERVICIO": {
         "totalUSD": 13.93,
@@ -3680,8 +3689,8 @@ window.REPORTE_CONTABLE_DATA = {
         "count": 1
       },
       "SINSA LEON": {
-        "totalUSD": 16.93,
-        "count": 1
+        "totalUSD": 53.66,
+        "count": 2
       },
       "OPERACIONES FERRETERIA": {
         "totalUSD": 0.0,
